@@ -1,1 +1,75 @@
-abc
+
+// Dynamic "Others" inputs for Sandbox (only)
+type OtherField = { id: string; value: string };
+
+const [sandboxOthers, setSandboxOthers] = useState<OtherField[]>([]);
+
+const addSandboxOther = () =>
+  setSandboxOthers(prev => [...prev, { id: String(Date.now() + Math.random()), value: "" }]);
+
+const updateSandboxOther = (id: string, value: string) =>
+  setSandboxOthers(prev => prev.map(f => (f.id === id ? { ...f, value } : f)));
+
+const removeSandboxOther = (id: string) =>
+  setSandboxOthers(prev => prev.filter(f => f.id !== id));
+
+
+
+<AccordionDetails>
+  <Grid container spacing={2}>
+    {/* 1) render all normal Sandbox fields exactly as before */}
+    {details.map((item, index) => (
+      <Grid item xs={12} sm={6} md={3} key={`${category}-${index}`}>
+        <TextField
+          fullWidth
+          label={item.label}
+          value={item.value}
+          onChange={(e) => handleInputChange(category, index, e.target.value)}
+          helperText={`Example: ${item.helperText}`}
+        />
+      </Grid>
+    ))}
+
+    {/* 2) ONLY for Sandbox: show the + button at the END */}
+    {category === "Sandbox" && (
+      <>
+        <Grid item xs={12}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+            <IconButton
+              size="small"
+              aria-label="add-others"
+              onClick={addSandboxOther}
+            >
+              <AddCircleOutlineIcon fontSize="small" />
+            </IconButton>
+            <Typography variant="body2">Add “Others”</Typography>
+          </Box>
+        </Grid>
+
+        {/* 3) Render all dynamic Others inputs (each removable) */}
+        {sandboxOthers.map((field, i) => (
+          <Grid item xs={12} sm={6} md={3} key={field.id}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+              <Typography variant="caption">Others {i + 1}</Typography>
+              <IconButton
+                size="small"
+                aria-label={`remove-others-${i}`}
+                onClick={() => removeSandboxOther(field.id)}
+              >
+                <RemoveCircleOutlineIcon fontSize="small" />
+              </IconButton>
+            </Box>
+            <TextField
+              fullWidth
+              placeholder="Enter AD Group"
+              value={field.value}
+              onChange={(e) => updateSandboxOther(field.id, e.target.value)}
+              // reuse persona helperText if you like; otherwise leave blank
+              // helperText="Example: DTCA_CTO_CSP_GCP_<APPID>_<ENV>_RN_DATA_ENG@WellsFargo.com"
+            />
+          </Grid>
+        ))}
+      </>
+    )}
+  </Grid>
+</AccordionDetails>
