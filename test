@@ -73,3 +73,12 @@ const removeSandboxOther = (id: string) =>
     )}
   </Grid>
 </AccordionDetails>
+
+payload.artRequest = {
+  ...payload.artRequest,
+  sandbox: {
+    ...payload.artRequest?.sandbox,
+    personaAdGroupOthers: sandboxOthers.map(o => o.value),
+  },
+};
+
