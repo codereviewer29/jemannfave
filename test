@@ -1,4 +1,4 @@
-// jest.config.js  (replace the whole file with this content or merge mapper block)
+// jest.config.js
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
@@ -7,58 +7,76 @@ module.exports = {
   transform: {
     '^.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform',
   },
-  // keep MUI transform rule if you need it
-  transformIgnorePatterns: ['node_modules/(?!(@mui)/)'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(@mui)/)', // keep your MUI allowlist
+  ],
   testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
-  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
+  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*', '<rootDir>/__mocks__/**', '<rootDir>/src/test-utils/**'],
+  collectCoverage: true,
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/__mocks__/**',
+    '!src/test-utils/**'
+  ],
   moduleNameMapper: {
-    // ✅ map qf/react-library to our mock file so Jest can resolve it
-    '^qf/react-library$': '<rootDir>/src/__mocks__/qf/react-library.ts',
-    // optional: stub styles if any test imports css/scss
+    // ✅ Map BOTH aliases you’ve shown across projects
+    '^@wf/react-library$': '<rootDir>/__mocks__/@wf/react-library.ts',
+    '^qf/react-library$': '<rootDir>/__mocks__/qf/react-library.ts',
+
+    // ✅ Map ANY import that ends with services/useApiService
+    '^(.*?/)?services/useApiService$': '<rootDir>/__mocks__/services/useApiService.ts',
+
+    // (optional) stub styles
     '\\.(css|scss)$': '<rootDir>/src/test-utils/styleStub.js',
   },
 };
 
-// src/setupTests.ts  (update: remove qf/react-library inline mock; keep/expand others)
+// __mocks__/@wf/react-library.ts
+import React from 'react';
+
+export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
+export const useConfig = () => ({ apiBaseUrl: 'http://localhost' });
+
+// Some tests import Template from @wf/react-library; provide a simple stub.
+export const Template = ({ config }: any) => (
+  <div data-testid="template-mock">
+    <div data-testid="header">{config?.header?.appName ?? 'App'}</div>
+  </div>
+);
+
+// __mocks__/qf/react-library.ts
+export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
+export const useConfig = () => ({ apiBaseUrl: 'http://localhost' });
+
+// __mocks__/services/useApiService.ts
+const useApiService = () => ({
+  makeRequest: jest.fn() // override per-test with (useApiService() as any).makeRequest.mockResolvedValue(...)
+});
+export default useApiService;
+
+// src/setupTests.ts
 import '@testing-library/jest-dom';
 
-// keep your console noise filter
-const originalError = console.error;
-console.error = (...args: any[]) => {
-  if (/Warning: ReactDOMTestUtils\.act is deprecated/.test(args[0])) return;
-  originalError.call(console, ...args);
-};
+beforeAll(() => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+});
+afterAll(() => {
+  jest.restoreAllMocks();
+});
 
-// ❌ REMOVE the inline jest.mock('qf/react-library', …)
-// We now resolve it via moduleNameMapper to our manual mock file.
+// Do NOT inline-mock '@wf/react-library' or 'qf/react-library' or useApiService here.
+// The moduleNameMapper now redirects them to __mocks__ files globally.
 
-// ✅ Keep mocking your API hook so tests don’t call real code.
-// Use multiple paths to catch deep relative imports.
-const apiHookFactory = () => ({ __esModule: true, default: () => ({ makeRequest: jest.fn() }) });
-
-jest.mock('./services/useApiService', apiHookFactory);
-jest.mock('../services/useApiService', apiHookFactory);
-jest.mock('../../services/useApiService', apiHookFactory);
-jest.mock('../../../services/useApiService', apiHookFactory);
-jest.mock('../../../../services/useApiService', apiHookFactory);
-
-// Browser shims often needed by MUI / file inputs
+// Browser shims commonly needed by MUI
+// @ts-ignore
 if (!window.matchMedia) {
-  // @ts-ignore
   window.matchMedia = () => ({
-    matches: false,
-    media: '',
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    matches: false, media: '', onchange: null,
+    addListener: () => {}, removeListener: () => {},
+    addEventListener: () => {}, removeEventListener: () => {},
     dispatchEvent: () => false,
   });
 }
 // @ts-ignore
 if (!window.scrollTo) window.scrollTo = () => {};
-// @ts-ignore
-if (!global.URL) global.URL = {} as any;
-// @ts-ignore
-if (!global.URL.createObjectURL) global.URL.createObjectURL = () => 'blob:mock';
