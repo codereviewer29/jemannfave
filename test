@@ -1,4 +1,4 @@
-// File: src/intake-components/__tests__/gcpSaferoomIntakeForm.test.tsx
+// File: src/intake-components/__tests__/CDPIntakeForm.test.tsx
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -8,15 +8,14 @@ jest.mock('react-router-dom', () => ({
   Form: ({ children, onSubmit }: { children: React.ReactNode; onSubmit?: React.FormEventHandler }) => (
     <form onSubmit={onSubmit}>{children}</form>
   ),
-  Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
 }));
 
 jest.mock('@mui/material', () => {
   const actual = jest.requireActual('@mui/material');
   return {
     ...actual,
-    Tooltip: ({ title, placement, children }: { title: React.ReactNode; placement?: string; children: React.ReactElement }) => (
-      <div data-testid={`tooltip-${placement || 'top'}`}>
+    Tooltip: ({ title, children }: { title: React.ReactNode; children: React.ReactElement }) => (
+      <div>
         <div data-testid="tooltip-title">{title}</div>
         {children}
       </div>
@@ -36,14 +35,13 @@ jest.mock('../FormContext', () => ({
   }),
 }));
 
-import GCPSaferoomIntakeForm from '../gcpSaferoomIntakeForm';
+import CDPIntakeForm from '../cdpIntakeForm';
 
 function resetCtx(overrides?: Partial<any>) {
   ctxFormData = {
-    gcpSaferoomIntakeId: 0,
-    SubmitForSABinding: '',
-    SubmitForADBinding: '',
-    ...(overrides ?? {}),
+    cdpDetails: { versionCDPRequired: '' },
+    safeRoomDetails: { dataLoadRequired: '' },
+    ...overrides,
   };
   ctxSetReadOnly = jest.fn();
   ctxSetFormData = jest.fn((next: any) => {
@@ -51,81 +49,78 @@ function resetCtx(overrides?: Partial<any>) {
   });
 }
 
-function renderForm(opts?: { intakeFormTrackingId?: number }) {
-  const id = opts?.intakeFormTrackingId ?? 0;
-  return render(<GCPSaferoomIntakeForm intakeFormTrackingId={id} />);
-}
+const renderForm = (validationErrors: Record<string, boolean> = {}) =>
+  render(<CDPIntakeForm validationErrors={validationErrors} />);
 
-describe('GCPSaferoomIntakeForm', () => {
+describe('CDPIntakeForm', () => {
   beforeEach(() => resetCtx());
 
-  test('renders labels, buttons, and inline help', () => {
+  test('renders headings, label, and tooltip text', () => {
     renderForm();
 
-    expect(screen.getByLabelText(/Request Number for SA Role Binding/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Request Number for AD Group Role Binding/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
+    expect(screen.getByText(/CDP Overview/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Which version of CDP is required/i)).toBeInTheDocument();
 
-    const tip = screen.getAllByTestId('tooltip-title')[0];
-    expect(within(tip).getByText(/Submit sharepoint intakes for SA role binding/i)).toBeInTheDocument();
+    const tip = screen.getByTestId('tooltip-title');
+    expect(within(tip).getByText(/Cloud Storage: Both inbound/i)).toBeInTheDocument();
+    expect(within(tip).getByText(/Big Query: Inbound data/i)).toBeInTheDocument();
   });
 
-  test('saving with empty fields shows validation error alert', async () => {
+  test('useEffect sets versionCDPRequired for Cloud Storage', () => {
+    resetCtx({ safeRoomDetails: { dataLoadRequired: 'Cloud Storage' } });
+    renderForm();
+    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
+  });
+
+  test('useEffect sets versionCDPRequired for Big Query', () => {
+    resetCtx({ safeRoomDetails: { dataLoadRequired: 'Big Query' } });
+    renderForm();
+    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version');
+  });
+
+  test('handleChange updates context', async () => {
     const user = userEvent.setup();
     renderForm();
 
-    await user.click(screen.getByRole('button', { name: /^Save$/i }));
+    const select = screen.getByRole('combobox', { name: /Which version of CDP is required/i });
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: /File to BQ version/i }));
 
-    expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
+    expect(ctxSetFormData).toHaveBeenCalled();
+    const latest = ctxSetFormData.mock.calls.at(-1)?.[0];
+    const newData = typeof latest === 'function' ? latest(ctxFormData) : latest;
+    expect(newData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
   });
 
-  test('typing both fields then saving shows success alert and disables actions', async () => {
+  test('handleSave success path', async () => {
     const user = userEvent.setup();
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-
     renderForm();
 
-    await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'SA-12345');
-    await user.type(screen.getByLabelText(/Request Number for AD Group Role Binding/i), 'AD-67890');
+    ctxFormData.cdpDetails.versionCDPRequired = 'File to BQ version';
 
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    expect(screen.getByText(/GCP Saferoom details saved Successfully/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled();
-
-    // Component logs saved data; assert called to confirm success branch
+    expect(screen.getByText(/Saferoom Intake details saved Successfully/i)).toBeInTheDocument();
     expect(logSpy).toHaveBeenCalled();
     logSpy.mockRestore();
   });
 
-  test('only one field filled still shows validation error', async () => {
+  test('handleSave shows validation error when missing field', async () => {
     const user = userEvent.setup();
     renderForm();
 
-    await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'SA-ONLY');
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
     expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
   });
 
-  test('read-only when intakeFormTrackingId and non-zero existing id', () => {
-    resetCtx({ gcpSaferoomIntakeId: 7 });
-    renderForm({ intakeFormTrackingId: 100 });
-
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
-  });
-
-  test('handleChange updates context via setFormData', async () => {
-    const user = userEvent.setup();
+  test('handleCancel logs and does not crash', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     renderForm();
 
-    await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'X1');
-
-    expect(ctxSetFormData).toHaveBeenCalled();
-    const last = ctxSetFormData.mock.calls.at(-1)?.[0];
-    const latest = typeof last === 'function' ? last(ctxFormData) : last;
-    expect((latest.SubmitForSABinding ?? ctxFormData.SubmitForSABinding)).toContain('X1');
+    userEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+    expect(logSpy).toHaveBeenCalledWith('Form cancelled');
+    logSpy.mockRestore();
   });
 });
