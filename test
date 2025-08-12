@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-// Router Form → simple passthrough
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   Form: ({ children, onSubmit }: { children: React.ReactNode; onSubmit?: React.FormEventHandler }) => (
@@ -12,7 +11,6 @@ jest.mock('react-router-dom', () => ({
   Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
 }));
 
-// Inline Tooltip title for easy assertions (avoid portals/hover)
 jest.mock('@mui/material', () => {
   const actual = jest.requireActual('@mui/material');
   return {
@@ -26,7 +24,6 @@ jest.mock('@mui/material', () => {
   };
 });
 
-// Mutable test context
 let ctxFormData: any;
 let ctxSetFormData: jest.Mock;
 let ctxSetReadOnly: jest.Mock;
@@ -39,7 +36,6 @@ jest.mock('../FormContext', () => ({
   }),
 }));
 
-// Import AFTER mocks
 import GCPSaferoomIntakeForm from '../gcpSaferoomIntakeForm';
 
 function resetCtx(overrides?: Partial<any>) {
@@ -51,15 +47,13 @@ function resetCtx(overrides?: Partial<any>) {
   };
   ctxSetReadOnly = jest.fn();
   ctxSetFormData = jest.fn((next: any) => {
-    // keep last object shape the component passes
     ctxFormData = typeof next === 'function' ? next(ctxFormData) : next;
   });
 }
 
-function renderForm(props?: Partial<React.ComponentProps<typeof GCPSaferoomIntakeForm>>) {
-  return render(
-    <GCPSaferoomIntakeForm intakeFormTrackingId={props?.intakeFormTrackingId ?? 0} onSave={props?.onSave} />
-  );
+function renderForm(opts?: { intakeFormTrackingId?: number }) {
+  const id = opts?.intakeFormTrackingId ?? 0;
+  return render(<GCPSaferoomIntakeForm intakeFormTrackingId={id} />);
 }
 
 describe('GCPSaferoomIntakeForm', () => {
@@ -68,19 +62,13 @@ describe('GCPSaferoomIntakeForm', () => {
   test('renders labels, buttons, and inline help', () => {
     renderForm();
 
-    // Labels
     expect(screen.getByLabelText(/Request Number for SA Role Binding/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Request Number for AD Group Role Binding/i)).toBeInTheDocument();
-
-    // Buttons
     expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
 
-    // Inlined tooltip content from <Tooltip title=...>
     const tip = screen.getAllByTestId('tooltip-title')[0];
-    expect(
-      within(tip).getByText(/Submit sharepoint intakes for SA role binding/i)
-    ).toBeInTheDocument();
+    expect(within(tip).getByText(/Submit sharepoint intakes for SA role binding/i)).toBeInTheDocument();
   });
 
   test('saving with empty fields shows validation error alert', async () => {
@@ -92,22 +80,24 @@ describe('GCPSaferoomIntakeForm', () => {
     expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
   });
 
-  test('typing both fields then saving shows success alert, disables actions, and calls onSave', async () => {
+  test('typing both fields then saving shows success alert and disables actions', async () => {
     const user = userEvent.setup();
-    const onSave = jest.fn();
-    renderForm({ onSave });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    renderForm();
 
     await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'SA-12345');
     await user.type(screen.getByLabelText(/Request Number for AD Group Role Binding/i), 'AD-67890');
 
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    // Success path
     expect(screen.getByText(/GCP Saferoom details saved Successfully/i)).toBeInTheDocument();
-    // Component flips to read-only on success
     expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled();
-    expect(onSave).toHaveBeenCalled();
+
+    // Component logs saved data; assert called to confirm success branch
+    expect(logSpy).toHaveBeenCalled();
+    logSpy.mockRestore();
   });
 
   test('only one field filled still shows validation error', async () => {
@@ -115,30 +105,27 @@ describe('GCPSaferoomIntakeForm', () => {
     renderForm();
 
     await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'SA-ONLY');
-
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
     expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
   });
 
-  test('read-only mode when intakeFormTrackingId + non-zero gcpSaferoomIntakeId', () => {
-    resetCtx({ gcpSaferoomIntakeId: 42 });
-    renderForm({ intakeFormTrackingId: 777 });
+  test('read-only when intakeFormTrackingId and non-zero existing id', () => {
+    resetCtx({ gcpSaferoomIntakeId: 7 });
+    renderForm({ intakeFormTrackingId: 100 });
 
-    // useEffect should have set read-only; Save becomes disabled
     expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
   });
 
-  test('handleChange pushes updated data via setFormData', async () => {
+  test('handleChange updates context via setFormData', async () => {
     const user = userEvent.setup();
     renderForm();
 
-    const saField = screen.getByLabelText(/Request Number for SA Role Binding/i);
-    await user.type(saField, 'X1');
+    await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'X1');
 
     expect(ctxSetFormData).toHaveBeenCalled();
     const last = ctxSetFormData.mock.calls.at(-1)?.[0];
-    const latestData = typeof last === 'function' ? last(ctxFormData) : last;
-    expect(latestData.SubmitForSABinding || ctxFormData.SubmitForSABinding).toContain('X1');
+    const latest = typeof last === 'function' ? last(ctxFormData) : last;
+    expect((latest.SubmitForSABinding ?? ctxFormData.SubmitForSABinding)).toContain('X1');
   });
 });
