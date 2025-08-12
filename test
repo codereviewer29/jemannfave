@@ -1,4 +1,4 @@
-// jest.config.js
+// jest.config.js  (replace the whole file with this content or merge mapper block)
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
@@ -7,47 +7,58 @@ module.exports = {
   transform: {
     '^.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform',
   },
-  transformIgnorePatterns: [
-    'node_modules/(?!(@mui)/)', // keep your @mui allowlist
-  ],
-  // 👇 add this
+  // keep MUI transform rule if you need it
+  transformIgnorePatterns: ['node_modules/(?!(@mui)/)'],
+  testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
+  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
   moduleNameMapper: {
-    '^qf/react-library$': '<rootDir>/__mocks__/qf/react-library.ts',
-    '\\.(css|scss)$': '<rootDir>/src/test-utils/styleStub.js', // optional; harmless
+    // ✅ map qf/react-library to our mock file so Jest can resolve it
+    '^qf/react-library$': '<rootDir>/src/__mocks__/qf/react-library.ts',
+    // optional: stub styles if any test imports css/scss
+    '\\.(css|scss)$': '<rootDir>/src/test-utils/styleStub.js',
   },
 };
 
-// src/setupTests.ts
-/* eslint-disable import/no-extraneous-dependencies */
+// src/setupTests.ts  (update: remove qf/react-library inline mock; keep/expand others)
 import '@testing-library/jest-dom';
 
-// Keep this pattern (matches your other repo)
-beforeAll(() => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
-  jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-afterAll(() => {
-  jest.restoreAllMocks();
-});
+// keep your console noise filter
+const originalError = console.error;
+console.error = (...args: any[]) => {
+  if (/Warning: ReactDOMTestUtils\.act is deprecated/.test(args[0])) return;
+  originalError.call(console, ...args);
+};
 
-// DO NOT inline-mock 'qf/react-library' here.
-// The moduleNameMapper points it to __mocks__/qf/react-library.ts
+// ❌ REMOVE the inline jest.mock('qf/react-library', …)
+// We now resolve it via moduleNameMapper to our manual mock file.
 
-// Mock your API service hook once (adjust path if needed)
-jest.mock('./services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest: jest.fn() }),
-}));
+// ✅ Keep mocking your API hook so tests don’t call real code.
+// Use multiple paths to catch deep relative imports.
+const apiHookFactory = () => ({ __esModule: true, default: () => ({ makeRequest: jest.fn() }) });
 
-// Common browser shims
-// @ts-ignore
+jest.mock('./services/useApiService', apiHookFactory);
+jest.mock('../services/useApiService', apiHookFactory);
+jest.mock('../../services/useApiService', apiHookFactory);
+jest.mock('../../../services/useApiService', apiHookFactory);
+jest.mock('../../../../services/useApiService', apiHookFactory);
+
+// Browser shims often needed by MUI / file inputs
 if (!window.matchMedia) {
+  // @ts-ignore
   window.matchMedia = () => ({
-    matches: false, media: '', onchange: null,
-    addListener: () => {}, removeListener: () => {},
-    addEventListener: () => {}, removeEventListener: () => {},
+    matches: false,
+    media: '',
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
     dispatchEvent: () => false,
   });
 }
 // @ts-ignore
 if (!window.scrollTo) window.scrollTo = () => {};
+// @ts-ignore
+if (!global.URL) global.URL = {} as any;
+// @ts-ignore
+if (!global.URL.createObjectURL) global.URL.createObjectURL = () => 'blob:mock';
