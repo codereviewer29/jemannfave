@@ -1,239 +1,320 @@
-// File: src/onboarding/__tests__/StartOnboarding.test.tsx
+// File: src/intake-components/__tests__/CDMNextIntakeForm.big.test.tsx
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-// ----------------- Router mocks -----------------
-const mockNavigate = jest.fn();
-let mockParams: any = {};
-
+// ---------- Router + MUI helpers ----------
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
-  useParams: () => mockParams,
-  useNavigate: () => mockNavigate,
+  Form: ({ children, onSubmit }: { children: React.ReactNode; onSubmit?: React.FormEventHandler }) => (
+    <form onSubmit={onSubmit}>{children}</form>
+  ),
+  Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
 }));
 
-// ----------------- API hook mock -----------------
+jest.mock('@mui/material', () => {
+  const actual = jest.requireActual('@mui/material');
+  return {
+    ...actual,
+    Tooltip: ({ title, children, componentsProps }: any) => (
+      <div data-testid="tooltip">
+        <div data-testid="tooltip-title">{title}</div>
+        {/* carry children so structure stays intact */}
+        <div data-testid="tooltip-children" {...(componentsProps || {})}>{children}</div>
+      </div>
+    ),
+  };
+});
+
+// ---------- API hook ----------
 const makeRequest = jest.fn();
-jest.mock('../services/ApiService', () => ({
+jest.mock('../../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest }),
 }));
 
-// ----------------- Context mock -----------------
+// ---------- Form context ----------
 let ctxFormData: any;
 let setFormData: jest.Mock;
-let resetFormData: jest.Mock;
-let requiredFields: string[];
 
-jest.mock('../forms/onboardingFormContext', () => ({
-  useOnboardingContext: () => ({
+jest.mock('../FormContext', () => ({
+  useFormContext: () => ({
     formData: ctxFormData,
     setFormData,
-    requiredFields,
-    resetFormData,
   }),
 }));
 
-// ----------------- Child components mocks -----------------
-jest.mock('../intake-components/applicationDetails', () => ({
-  __esModule: true,
-  default: ({ validationErrors }: any) => (
-    <div data-testid="ApplicationDetails">Application Details {Object.keys(validationErrors || {}).length}</div>
-  ),
-}));
+// ---------- Import SUT after mocks ----------
+import CDMNextIntakeForm from '../cdmNextIntakeForm';
 
-jest.mock('../intake-components/componentsDetails', () => ({
-  __esModule: true,
-  default: ({ validationErrors }: any) => (
-    <div data-testid="ComponentsDetails">Components Details {Object.keys(validationErrors || {}).length}</div>
-  ),
-}));
+// ---------- Helpers ----------
+const baseCdmNext = () => ({
+  selectedPatterns: [] as string[],
+  hadoopPlatforms: [] as string[],
+  nodeDetails: '',
+  tptInstalled: 'no',
+  tptNodeDetails: '',
+  nasAvailable: 'no',
+  apiResponseSupported: 'no',
+  streamingSourceRealTime: 'Kafka',
+  sourceSystems: [] as string[],
+  jecksCert: 'no',
+  storagePlatforms: [] as string[],
+  storagePlatformsSts: [] as string[],
+  serviceAccountAvailability: 'no',
+  serviceAccountName: '',
+  preferedServiceAccountName: '',
+  venafiFileName: '',
+  venafiFileContent: '',
+});
 
-jest.mock('../intake-components/guidelinesIntakeForm', () => ({
-  __esModule: true,
-  default: () => <div data-testid="GuidelinesIntakeForm">Guide Lines Content</div>,
-}));
-
-// Cancel dialog renders a button that triggers its confirm handler
-let cancelConfirmHandler: (() => void) | null = null;
-jest.mock('../intake-components/cancelOnboarding', () => ({
-  __esModule: true,
-  default: ({ openCancelDialog, handleConfirmCancel, handleCloseCancelDialog }: any) => {
-    cancelConfirmHandler = handleConfirmCancel;
-    return openCancelDialog ? (
-      <div data-testid="CancelOnboarding">
-        <button onClick={handleConfirmCancel}>confirm-cancel</button>
-        <button onClick={handleCloseCancelDialog}>close-cancel</button>
-      </div>
-    ) : null;
-  },
-}));
-
-// Confirmation dialog renders a button that triggers submit handler
-let submitConfirmHandler: (() => void) | null = null;
-jest.mock('../intake-components/confirmationOnboarding', () => ({
-  __esModule: true,
-  default: ({ openConfirmSubmitDialog, handleConfirmSubmit }: any) => {
-    submitConfirmHandler = handleConfirmSubmit;
-    return openConfirmSubmitDialog ? (
-      <div data-testid="ConfirmationOnboarding">
-        <button onClick={handleConfirmSubmit}>confirm-submit</button>
-      </div>
-    ) : null;
-  },
-}));
-
-// --------------- Import SUT (after mocks) ---------------
-import StartOnboarding from '../startOnboarding';
-
-// --------------- Helpers ---------------
 function resetCtx(overrides?: Partial<any>) {
   ctxFormData = {
-    trackingStatus: 'In_Draft',
-    cdpNextDetails: {},
-    ...overrides,
+    applicationDetails: { applicationID: 'APP-1', auNumber: 'AU-9' },
+    cdmNextDetails: { ...baseCdmNext(), ...(overrides?.cdmNextDetails || {}) },
+    ...(overrides || {}),
   };
   setFormData = jest.fn((next: any) => {
     ctxFormData = typeof next === 'function' ? next(ctxFormData) : next;
   });
-  resetFormData = jest.fn();
-  requiredFields = [];
   makeRequest.mockReset();
-  mockNavigate.mockReset();
-  mockParams = {};
 }
 
-const renderSut = () => render(<StartOnboarding />);
+const renderForm = (validationErrors: Record<string, string> = {}) =>
+  render(<CDMNextIntakeForm validationErrors={validationErrors} />);
 
-// --------------- Tests ---------------
-describe('StartOnboarding', () => {
+// ---------- Tests ----------
+describe('CDMNextIntakeForm (big coverage)', () => {
   beforeEach(() => resetCtx());
 
-  test('renders default tab and action buttons', () => {
-    renderSut();
-    expect(screen.getByTestId('ApplicationDetails')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Submit$/i })).toBeInTheDocument();
+  test('renders base headings, labels and tooltip content', () => {
+    const { container } = renderForm();
+
+    expect(screen.getByText(/Migration Patterns/i)).toBeInTheDocument();
+    // Giant patterns tooltip renders tables & headings inline
+    expect(screen.getByTestId('tooltip-title')).toBeInTheDocument();
+    expect(within(screen.getByTestId('tooltip-title')).getByText(/PUSH PATTERNS TABLE/i)).toBeInTheDocument();
+    expect(within(screen.getByTestId('tooltip-title')).getByText(/PULL PATTERNS/i)).toBeInTheDocument();
+
+    expect(container).toMatchSnapshot();
   });
 
-  test('useEffect with trackingId fetches form and sets formData', async () => {
-    mockParams = { trackingId: '42' };
-    makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 42, foo: 'bar' }, status: 200 });
-
-    renderSut();
-
-    // async fetch will call setFormData with server data
-    await screen.findByTestId('ApplicationDetails');
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'GET', endpoints: expect.stringContaining('42') })
-    );
-    // setFormData receives the server data
-    expect(setFormData).toHaveBeenCalledWith(expect.objectContaining({ foo: 'bar' }));
-  });
-
-  test('useEffect without trackingId resets form', () => {
-    renderSut();
-    expect(resetFormData).toHaveBeenCalled();
-  });
-
-  test('Save posts intake-form, shows toast and navigates to onboarding route', async () => {
-    makeRequest.mockResolvedValueOnce({
-      data: { intakeFormTrackingId: 777 },
-      status: 200,
+  // -------- File upload (Venafi) --------
+  test('uploads Venafi certificate successfully, then allows removing it', async () => {
+    // showVenafi is true when certain patterns chosen; use one from screenshots
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), selectedPatterns: ['G2C - EDL Historical Data Migration'] },
     });
 
-    renderSut();
+    makeRequest.mockResolvedValueOnce({
+      data: { status: 'Success', data: { fileName: 'cert.pem', fileContent: 'ABC=' } },
+    });
 
-    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+    renderForm();
 
-    // POST called
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'POST', endpoints: expect.stringMatching(/api\/intake-form/) })
-    );
+    // Upload button is a label wrapping a hidden input[type=file]
+    const input = screen.getByLabelText(/upload/i, { selector: 'input[type="file"]' });
+    const file = new File([new Uint8Array([1, 2, 3])], 'cert.pem', { type: 'application/x-pem-file' });
+    await userEvent.upload(input, file);
 
-    // Toast HTML heading appears (Snackbar with dangerouslySetInnerHTML)
-    expect(await screen.findByText(/Intake form saved successfully/i)).toBeInTheDocument();
+    // success UI copy
+    expect(await screen.findByText(/File Uploaded Successfully/i)).toBeInTheDocument();
+    // context updated with file name
+    expect(setFormData).toHaveBeenCalled();
+    const last = setFormData.mock.calls.at(-1)?.[0];
+    const latest = typeof last === 'function' ? last(ctxFormData) : last;
+    expect(latest.cdmNextDetails.venafiFileName).toBe('cert.pem');
 
-    expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('/gcpOnboarding/777'));
+    // Remove file
+    const removeBtn = screen.getByRole('button', { name: /Remove file/i });
+    await userEvent.click(removeBtn);
+    expect(setFormData).toHaveBeenCalled();
   });
 
-  test('getFormData non-200 shows error toast', async () => {
-    mockParams = { trackingId: '5' };
-    makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
+  test('file upload shows error message when backend returns error', async () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), selectedPatterns: ['G2C - EDL Historical Data Migration'] },
+    });
+    makeRequest.mockResolvedValueOnce({ data: { status: 'Error', message: 'Bad certificate' } });
 
-    renderSut();
+    renderForm();
 
-    expect(await screen.findByText(/Error has occurred while fetching Intake Form/i)).toBeInTheDocument();
+    const input = screen.getByLabelText(/upload/i, { selector: 'input[type="file"]' });
+    await userEvent.upload(input, new File(['xx'], 'bad.pem', { type: 'application/x-pem-file' }));
+
+    expect(await screen.findByText(/Bad certificate/i)).toBeInTheDocument();
   });
 
-  test('Submit invalid shows validation error list in toast', async () => {
-    // one required field path missing to fail validation
-    requiredFields = ['app.name'];
-    ctxFormData = { app: {} };
+  // -------- Validate nodes --------
+  test('validate nodes: empty input shows validation message', async () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), hadoopPlatforms: ['MapR'] },
+    });
+    renderForm();
 
-    renderSut();
-
-    await userEvent.click(screen.getByRole('button', { name: /^Submit$/i }));
-
-    expect(
-      await screen.findByText(/Please fill in all required fields before submitting/i)
-    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Validate/i }));
+    expect(screen.getByText(/Please enter at least one node/i)).toBeInTheDocument();
   });
 
-  test('Submit valid opens confirmation, confirm triggers submit API and shows toast', async () => {
-    requiredFields = []; // validation passes
-    makeRequest
-      .mockResolvedValueOnce({ data: { intakeFormTrackingId: 1 }, status: 200 }) // submit POST
-      .mockResolvedValueOnce({}); // navigate call doesn't make a request; keep stack clean
+  test('validate nodes: API success shows Success', async () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), hadoopPlatforms: ['MapR'], nodeDetails: 'node1,node2' },
+    });
+    makeRequest.mockResolvedValueOnce({ data: { status: 'Success', invalidNodes: [] } });
 
-    renderSut();
+    renderForm();
 
-    await userEvent.click(screen.getByRole('button', { name: /^Submit$/i }));
-
-    // Confirmation dialog visible (our mock renders a trigger)
-    expect(screen.getByTestId('ConfirmationOnboarding')).toBeInTheDocument();
-
-    // Trigger confirm
-    await userEvent.click(screen.getByText('confirm-submit'));
-
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'POST', endpoints: expect.stringMatching(/api\/submit-intake-form/) })
-    );
-    expect(
-      await screen.findByText(/Intake form submitted successfully/i)
-    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Validate/i }));
+    expect(await screen.findByText(/Success/i)).toBeInTheDocument();
   });
 
-  test('Cancel → confirm (with trackingId) reloads server form', async () => {
-    mockParams = { trackingId: '99' };
-    makeRequest.mockResolvedValue({ data: { intakeFormTrackingId: 99, xyz: 'abc' }, status: 200 });
+  test('validate nodes: API error lists invalid nodes', async () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), hadoopPlatforms: ['MapR'], nodeDetails: 'bad1,bad2' },
+    });
+    makeRequest.mockResolvedValueOnce({ data: { status: 'Error', invalidNodes: ['bad1', 'bad2'] } });
 
-    renderSut();
+    renderForm();
 
-    await userEvent.click(screen.getByRole('button', { name: /Cancel/i }));
-
-    // Our cancel mock shows a button to invoke confirm
-    expect(screen.getByTestId('CancelOnboarding')).toBeInTheDocument();
-    await userEvent.click(screen.getByText('confirm-cancel'));
-
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'GET', endpoints: expect.stringContaining('99') })
-    );
-    expect(setFormData).toHaveBeenCalledWith(expect.objectContaining({ xyz: 'abc' }));
+    await userEvent.click(screen.getByRole('button', { name: /Validate/i }));
+    expect(await screen.findByText(/Invalid nodes:/i)).toBeInTheDocument();
+    expect(screen.getByText(/bad1, bad2/i)).toBeInTheDocument();
   });
 
-  test('tab switching renders correct panels', async () => {
-    renderSut();
+  test('validate nodes: API throws shows generic error message', async () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), hadoopPlatforms: ['MapR'], nodeDetails: 'n1' },
+    });
+    makeRequest.mockRejectedValueOnce(new Error('boom'));
 
-    await userEvent.click(screen.getByRole('button', { name: /Component Details/i }));
-    expect(screen.getByTestId('ComponentsDetails')).toBeInTheDocument();
+    renderForm();
 
-    await userEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
-    expect(screen.getByTestId('GuidelinesIntakeForm')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Validate/i }));
+    expect(await screen.findByText(/An error occurred while validating nodes/i)).toBeInTheDocument();
+  });
 
-    await userEvent.click(screen.getByRole('button', { name: /Application Details/i }));
-    expect(screen.getByTestId('ApplicationDetails')).toBeInTheDocument();
+  // -------- Conditional UI: platforms, radios, sections --------
+  test('hadoop validate button shows when platforms set and not all Cloudera', () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), hadoopPlatforms: ['MapR'] },
+    });
+    renderForm();
+    expect(screen.getByRole('button', { name: /Validate/i })).toBeInTheDocument();
+  });
+
+  test('service account availability yes vs no renders different fields', () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), serviceAccountAvailability: 'yes' },
+    });
+    const { rerender } = renderForm();
+    expect(screen.getByLabelText(/Service Account Name/i)).toBeInTheDocument();
+
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), serviceAccountAvailability: 'no' },
+    });
+    rerender(<CDMNextIntakeForm validationErrors={{}} />);
+    expect(screen.getByLabelText(/Preferred Service Account Name/i)).toBeInTheDocument();
+  });
+
+  test('TPT installed no → node textarea; yes → thank you text', () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), tptInstalled: 'no' },
+    });
+    const { rerender } = renderForm();
+    expect(screen.getByLabelText(/Enter the Node details here/i)).toBeInTheDocument();
+
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), tptInstalled: 'yes' },
+    });
+    rerender(<CDMNextIntakeForm validationErrors={{}} />);
+    expect(screen.getByText(/Thank you for the confirmation/i)).toBeInTheDocument();
+  });
+
+  test('NAS available yes vs no shows correct messages', () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), nasAvailable: 'yes' },
+    });
+    const { rerender } = renderForm();
+    expect(screen.getByText(/CDM Next will provide reference implementation/i)).toBeInTheDocument();
+
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), nasAvailable: 'no' },
+    });
+    rerender(<CDMNextIntakeForm validationErrors={{}} />);
+    // message container exists even if empty; assert absence of the "will provide reference" text
+    expect(screen.queryByText(/will provide reference implementation/i)).not.toBeInTheDocument();
+  });
+
+  test('API pattern section + streaming "Others" warning + direct SOR section', () => {
+    resetCtx({
+      cdmNextDetails: {
+        ...baseCdmNext(),
+        selectedPatterns: ['G2C - API', 'G2C - Real/Near Real Time', 'G2C - Direct SOR Data'],
+        streamingSourceRealTime: 'Others',
+      },
+    });
+    renderForm();
+
+    expect(screen.getByRole('heading', { name: /G2C - API/i })).toBeInTheDocument();
+    expect(screen.getByText(/Only .*Kafka.* is Supported/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /G2C - Direct SOR Data/i })).toBeInTheDocument();
+  });
+
+  test('Direct BQ Push and File Push patterns render and show platform selects', () => {
+    resetCtx({
+      cdmNextDetails: {
+        ...baseCdmNext(),
+        selectedPatterns: [
+          'G2C - Direct BQ Push',
+          'G2C - File Push Pattern - Cloud Storage API',
+          'G2C - File Push Pattern - STS Agent',
+        ],
+      },
+    });
+    renderForm();
+
+    expect(screen.getByRole('heading', { name: /G2C - Direct BQ Push/i })).toBeInTheDocument();
+    // storage platform selects – assert their input labels exist
+    expect(screen.getByLabelText(/Please select the platform in which files are stored/i)).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/Please select the platform in which files are stored/i).length).toBeGreaterThan(1);
+  });
+
+  test('source systems supported vs Others not supported, plus JCEKS yes/no', () => {
+    // supported
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), sourceSystems: ['Oracle', 'SQL Server'] },
+    });
+    const { rerender } = renderForm();
+    expect(screen.getByText(/These sources are supported/i)).toBeInTheDocument();
+
+    // not supported
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), sourceSystems: ['Others'] },
+    });
+    rerender(<CDMNextIntakeForm validationErrors={{}} />);
+    expect(screen.getByText(/Others are not Supported/i)).toBeInTheDocument();
+
+    // JCEKS YES
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), jecksCert: 'yes' },
+    });
+    rerender(<CDMNextIntakeForm validationErrors={{}} />);
+    expect(screen.getAllByText(/Confluence link/i)[0]).toBeInTheDocument();
+
+    // JCEKS NO
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), jecksCert: 'no' },
+    });
+    rerender(<CDMNextIntakeForm validationErrors={{}} />);
+    expect(screen.getAllByText(/Confluence link/i)[0]).toBeInTheDocument();
+  });
+
+  test('unknown pattern renders "Details coming soon..." card', () => {
+    resetCtx({
+      cdmNextDetails: { ...baseCdmNext(), selectedPatterns: ['Some New Pattern'] },
+    });
+    renderForm();
+
+    expect(screen.getByText(/Details coming soon/i)).toBeInTheDocument();
   });
 });
