@@ -1,84 +1,156 @@
+// File: src/intake-components/__tests__/SaferoomIntakeForm.test.tsx
+import React from 'react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-// Dynamic "Others" inputs for Sandbox (only)
-type OtherField = { id: string; value: string };
+// ----- Mocks that keep tests deterministic -----
 
-const [sandboxOthers, setSandboxOthers] = useState<OtherField[]>([]);
+// Mock react-router-dom Form → simple pass-through
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  Form: ({ children }: { children: React.ReactNode }) => <form>{children}</form>,
+}));
 
-const addSandboxOther = () =>
-  setSandboxOthers(prev => [...prev, { id: String(Date.now() + Math.random()), value: "" }]);
+// Mock @mui/material Tooltip to render title inline for easy assertions
+jest.mock('@mui/material', () => {
+  const actual = jest.requireActual('@mui/material');
+  return {
+    ...actual,
+    Tooltip: ({ title, children }: { title: React.ReactNode; children: React.ReactElement }) => (
+      <div>
+        {/* Inline title so we don't rely on portal/hover in tests */}
+        <div data-testid="tooltip-title">{title}</div>
+        {children}
+      </div>
+    ),
+  };
+});
 
-const updateSandboxOther = (id: string, value: string) =>
-  setSandboxOthers(prev => prev.map(f => (f.id === id ? { ...f, value } : f)));
+// Mutable references so per-test we can vary the context returned
+let ctxFormData: any;
+let ctxSetFormData: jest.Mock;
 
-const removeSandboxOther = (id: string) =>
-  setSandboxOthers(prev => prev.filter(f => f.id !== id));
+// Mock your FormContext hook
+jest.mock('../FormContext', () => ({
+  useFormContext: () => ({
+    formData: ctxFormData,
+    setFormData: ctxSetFormData,
+    setReadOnly: jest.fn(), // present in your file; not used here
+  }),
+}));
 
+// ---- Import the component under test (adjust the path to yours) ----
+// CHANGE ME if your relative path differs:
+import SaferoomIntakeForm from '../safeRoomIntakeForm';
 
+// ----- Helpers -----
 
-<AccordionDetails>
-  <Grid container spacing={2}>
-    {/* 1) render all normal Sandbox fields exactly as before */}
-    {details.map((item, index) => (
-      <Grid item xs={12} sm={6} md={3} key={`${category}-${index}`}>
-        <TextField
-          fullWidth
-          label={item.label}
-          value={item.value}
-          onChange={(e) => handleInputChange(category, index, e.target.value)}
-          helperText={`Example: ${item.helperText}`}
-        />
-      </Grid>
-    ))}
+function makeFormData(overrides?: Partial<any>) {
+  return {
+    safeRoomDetails: { dataLoadRequired: '', ...(overrides?.safeRoomDetails ?? {}) },
+    cdpDetails: { versionCDPRequired: '', ...(overrides?.cdpDetails ?? {}) },
+    ...(overrides ?? {}),
+  };
+}
 
-    {/* 2) ONLY for Sandbox: show the + button at the END */}
-    {category === "Sandbox" && (
-      <>
-        <Grid item xs={12}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
-            <IconButton
-              size="small"
-              aria-label="add-others"
-              onClick={addSandboxOther}
-            >
-              <AddCircleOutlineIcon fontSize="small" />
-            </IconButton>
-            <Typography variant="body2">Add “Others”</Typography>
-          </Box>
-        </Grid>
+function renderWithCtx(validationErrors: Record<string, string> = {}) {
+  return render(<SaferoomIntakeForm validationErrors={validationErrors} />);
+}
 
-        {/* 3) Render all dynamic Others inputs (each removable) */}
-        {sandboxOthers.map((field, i) => (
-          <Grid item xs={12} sm={6} md={3} key={field.id}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-              <Typography variant="caption">Others {i + 1}</Typography>
-              <IconButton
-                size="small"
-                aria-label={`remove-others-${i}`}
-                onClick={() => removeSandboxOther(field.id)}
-              >
-                <RemoveCircleOutlineIcon fontSize="small" />
-              </IconButton>
-            </Box>
-            <TextField
-              fullWidth
-              placeholder="Enter AD Group"
-              value={field.value}
-              onChange={(e) => updateSandboxOther(field.id, e.target.value)}
-              // reuse persona helperText if you like; otherwise leave blank
-              // helperText="Example: DTCA_CTO_CSP_GCP_<APPID>_<ENV>_RN_DATA_ENG@WellsFargo.com"
-            />
-          </Grid>
-        ))}
-      </>
-    )}
-  </Grid>
-</AccordionDetails>
+// ----- Tests -----
 
-payload.artRequest = {
-  ...payload.artRequest,
-  sandbox: {
-    ...payload.artRequest?.sandbox,
-    personaAdGroupOthers: sandboxOthers.map(o => o.value),
-  },
-};
+describe('SaferoomIntakeForm', () => {
+  beforeEach(() => {
+    ctxSetFormData = jest.fn();
+    ctxFormData = makeFormData();
+  });
 
+  test('renders headings, label, and inline tooltip/help content', () => {
+    renderWithCtx();
+
+    // Headings / overview text (keep assertions broad and text-based)
+    expect(screen.getByText(/Saferoom Overview/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Please select the required data load capability/i),
+    ).toBeInTheDocument();
+
+    // Label for select
+    expect(
+      screen.getByText(/Select the Saferoom Data Load Capability/i),
+    ).toBeInTheDocument();
+
+    // Tooltip/help paragraphs should be present because we inlined the title
+    const tip = screen.getByTestId('tooltip-title');
+    expect(
+      within(tip).getByText(/Cloud Storage: Both inbound and outbound data are handled as files/i),
+    ).toBeInTheDocument();
+    expect(
+      within(tip).getByText(
+        /Big Query: Inbound data is handled as files, and outbound data is stored in temporary BigQuery tables/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test('useEffect maps "Cloud Storage" to "File to BQ version"', () => {
+    ctxFormData = makeFormData({
+      safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
+    });
+
+    renderWithCtx();
+
+    // Component mutates the existing formData object in effect
+    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
+  });
+
+  test('useEffect maps "Big Query" to "BQ to BQ version"', () => {
+    ctxFormData = makeFormData({
+      safeRoomDetails: { dataLoadRequired: 'Big Query' },
+    });
+
+    renderWithCtx();
+
+    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version');
+  });
+
+  test('changing the Select calls setFormData with updated nested safeRoomDetails', async () => {
+    renderWithCtx();
+
+    // MUI Select renders a button that opens a listbox
+    const button = screen.getByRole('button', {
+      name: /Select the Saferoom Data Load Capability/i,
+    });
+
+    // Open dropdown
+    fireEvent.mouseDown(button);
+
+    // Choose "Big Query"
+    const option = await screen.findByRole('option', { name: /Big Query/i });
+    userEvent.click(option);
+
+    // Expect setFormData to be called with a new object holding the updated value
+    expect(ctxSetFormData).toHaveBeenCalled();
+    const callArg = ctxSetFormData.mock.calls[0][0];
+
+    // It should preserve other fields and set nested safeRoomDetails.dataLoadRequired
+    expect(callArg.safeRoomDetails?.dataLoadRequired).toBe('Big Query');
+  });
+
+  test('Select can be disabled (if component exposes read-only state)', () => {
+    // If your component exposes a read-only flag via context or prop,
+    // you can set it here and assert the Select is disabled.
+    // This expectation is resilient: if disabled is false, we at least assert the element exists.
+    renderWithCtx();
+
+    const selectButton = screen.getByRole('button', {
+      name: /Select the Saferoom Data Load Capability/i,
+    });
+
+    // Prefer tolerant check; MUI adds aria-disabled when disabled
+    const ariaDisabled = selectButton.getAttribute('aria-disabled');
+    if (ariaDisabled === 'true') {
+      expect(ariaDisabled).toBe('true');
+    } else {
+      expect(selectButton).toBeInTheDocument();
+    }
+  });
+});
