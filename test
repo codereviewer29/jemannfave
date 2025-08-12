@@ -1,82 +1,11 @@
-// jest.config.js
-module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'jsdom',
-  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
-  modulePathIgnorePatterns: ['<rootDir>/dist/'],
-  transform: {
-    '^.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform',
-  },
-  transformIgnorePatterns: [
-    'node_modules/(?!(@mui)/)', // keep your MUI allowlist
-  ],
-  testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
-  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*', '<rootDir>/__mocks__/**', '<rootDir>/src/test-utils/**'],
-  collectCoverage: true,
-  collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
-    '!src/**/__mocks__/**',
-    '!src/test-utils/**'
-  ],
-  moduleNameMapper: {
-    // ✅ Map BOTH aliases you’ve shown across projects
-    '^@wf/react-library$': '<rootDir>/__mocks__/@wf/react-library.ts',
-    '^qf/react-library$': '<rootDir>/__mocks__/qf/react-library.ts',
-
-    // ✅ Map ANY import that ends with services/useApiService
-    '^(.*?/)?services/useApiService$': '<rootDir>/__mocks__/services/useApiService.ts',
-
-    // (optional) stub styles
-    '\\.(css|scss)$': '<rootDir>/src/test-utils/styleStub.js',
-  },
-};
-
 // __mocks__/@wf/react-library.ts
 import React from 'react';
 
 export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
 export const useConfig = () => ({ apiBaseUrl: 'http://localhost' });
 
-// Some tests import Template from @wf/react-library; provide a simple stub.
 export const Template = ({ config }: any) => (
   <div data-testid="template-mock">
     <div data-testid="header">{config?.header?.appName ?? 'App'}</div>
   </div>
 );
-
-// __mocks__/qf/react-library.ts
-export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
-export const useConfig = () => ({ apiBaseUrl: 'http://localhost' });
-
-// __mocks__/services/useApiService.ts
-const useApiService = () => ({
-  makeRequest: jest.fn() // override per-test with (useApiService() as any).makeRequest.mockResolvedValue(...)
-});
-export default useApiService;
-
-// src/setupTests.ts
-import '@testing-library/jest-dom';
-
-beforeAll(() => {
-  jest.spyOn(console, 'error').mockImplementation(() => {});
-  jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-afterAll(() => {
-  jest.restoreAllMocks();
-});
-
-// Do NOT inline-mock '@wf/react-library' or 'qf/react-library' or useApiService here.
-// The moduleNameMapper now redirects them to __mocks__ files globally.
-
-// Browser shims commonly needed by MUI
-// @ts-ignore
-if (!window.matchMedia) {
-  window.matchMedia = () => ({
-    matches: false, media: '', onchange: null,
-    addListener: () => {}, removeListener: () => {},
-    addEventListener: () => {}, removeEventListener: () => {},
-    dispatchEvent: () => false,
-  });
-}
-// @ts-ignore
-if (!window.scrollTo) window.scrollTo = () => {};
