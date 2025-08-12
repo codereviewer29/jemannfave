@@ -1,24 +1,24 @@
-// File: src/intake-components/__tests__/SaferoomIntakeForm.test.tsx
+// File: src/intake-components/__tests__/gcpSaferoomIntakeForm.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-// ----- Mocks that keep tests deterministic -----
-
-// Mock react-router-dom Form → simple pass-through
+// Router Form → simple passthrough
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
-  Form: ({ children }: { children: React.ReactNode }) => <form>{children}</form>,
+  Form: ({ children, onSubmit }: { children: React.ReactNode; onSubmit?: React.FormEventHandler }) => (
+    <form onSubmit={onSubmit}>{children}</form>
+  ),
+  Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
 }));
 
-// Mock @mui/material Tooltip to render title inline for easy assertions
+// Inline Tooltip title for easy assertions (avoid portals/hover)
 jest.mock('@mui/material', () => {
   const actual = jest.requireActual('@mui/material');
   return {
     ...actual,
-    Tooltip: ({ title, children }: { title: React.ReactNode; children: React.ReactElement }) => (
-      <div>
-        {/* Inline title so we don't rely on portal/hover in tests */}
+    Tooltip: ({ title, placement, children }: { title: React.ReactNode; placement?: string; children: React.ReactElement }) => (
+      <div data-testid={`tooltip-${placement || 'top'}`}>
         <div data-testid="tooltip-title">{title}</div>
         {children}
       </div>
@@ -26,131 +26,119 @@ jest.mock('@mui/material', () => {
   };
 });
 
-// Mutable references so per-test we can vary the context returned
+// Mutable test context
 let ctxFormData: any;
 let ctxSetFormData: jest.Mock;
+let ctxSetReadOnly: jest.Mock;
 
-// Mock your FormContext hook
 jest.mock('../FormContext', () => ({
   useFormContext: () => ({
     formData: ctxFormData,
     setFormData: ctxSetFormData,
-    setReadOnly: jest.fn(), // present in your file; not used here
+    setReadOnly: ctxSetReadOnly,
   }),
 }));
 
-// ---- Import the component under test (adjust the path to yours) ----
-// CHANGE ME if your relative path differs:
-import SaferoomIntakeForm from '../safeRoomIntakeForm';
+// Import AFTER mocks
+import GCPSaferoomIntakeForm from '../gcpSaferoomIntakeForm';
 
-// ----- Helpers -----
-
-function makeFormData(overrides?: Partial<any>) {
-  return {
-    safeRoomDetails: { dataLoadRequired: '', ...(overrides?.safeRoomDetails ?? {}) },
-    cdpDetails: { versionCDPRequired: '', ...(overrides?.cdpDetails ?? {}) },
+function resetCtx(overrides?: Partial<any>) {
+  ctxFormData = {
+    gcpSaferoomIntakeId: 0,
+    SubmitForSABinding: '',
+    SubmitForADBinding: '',
     ...(overrides ?? {}),
   };
+  ctxSetReadOnly = jest.fn();
+  ctxSetFormData = jest.fn((next: any) => {
+    // keep last object shape the component passes
+    ctxFormData = typeof next === 'function' ? next(ctxFormData) : next;
+  });
 }
 
-function renderWithCtx(validationErrors: Record<string, string> = {}) {
-  return render(<SaferoomIntakeForm validationErrors={validationErrors} />);
+function renderForm(props?: Partial<React.ComponentProps<typeof GCPSaferoomIntakeForm>>) {
+  return render(
+    <GCPSaferoomIntakeForm intakeFormTrackingId={props?.intakeFormTrackingId ?? 0} onSave={props?.onSave} />
+  );
 }
 
-// ----- Tests -----
+describe('GCPSaferoomIntakeForm', () => {
+  beforeEach(() => resetCtx());
 
-describe('SaferoomIntakeForm', () => {
-  beforeEach(() => {
-    ctxSetFormData = jest.fn();
-    ctxFormData = makeFormData();
-  });
+  test('renders labels, buttons, and inline help', () => {
+    renderForm();
 
-  test('renders headings, label, and inline tooltip/help content', () => {
-    renderWithCtx();
+    // Labels
+    expect(screen.getByLabelText(/Request Number for SA Role Binding/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Request Number for AD Group Role Binding/i)).toBeInTheDocument();
 
-    // Headings / overview text (keep assertions broad and text-based)
-    expect(screen.getByText(/Saferoom Overview/i)).toBeInTheDocument();
+    // Buttons
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
+
+    // Inlined tooltip content from <Tooltip title=...>
+    const tip = screen.getAllByTestId('tooltip-title')[0];
     expect(
-      screen.getByText(/Please select the required data load capability/i),
-    ).toBeInTheDocument();
-
-    // Label for select
-    expect(
-      screen.getByText(/Select the Saferoom Data Load Capability/i),
-    ).toBeInTheDocument();
-
-    // Tooltip/help paragraphs should be present because we inlined the title
-    const tip = screen.getByTestId('tooltip-title');
-    expect(
-      within(tip).getByText(/Cloud Storage: Both inbound and outbound data are handled as files/i),
-    ).toBeInTheDocument();
-    expect(
-      within(tip).getByText(
-        /Big Query: Inbound data is handled as files, and outbound data is stored in temporary BigQuery tables/i,
-      ),
+      within(tip).getByText(/Submit sharepoint intakes for SA role binding/i)
     ).toBeInTheDocument();
   });
 
-  test('useEffect maps "Cloud Storage" to "File to BQ version"', () => {
-    ctxFormData = makeFormData({
-      safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
-    });
+  test('saving with empty fields shows validation error alert', async () => {
+    const user = userEvent.setup();
+    renderForm();
 
-    renderWithCtx();
+    await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    // Component mutates the existing formData object in effect
-    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
+    expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
   });
 
-  test('useEffect maps "Big Query" to "BQ to BQ version"', () => {
-    ctxFormData = makeFormData({
-      safeRoomDetails: { dataLoadRequired: 'Big Query' },
-    });
+  test('typing both fields then saving shows success alert, disables actions, and calls onSave', async () => {
+    const user = userEvent.setup();
+    const onSave = jest.fn();
+    renderForm({ onSave });
 
-    renderWithCtx();
+    await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'SA-12345');
+    await user.type(screen.getByLabelText(/Request Number for AD Group Role Binding/i), 'AD-67890');
 
-    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version');
+    await user.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    // Success path
+    expect(screen.getByText(/GCP Saferoom details saved Successfully/i)).toBeInTheDocument();
+    // Component flips to read-only on success
+    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled();
+    expect(onSave).toHaveBeenCalled();
   });
 
-  test('changing the Select calls setFormData with updated nested safeRoomDetails', async () => {
-    renderWithCtx();
+  test('only one field filled still shows validation error', async () => {
+    const user = userEvent.setup();
+    renderForm();
 
-    // MUI Select renders a button that opens a listbox
-    const button = screen.getByRole('button', {
-      name: /Select the Saferoom Data Load Capability/i,
-    });
+    await user.type(screen.getByLabelText(/Request Number for SA Role Binding/i), 'SA-ONLY');
 
-    // Open dropdown
-    fireEvent.mouseDown(button);
+    await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    // Choose "Big Query"
-    const option = await screen.findByRole('option', { name: /Big Query/i });
-    userEvent.click(option);
+    expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
+  });
 
-    // Expect setFormData to be called with a new object holding the updated value
+  test('read-only mode when intakeFormTrackingId + non-zero gcpSaferoomIntakeId', () => {
+    resetCtx({ gcpSaferoomIntakeId: 42 });
+    renderForm({ intakeFormTrackingId: 777 });
+
+    // useEffect should have set read-only; Save becomes disabled
+    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
+  });
+
+  test('handleChange pushes updated data via setFormData', async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    const saField = screen.getByLabelText(/Request Number for SA Role Binding/i);
+    await user.type(saField, 'X1');
+
     expect(ctxSetFormData).toHaveBeenCalled();
-    const callArg = ctxSetFormData.mock.calls[0][0];
-
-    // It should preserve other fields and set nested safeRoomDetails.dataLoadRequired
-    expect(callArg.safeRoomDetails?.dataLoadRequired).toBe('Big Query');
-  });
-
-  test('Select can be disabled (if component exposes read-only state)', () => {
-    // If your component exposes a read-only flag via context or prop,
-    // you can set it here and assert the Select is disabled.
-    // This expectation is resilient: if disabled is false, we at least assert the element exists.
-    renderWithCtx();
-
-    const selectButton = screen.getByRole('button', {
-      name: /Select the Saferoom Data Load Capability/i,
-    });
-
-    // Prefer tolerant check; MUI adds aria-disabled when disabled
-    const ariaDisabled = selectButton.getAttribute('aria-disabled');
-    if (ariaDisabled === 'true') {
-      expect(ariaDisabled).toBe('true');
-    } else {
-      expect(selectButton).toBeInTheDocument();
-    }
+    const last = ctxSetFormData.mock.calls.at(-1)?.[0];
+    const latestData = typeof last === 'function' ? last(ctxFormData) : last;
+    expect(latestData.SubmitForSABinding || ctxFormData.SubmitForSABinding).toContain('X1');
   });
 });
