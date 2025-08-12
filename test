@@ -1,148 +1,239 @@
-// src/intake-components/__tests__/CDPIntakeForm.test.tsx
+// File: src/onboarding/__tests__/StartOnboarding.test.tsx
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+// ----------------- Router mocks -----------------
+const mockNavigate = jest.fn();
+let mockParams: any = {};
 
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
-  Form: ({ children, onSubmit }: { children: React.ReactNode; onSubmit?: React.FormEventHandler }) => (
-    <form onSubmit={onSubmit}>{children}</form>
-  ),
+  useParams: () => mockParams,
+  useNavigate: () => mockNavigate,
 }));
 
-jest.mock('@mui/material', () => {
-  const actual = jest.requireActual('@mui/material');
-  return {
-    ...actual,
-    Tooltip: ({ title, children }: { title: React.ReactNode; children: React.ReactElement }) => (
-      <div>
-        <div data-testid="tooltip-title">{title}</div>
-        {children}
-      </div>
-    ),
-  };
-});
+// ----------------- API hook mock -----------------
+const makeRequest = jest.fn();
+jest.mock('../services/ApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
 
+// ----------------- Context mock -----------------
 let ctxFormData: any;
-let ctxSetFormData: jest.Mock;
-let ctxSetReadOnly: jest.Mock;
+let setFormData: jest.Mock;
+let resetFormData: jest.Mock;
+let requiredFields: string[];
 
-jest.mock('../FormContext', () => ({
-  useFormContext: () => ({
+jest.mock('../forms/onboardingFormContext', () => ({
+  useOnboardingContext: () => ({
     formData: ctxFormData,
-    setFormData: ctxSetFormData,
-    setReadOnly: ctxSetReadOnly,
+    setFormData,
+    requiredFields,
+    resetFormData,
   }),
 }));
 
-import CDPIntakeForm from '../cdpIntakeForm';
+// ----------------- Child components mocks -----------------
+jest.mock('../intake-components/applicationDetails', () => ({
+  __esModule: true,
+  default: ({ validationErrors }: any) => (
+    <div data-testid="ApplicationDetails">Application Details {Object.keys(validationErrors || {}).length}</div>
+  ),
+}));
 
+jest.mock('../intake-components/componentsDetails', () => ({
+  __esModule: true,
+  default: ({ validationErrors }: any) => (
+    <div data-testid="ComponentsDetails">Components Details {Object.keys(validationErrors || {}).length}</div>
+  ),
+}));
+
+jest.mock('../intake-components/guidelinesIntakeForm', () => ({
+  __esModule: true,
+  default: () => <div data-testid="GuidelinesIntakeForm">Guide Lines Content</div>,
+}));
+
+// Cancel dialog renders a button that triggers its confirm handler
+let cancelConfirmHandler: (() => void) | null = null;
+jest.mock('../intake-components/cancelOnboarding', () => ({
+  __esModule: true,
+  default: ({ openCancelDialog, handleConfirmCancel, handleCloseCancelDialog }: any) => {
+    cancelConfirmHandler = handleConfirmCancel;
+    return openCancelDialog ? (
+      <div data-testid="CancelOnboarding">
+        <button onClick={handleConfirmCancel}>confirm-cancel</button>
+        <button onClick={handleCloseCancelDialog}>close-cancel</button>
+      </div>
+    ) : null;
+  },
+}));
+
+// Confirmation dialog renders a button that triggers submit handler
+let submitConfirmHandler: (() => void) | null = null;
+jest.mock('../intake-components/confirmationOnboarding', () => ({
+  __esModule: true,
+  default: ({ openConfirmSubmitDialog, handleConfirmSubmit }: any) => {
+    submitConfirmHandler = handleConfirmSubmit;
+    return openConfirmSubmitDialog ? (
+      <div data-testid="ConfirmationOnboarding">
+        <button onClick={handleConfirmSubmit}>confirm-submit</button>
+      </div>
+    ) : null;
+  },
+}));
+
+// --------------- Import SUT (after mocks) ---------------
+import StartOnboarding from '../startOnboarding';
+
+// --------------- Helpers ---------------
 function resetCtx(overrides?: Partial<any>) {
   ctxFormData = {
-    cdpDetails: { versionCDPRequired: '' },
-    safeRoomDetails: { dataLoadRequired: '' },
-    ...(overrides ?? {}),
+    trackingStatus: 'In_Draft',
+    cdpNextDetails: {},
+    ...overrides,
   };
-  ctxSetFormData = jest.fn((next: any) => {
+  setFormData = jest.fn((next: any) => {
     ctxFormData = typeof next === 'function' ? next(ctxFormData) : next;
   });
-  ctxSetReadOnly = jest.fn();
+  resetFormData = jest.fn();
+  requiredFields = [];
+  makeRequest.mockReset();
+  mockNavigate.mockReset();
+  mockParams = {};
 }
 
-function renderForm(validationErrors: Record<string, boolean> = {}) {
-  return render(<CDPIntakeForm validationErrors={validationErrors} />);
-}
+const renderSut = () => render(<StartOnboarding />);
 
-describe('CDPIntakeForm', () => {
+// --------------- Tests ---------------
+describe('StartOnboarding', () => {
   beforeEach(() => resetCtx());
 
-  test('renders headings, label, tooltip, and disabled Select', () => {
-    const { container } = renderForm();
+  test('renders default tab and action buttons', () => {
+    renderSut();
+    expect(screen.getByTestId('ApplicationDetails')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Submit$/i })).toBeInTheDocument();
+  });
 
-    expect(screen.getByText(/CDP Overview/i)).toBeInTheDocument();
+  test('useEffect with trackingId fetches form and sets formData', async () => {
+    mockParams = { trackingId: '42' };
+    makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 42, foo: 'bar' }, status: 200 });
+
+    renderSut();
+
+    // async fetch will call setFormData with server data
+    await screen.findByTestId('ApplicationDetails');
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'GET', endpoints: expect.stringContaining('42') })
+    );
+    // setFormData receives the server data
+    expect(setFormData).toHaveBeenCalledWith(expect.objectContaining({ foo: 'bar' }));
+  });
+
+  test('useEffect without trackingId resets form', () => {
+    renderSut();
+    expect(resetFormData).toHaveBeenCalled();
+  });
+
+  test('Save posts intake-form, shows toast and navigates to onboarding route', async () => {
+    makeRequest.mockResolvedValueOnce({
+      data: { intakeFormTrackingId: 777 },
+      status: 200,
+    });
+
+    renderSut();
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    // POST called
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'POST', endpoints: expect.stringMatching(/api\/intake-form/) })
+    );
+
+    // Toast HTML heading appears (Snackbar with dangerouslySetInnerHTML)
+    expect(await screen.findByText(/Intake form saved successfully/i)).toBeInTheDocument();
+
+    expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('/gcpOnboarding/777'));
+  });
+
+  test('getFormData non-200 shows error toast', async () => {
+    mockParams = { trackingId: '5' };
+    makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
+
+    renderSut();
+
+    expect(await screen.findByText(/Error has occurred while fetching Intake Form/i)).toBeInTheDocument();
+  });
+
+  test('Submit invalid shows validation error list in toast', async () => {
+    // one required field path missing to fail validation
+    requiredFields = ['app.name'];
+    ctxFormData = { app: {} };
+
+    renderSut();
+
+    await userEvent.click(screen.getByRole('button', { name: /^Submit$/i }));
+
     expect(
-      screen.getByText(/Cloud Data pipeline \(CDP\) Framework streamlines and accelerates Cloud migration/i)
+      await screen.findByText(/Please fill in all required fields before submitting/i)
     ).toBeInTheDocument();
-
-    const select = screen.getByRole('combobox', {
-      name: /Which version of CDP is required/i,
-    });
-    expect(select).toBeDisabled();
-
-    const tip = screen.getByTestId('tooltip-title');
-    expect(within(tip).getByText(/Cloud Storage: Both inbound and outbound/i)).toBeInTheDocument();
-    expect(within(tip).getByText(/Big Query: Inbound data is handled/i)).toBeInTheDocument();
-
-    expect(container).toMatchSnapshot();
   });
 
-  test('useEffect maps Cloud Storage → File to BQ version', () => {
-    resetCtx({ safeRoomDetails: { dataLoadRequired: 'Cloud Storage' } });
-    renderForm();
-    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
+  test('Submit valid opens confirmation, confirm triggers submit API and shows toast', async () => {
+    requiredFields = []; // validation passes
+    makeRequest
+      .mockResolvedValueOnce({ data: { intakeFormTrackingId: 1 }, status: 200 }) // submit POST
+      .mockResolvedValueOnce({}); // navigate call doesn't make a request; keep stack clean
+
+    renderSut();
+
+    await userEvent.click(screen.getByRole('button', { name: /^Submit$/i }));
+
+    // Confirmation dialog visible (our mock renders a trigger)
+    expect(screen.getByTestId('ConfirmationOnboarding')).toBeInTheDocument();
+
+    // Trigger confirm
+    await userEvent.click(screen.getByText('confirm-submit'));
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'POST', endpoints: expect.stringMatching(/api\/submit-intake-form/) })
+    );
+    expect(
+      await screen.findByText(/Intake form submitted successfully/i)
+    ).toBeInTheDocument();
   });
 
-  test('useEffect maps Big Query → BQ to BQ version', () => {
-    resetCtx({ safeRoomDetails: { dataLoadRequired: 'Big Query' } });
-    renderForm();
-    expect(ctxFormData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version');
+  test('Cancel → confirm (with trackingId) reloads server form', async () => {
+    mockParams = { trackingId: '99' };
+    makeRequest.mockResolvedValue({ data: { intakeFormTrackingId: 99, xyz: 'abc' }, status: 200 });
+
+    renderSut();
+
+    await userEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+
+    // Our cancel mock shows a button to invoke confirm
+    expect(screen.getByTestId('CancelOnboarding')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('confirm-cancel'));
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'GET', endpoints: expect.stringContaining('99') })
+    );
+    expect(setFormData).toHaveBeenCalledWith(expect.objectContaining({ xyz: 'abc' }));
   });
 
-  test('handleChange updates context', async () => {
-    const user = userEvent.setup();
-    renderForm();
+  test('tab switching renders correct panels', async () => {
+    renderSut();
 
-    // Since select is disabled, we simulate direct call by changing manually
-    const select = screen.getByRole('combobox', {
-      name: /Which version of CDP is required/i,
-    });
-    expect(select).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: /Component Details/i }));
+    expect(screen.getByTestId('ComponentsDetails')).toBeInTheDocument();
 
-    // call change handler via typing
-    await user.type(select, 'BQ to BQ version');
-    expect(ctxSetFormData).toHaveBeenCalled();
-  });
+    await userEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
+    expect(screen.getByTestId('GuidelinesIntakeForm')).toBeInTheDocument();
 
-  test('Save success path shows alert and disables buttons', async () => {
-    const user = userEvent.setup();
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-
-    resetCtx({ cdpDetails: { versionCDPRequired: 'File to BQ version' } });
-    renderForm();
-
-    await user.click(screen.getByRole('button', { name: /^Save$/i }));
-
-    expect(screen.getByText(/Saferoom Intake details saved Successfully/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled();
-    expect(logSpy).toHaveBeenCalled();
-    logSpy.mockRestore();
-  });
-
-  test('Save with missing field shows validation error', async () => {
-    const user = userEvent.setup();
-    renderForm();
-
-    await user.click(screen.getByRole('button', { name: /^Save$/i }));
-    expect(screen.getByText(/Please complete all required fields before saving/i)).toBeInTheDocument();
-  });
-
-  test('validationErrors prop marks Select invalid', () => {
-    renderForm({ versionCDPRequired: true });
-
-    const select = screen.getByRole('combobox', {
-      name: /Which version of CDP is required/i,
-    });
-    expect(select).toHaveAttribute('aria-invalid', 'true');
-  });
-
-  test('Cancel logs message', async () => {
-    const user = userEvent.setup();
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    renderForm();
-
-    await user.click(screen.getByRole('button', { name: /Cancel/i }));
-    expect(logSpy).toHaveBeenCalledWith('Form cancelled');
-    logSpy.mockRestore();
+    await userEvent.click(screen.getByRole('button', { name: /Application Details/i }));
+    expect(screen.getByTestId('ApplicationDetails')).toBeInTheDocument();
   });
 });
