@@ -1,68 +1,66 @@
-// src/main.test.tsx
-import React from 'react';
+// src/utils/dataParsing.test.ts
+import { dataParsing } from './dataParsing';
 
-describe('main.tsx entry', () => {
+describe('dataParsing', () => {
   beforeEach(() => {
-    document.body.innerHTML = '<div id="root"></div>';
-    jest.resetModules();
+    // console spies are installed in setupTests.ts; clear between tests
+    (console.error as jest.Mock).mockClear();
+    (console.log as jest.Mock).mockClear?.();
   });
 
-  test('creates a root and renders App inside ConfigContextProvider + StrictMode', () => {
-    // Mock CSS to avoid parsing node_modules CSS
-    jest.mock('bootstrap/dist/css/bootstrap.min.css', () => ({}), { virtual: true });
+  test('returns same array when input is already an array', () => {
+    const input = [1, 2, 3];
+    const result = dataParsing(input);
+    expect(result).toBe(input); // same reference
+    expect(console.error).not.toHaveBeenCalled();
+  });
 
-    // Mock react-dom/client (default import used)
-    const renderMock = jest.fn();
-    const createRootMock = jest.fn(() => ({ render: renderMock }));
-    jest.mock('react-dom/client', () => ({
-      __esModule: true,
-      default: { createRoot: createRootMock }, // needed for default import
-      createRoot: createRootMock,              // optional named export
-    }));
+  test('wraps a plain object in an array', () => {
+    const input = { a: 1 };
+    const result = dataParsing(input);
+    expect(result).toEqual([input]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
 
-    // Mock App (function body won't execute; we only inspect element type)
-    const AppMock = jest.fn(() => null);
-    jest.mock('./App', () => ({
-      __esModule: true,
-      default: AppMock,
-    }));
+  test('parses a JSON string representing an array', () => {
+    const input = JSON.stringify([{ a: 1 }, { b: 2 }]);
+    const result = dataParsing(input);
+    expect(result).toEqual([{ a: 1 }, { b: 2 }]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
 
-    // Mock provider (pass-through)
-    const MockProvider: React.FC<React.PropsWithChildren> = ({ children }) => <>{children}</>;
-    jest.mock('@wf/react-library', () => ({
-      __esModule: true,
-      ConfigContextProvider: MockProvider,
-    }));
+  test('parses a JSON string representing an object and wraps it in an array', () => {
+    const input = JSON.stringify({ a: 1 });
+    const result = dataParsing(input);
+    expect(result).toEqual([{ a: 1 }]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
 
-    // Load entry after mocks
-    jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      require('./main');
-    });
+  test('returns empty array for JSON that is not object/array (e.g., string/number/bool)', () => {
+    expect(dataParsing(JSON.stringify('text'))).toEqual([]);
+    expect(dataParsing(JSON.stringify(123))).toEqual([]);
+    expect(dataParsing(JSON.stringify(true))).toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
 
-    const rootEl = document.getElementById('root');
-    expect(createRootMock).toHaveBeenCalledTimes(1);
-    expect(createRootMock).toHaveBeenCalledWith(rootEl);
+  test('returns empty array and logs for unsupported non-string, non-object, non-array inputs', () => {
+    const result = dataParsing(42 as unknown);
+    expect(result).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith('Unsupported data type:', 42);
+  });
 
-    expect(renderMock).toHaveBeenCalledTimes(1);
-    const renderedTree = renderMock.mock.calls[0][0];
+  test('returns empty array and logs when JSON.parse throws for invalid JSON string', () => {
+    const result = dataParsing('{ invalid json }');
+    expect(result).toEqual([]);
+    // first arg message should start with "Error parsing data:"
+    const [firstCallMsg] = (console.error as jest.Mock).mock.calls[0] || [];
+    expect(String(firstCallMsg)).toContain('Error parsing data');
+  });
 
-    // <StrictMode>
-    expect(React.isValidElement(renderedTree)).toBe(true);
-    expect(renderedTree.type).toBe(React.StrictMode);
-
-    // <ConfigContextProvider>
-    const providerEl = renderedTree.props.children;
-    const { ConfigContextProvider } = jest.requireMock('@wf/react-library');
-    expect(React.isValidElement(providerEl)).toBe(true);
-    expect(providerEl.type).toBe(ConfigContextProvider);
-
-    // <App/>
-    const appEl = providerEl.props.children;
-    const App = jest.requireMock('./App').default;
-    expect(React.isValidElement(appEl)).toBe(true);
-    expect(appEl.type).toBe(App);
-
-    // Do NOT assert AppMock invocation; React didn't reconcile the tree here.
+  test('returns empty array and logs for null/undefined inputs', () => {
+    expect(dataParsing(null as unknown)).toEqual([]);
+    expect(dataParsing(undefined as unknown)).toEqual([]);
+    // At least one Unsupported call should be recorded across the two invocations
+    expect((console.error as jest.Mock).mock.calls.some(c => String(c[0]).includes('Unsupported'))).toBe(true);
   });
 });
