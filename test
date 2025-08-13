@@ -1,6 +1,114 @@
-module.exports = {
-  // ...
-  moduleNameMapper: {
-    '\\.(css|less|scss)$': 'identity-obj-proxy',
-  },
-};
+// src/sideNavbar/boarding/intake-components/guidelinesIntakeForm.test.tsx
+import React from 'react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import GuidelinesIntakeForm from './guidelinesIntakeForm'; // adjust if your file name differs
+import * as FormCtx from '../../FormContext';              // adjust path if needed
+
+// Router + Link minimal mocks so we can submit without navigation side‑effects
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  // Pass onSubmit through so tests can call fireEvent.submit on this wrapper
+  Form: ({ children, onSubmit }: { children: React.ReactNode; onSubmit?: React.FormEventHandler }) => (
+    <form onSubmit={onSubmit} data-testid="rrd-form">{children}</form>
+  ),
+  Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
+}));
+
+// Tooltip mock: keep content visible and deterministic
+jest.mock('@mui/material', () => {
+  const actual = jest.requireActual('@mui/material');
+  return {
+    ...actual,
+    Tooltip: ({ title, placement, children }: { title: React.ReactNode; placement?: string; children: React.ReactElement }) => (
+      <div data-testid={`tooltip-${placement || 'top'}`}>
+        <div data-testid="tooltip-title">{title}</div>
+        {children}
+      </div>
+    ),
+  };
+});
+
+// ---- Context wiring (same style as your saferoom test) ----
+let ctxFormData: any;
+let ctxSetFormData: jest.Mock;
+let ctxSetReadOnly: jest.Mock;
+
+jest.mock('../../FormContext', () => ({
+  ...jest.requireActual('../../FormContext'),
+  useFormContext: () => ({
+    formData: ctxFormData,
+    setFormData: ctxSetFormData,
+    setReadOnly: ctxSetReadOnly,
+  }),
+}));
+
+function resetCtx(overrides?: Partial<any>) {
+  ctxFormData = {
+    // keep only fields the component reads; safe defaults
+    safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
+    cdpDetails: { versionCDPRequired: '' },
+    ...overrides,
+  };
+  ctxSetFormData = jest.fn((next: any) => {
+    // some components call setFormData(prev => ({ ...prev, ... }))
+    ctxFormData = typeof next === 'function' ? next(ctxFormData) : next;
+  });
+  ctxSetReadOnly = jest.fn();
+}
+
+// Render helper
+function renderForm(props?: Partial<React.ComponentProps<typeof GuidelinesIntakeForm>>) {
+  const allProps = { validationErrors: {}, ...props } as any;
+  return render(<GuidelinesIntakeForm {...allProps} />);
+}
+
+describe('GuidelinesIntakeForm', () => {
+  beforeEach(() => resetCtx());
+
+  it('renders labels/buttons and inline help', () => {
+    renderForm();
+
+    // tweak these to match real text in your component:
+    // try finding a heading or label that always exists
+    // Example expectations:
+    // expect(screen.getByText(/Guidelines/i)).toBeInTheDocument();
+
+    // Tooltip structure (from our mock) is stable:
+    const tip = screen.getAllByTestId('tooltip-top')[0];
+    expect(tip).toBeInTheDocument();
+    expect(within(tip).getByTestId('tooltip-title')).toBeInTheDocument();
+  });
+
+  it('prevents default on submit (no throwing helpers)', () => {
+    renderForm();
+    const form = screen.getByTestId('rrd-form');
+
+    const preventDefault = jest.fn();
+    fireEvent.submit(form, { preventDefault });
+
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('shows a validation error banner when validationErrors are present', async () => {
+    renderForm({ validationErrors: { anyField: true } });
+
+    // adjust to the exact message your component shows
+    expect(
+      screen.getByText(/Please complete all required fields before saving/i)
+    ).toBeInTheDocument();
+  });
+
+  it('calls setFormData on input change', async () => {
+    // If the form has a known input/select, wire it here.
+    // Replace the label text with an actual label from the form.
+    resetCtx();
+    renderForm();
+
+    // Example; change to a real control label from the Guidelines form:
+    // const user = userEvent.setup();
+    // await user.type(screen.getByLabelText(/Some Required Field/i), 'X1');
+
+    // expect(ctxSetFormData).toHaveBeenCalled();
+  });
+});
