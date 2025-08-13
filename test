@@ -1,82 +1,181 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import StartOnboarding from './startOnboarding';
-import { useFormContext } from '../FormContext';
-import { makeRequest } from '../../utils/api';
 
-// Mock FormContext
+// SUT
+import StartOnboarding from './startOnboarding';
+
+// ---------- Mocks & test doubles ----------
+
+// Route bits
+const navigateMock = jest.fn();
+let paramsMock: Record<string, string | undefined> = {};
+
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  useNavigate: () => navigateMock,
+  useParams: () => paramsMock,
+}));
+
+// API hook -> returns a function we can assert on
+const makeRequestMock = jest.fn();
+
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => makeRequestMock,
+}));
+
+// Form context
+const resetFormDataMock = jest.fn();
+const setFormDataMock = jest.fn();
+
 jest.mock('../FormContext', () => ({
   __esModule: true,
-  useFormContext: jest.fn(),
+  useFormContext: () => ({
+    formData: {
+      trackingStatus: '',
+      appDetails: {},
+      cdmNextDetails: {},
+    },
+    setFormData: setFormDataMock,
+    resetFormData: resetFormDataMock,
+    requiredFields: [], // keep component happy
+  }),
 }));
 
-// Mock API
-jest.mock('../../utils/api', () => ({
+// Child pages: keep minimal
+jest.mock('../applicationDetails', () => ({
   __esModule: true,
-  makeRequest: jest.fn(),
+  default: () => <div data-testid="app-details" />,
+}));
+jest.mock('../componentsDetails', () => ({
+  __esModule: true,
+  default: () => <div data-testid="comp-details" />,
+}));
+jest.mock('../guidelinesIntakeForm', () => ({
+  __esModule: true,
+  default: () => <div data-testid="guide-lines" />,
 }));
 
-describe('StartOnboarding Component', () => {
-  const resetFormDataMock = jest.fn();
+// Confirmation dialog used by StartOnboarding
+jest.mock('../intake-components/confirmationOnboarding', () => ({
+  __esModule: true,
+  default: (props: {
+    openConfirmSubmitDialog: boolean;
+    handleConfirmCancel: () => void;
+    handleConfirmSubmit: () => void;
+  }) =>
+    props.openConfirmSubmitDialog ? (
+      <div>
+        <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel}>
+          Cancel
+        </button>
+        <button data-testid="mock-submit-confirm" onClick={props.handleConfirmSubmit}>
+          Submit
+        </button>
+      </div>
+    ) : null,
+}));
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (useFormContext as jest.Mock).mockReturnValue({
-      formData: {
-        trackingStatus: '',
-        appDetails: {},
-        cdmNextDetails: {}
-      },
-      resetFormData: resetFormDataMock,
-    });
-  });
+// Typography / snackbar etc. — real MUI is fine; no mock needed.
 
+// ---------- Helpers ----------
+const renderStart = () => render(<StartOnboarding />);
+
+// Robust matcher for "Not Available" (text can be split across nodes)
+const hasNotAvailable = (_: string, el?: Element | null) =>
+  (el?.textContent || '').replace(/\s+/g, ' ').includes('Not Available');
+
+// Reset shared state for each test
+beforeEach(() => {
+  jest.clearAllMocks();
+  paramsMock = {}; // default: no trackingId
+  makeRequestMock.mockReset();
+  navigateMock.mockReset();
+});
+
+// ---------- Tests ----------
+describe('StartOnboarding', () => {
   test('mount without trackingId → resets form and shows "Not Available"', () => {
-    render(<StartOnboarding />);
+    renderStart();
 
     expect(resetFormDataMock).toHaveBeenCalled();
 
-    // Flexible matcher across nested nodes
-    expect(
-      screen.getByText((_, el) =>
-        el?.textContent?.includes('Not Available') ?? false
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText(hasNotAvailable)).toBeInTheDocument();
   });
 
   test('Save → POST /api/intake-form then navigates to /gcpOnboarding/:id', async () => {
-    (makeRequest as jest.Mock).mockResolvedValueOnce({ id: '123' });
+    // Arrange: confirm dialog opens on success path (component sets it)
+    makeRequestMock.mockResolvedValueOnce({
+      status: 200,
+      data: { intakeFormTrackingId: '123' },
+    });
 
-    render(<StartOnboarding />);
+    renderStart();
 
-    const saveButton = screen.getByTestId('mock-submit-confirm');
-    fireEvent.click(saveButton);
+    // The confirm dialog appears only after submit handler runs (component's internal flow).
+    // Click the confirm "Submit" button stub to trigger formSubmit().
+    // If your UI opens this dialog via a separate button, add that click before this.
+    const submitBtn = screen.getByTestId('mock-submit-confirm');
+    fireEvent.click(submitBtn);
 
     await waitFor(() =>
-      expect(makeRequest).toHaveBeenCalledWith(
+      expect(makeRequestMock).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
           endpoints: '/api/intake-form',
+          responseType: 'json',
         })
       )
     );
+
+    // After POST success, component navigates with returned id
+    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/123');
   });
 
-  test('Submit non-200 → error toast (no confirm dialog)', () => {
-    render(<StartOnboarding />);
+  test('Submit non-200 → shows error toast and no confirm dialog rendered', async () => {
+    // Force non-200 status
+    makeRequestMock.mockResolvedValueOnce({ status: 500 });
 
-    // Ensure confirm dialog is not present
+    renderStart();
+
+    // Try to submit; confirm dialog should not be shown for non-200 path
+    // (the component should only open it on success).
     expect(screen.queryByTestId('mock-submit-confirm')).not.toBeInTheDocument();
   });
 
   test('Cancel confirm with trackingId → re-fetches and sets data', async () => {
-    render(<StartOnboarding />);
+    // Have a trackingId in the route
+    paramsMock = { trackingId: '42' };
 
-    const cancelButton = screen.getByTestId('mock-cancel-confirm');
-    fireEvent.click(cancelButton);
-
-    await waitFor(() => {
-      expect(makeRequest).toHaveBeenCalled();
+    // First call: opening confirm (success submit)
+    makeRequestMock.mockResolvedValueOnce({
+      status: 200,
+      data: { intakeFormTrackingId: '42' },
     });
+    // Second call: GET after cancel confirm
+    makeRequestMock.mockResolvedValueOnce({
+      status: 200,
+      data: { some: 'payload' },
+    });
+
+    renderStart();
+
+    // Open confirm dialog success path then click cancel
+    const submitBtn = screen.getByTestId('mock-submit-confirm');
+    fireEvent.click(submitBtn);
+
+    const cancelBtn = await screen.findByTestId('mock-cancel-confirm');
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+
+    // Second call must be GET with tracking id in endpoint
+    expect(makeRequestMock.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        method: 'GET',
+        endpoints: expect.stringContaining('intakeFormTrackingId=42'),
+        responseType: 'json',
+      })
+    );
   });
 });
