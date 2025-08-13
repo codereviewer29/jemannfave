@@ -4,19 +4,20 @@ import React from 'react';
 describe('main.tsx entry', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="root"></div>';
-    jest.resetModules();
+    jest.resetModules(); // why: reload main.tsx with fresh mocks
   });
 
   test('creates a root and renders App inside ConfigContextProvider + StrictMode', () => {
-    // Mock CSS from node_modules to avoid transform/parsing
+    // Mock CSS from node_modules to avoid parsing
     jest.mock('bootstrap/dist/css/bootstrap.min.css', () => ({}), { virtual: true });
 
-    // Mock react-dom/client
+    // Mock react-dom/client (default export used in main.tsx)
     const renderMock = jest.fn();
     const createRootMock = jest.fn(() => ({ render: renderMock }));
     jest.mock('react-dom/client', () => ({
       __esModule: true,
-      createRoot: createRootMock,
+      default: { createRoot: createRootMock }, // << crucial: default import path
+      createRoot: createRootMock,              // also expose named for completeness
     }));
 
     // Mock App
@@ -33,7 +34,7 @@ describe('main.tsx entry', () => {
       ConfigContextProvider: MockProvider,
     }));
 
-    // Load entry after mocks are in place
+    // Load entry after mocks
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       require('./main');
