@@ -1,6 +1,6 @@
 // src/sideNavbar/inbox.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { within } from '@testing-library/dom';
 
 // --- Lightweight stubs ---
@@ -110,15 +110,20 @@ describe('Inbox', () => {
     const statusSelect = combos.find((el) => within(el).queryByText(/^All$/));
     expect(statusSelect).toBeTruthy();
 
-    fireEvent.mouseDown(statusSelect!); // open menu
+    fireEvent.mouseDown(statusSelect!); // open the status menu
 
+    // Options appear in a listbox portal
     const listbox = await screen.findByRole('listbox');
     const inProgress = within(listbox).getByText(/In Progress/i);
     fireEvent.click(inProgress);
 
-    await act(async () => {});
-    expect(screen.queryByText('Completed')).not.toBeInTheDocument();
-    expect(screen.getByText('In Progress')).toBeInTheDocument();
+    // Wait for the menu to close so "Completed" menu item isn't matched
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
+
+    // Assert against table content only
+    const table = await screen.findByRole('table');
+    expect(within(table).queryByText('Completed')).not.toBeInTheDocument();
+    expect(within(table).getByText('In Progress')).toBeInTheDocument();
   });
 
   test('sorts by appID column toggling asc/desc', async () => {
