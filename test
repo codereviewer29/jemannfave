@@ -1,13 +1,41 @@
-// src/sideNavbar/inbox.test.tsx
+// src/sideNavbar/boarding/startOnboarding.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import { within } from '@testing-library/dom';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// --- Lightweight stubs ---
-jest.mock('../home/CustomNavigation', () => () => <div data-testid="nav" />);
+// ---------- Mocks ----------
+const setFormDataMock = jest.fn();
+const resetFormDataMock = jest.fn();
+let requiredFieldsMock: string[] = [];
+let formDataMock: any = {
+  trackingStatus: '', // not "Completed" so buttons enabled
+  appDetails: {},
+  cdmNextDetails: {},
+};
+const initialFormDataMock = { trackingStatus: '', appDetails: {}, cdmNextDetails: {} };
 
+jest.mock('../FormContext', () => ({
+  __esModule: true,
+  useFormContext: () => ({
+    formData: formDataMock,
+    setFormData: setFormDataMock,
+    resetFormData: resetFormDataMock,
+    requiredFields: requiredFieldsMock,
+  }),
+  initialFormData: initialFormDataMock,
+}));
+
+const makeRequest = jest.fn();
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
+
+const navigateMock = jest.fn();
+let paramsMock: Record<string, string | undefined> = {};
 jest.mock('react-router-dom', () => ({
   __esModule: true,
+  useNavigate: () => navigateMock,
+  useParams: () => paramsMock,
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
     <a href={to} data-to={to}>
       {children}
@@ -15,164 +43,174 @@ jest.mock('react-router-dom', () => ({
   ),
 }));
 
-jest.mock('@mui/icons-material/Info', () => () => <span data-testid="info-icon" />);
-jest.mock('@mui/icons-material/PictureAsPdf', () => () => <span data-testid="pdf-icon" />);
+jest.mock('../components/applicationDetails', () => () => <div data-testid="app-details" />);
+jest.mock('../components/componentsDetails', () => () => <div data-testid="components-details" />);
+jest.mock('../intake-components/guidelinesIntakeForm', () => () => (
+  <div data-testid="guidelines" />
+));
+jest.mock('../../home/CustomNavigation', () => () => <div data-testid="nav" />);
 
-// API hook
-const makeRequest = jest.fn();
-jest.mock('../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest }),
-}));
+// Expose dialog handlers as buttons we can click in tests
+jest.mock('../intake-components/cancelOnboarding', () => (props: any) => (
+  <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel} />
+));
+jest.mock('../intake-components/confirmationOnboarding', () => (props: any) => (
+  <button data-testid="mock-submit-confirm" onClick={props.handleConfirmSubmit} />
+));
 
-// jsdom shim (component uses it when creating download URL)
-Object.defineProperty(global, 'URL', {
-  value: { createObjectURL: jest.fn(() => 'blob://url') },
-  writable: true,
-});
+// ---------- SUT ----------
+import StartOnboarding from './startOnboarding';
 
-import Inbox from './inbox';
+// Small helpers
+const click = (el: HTMLElement) => fireEvent.click(el);
 
-// --- Test data (NOTE: appID as string; env as array) ---
-const apiData = {
-  data: {
-    intakeFormList: [
-      {
-        intakeFormTrackingId: 101,
-        appID: 'APP-A',
-        env: ['SIT'],
-        status: 'Completed',
-        enablementJira: 'EN-1',
-        actJira: 'AC-1',
-        cdmNextJira: 'CDM-1',
-        lastModified: 'x',
-        modifiedOn: '2025-01-10T10:00:00Z', // newer
-      },
-      {
-        intakeFormTrackingId: 55,
-        appID: 'APP-B',
-        env: ['UAT'],
-        status: 'In_Draft',
-        enablementJira: 'EN-2',
-        actJira: 'AC-2',
-        cdmNextJira: 'CDM-2',
-        lastModified: 'y',
-        modifiedOn: '2024-12-30T08:00:00Z', // older
-      },
-    ],
-  },
-};
-
-function setupSuccess() {
-  makeRequest.mockResolvedValueOnce(apiData);
-}
-function setupFailure() {
-  makeRequest.mockRejectedValueOnce(new Error('boom'));
-}
-function renderInbox() {
-  return render(<Inbox />);
-}
-
-describe('Inbox', () => {
+describe('StartOnboarding', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (console.error as jest.Mock | undefined)?.mockClear?.();
-    document.body.innerHTML = '';
+    paramsMock = {};
+    requiredFieldsMock = [];
+    formDataMock = { trackingStatus: '', appDetails: {}, cdmNextDetails: {} };
   });
 
-  test('loads data, sorts by modifiedOn desc, and renders rows', async () => {
-    setupSuccess();
-    renderInbox();
+  test('mount with trackingId → fetches data and shows tracking id', async () => {
+    paramsMock = { trackingId: '123' };
+    makeRequest.mockResolvedValueOnce({ data: { foo: 'bar' }, status: 200 });
 
-    const appA = await screen.findByText('APP-A');
-    expect(appA).toBeInTheDocument();
-    expect(screen.getByText(/Completed/)).toBeInTheDocument();
-    expect(screen.getByText(/In Progress/)).toBeInTheDocument(); // In_Draft → In Progress
-  });
+    render(<StartOnboarding />);
 
-  test('filters by search keyword (uses env so it is robust)', async () => {
-    setupSuccess();
-    renderInbox();
-
-    const search = await screen.findByLabelText(/Search/i);
-    fireEvent.change(search, { target: { value: 'UAT' } });
-
-    await screen.findByText('APP-B'); // wait for filtered render
-    expect(screen.queryByText('APP-A')).not.toBeInTheDocument();
-  });
-
-  test('filters by status (In Progress includes In_Draft)', async () => {
-    setupSuccess();
-    renderInbox();
-
-    // There are TWO comboboxes (status + pagination). Pick the one that shows "All".
-    const combos = await screen.findAllByRole('combobox');
-    const statusSelect = combos.find((el) => within(el).queryByText(/^All$/));
-    expect(statusSelect).toBeTruthy();
-
-    fireEvent.mouseDown(statusSelect!); // open the status menu
-
-    // Options appear in a listbox portal
-    const listbox = await screen.findByRole('listbox');
-    const inProgress = within(listbox).getByText(/In Progress/i);
-    fireEvent.click(inProgress);
-
-    // Wait for the menu to close so "Completed" menu item isn't matched
-    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
-
-    // Assert against table content only
-    const table = await screen.findByRole('table');
-    expect(within(table).queryByText('Completed')).not.toBeInTheDocument();
-    expect(within(table).getByText('In Progress')).toBeInTheDocument();
-  });
-
-  test('sorts by appID column toggling asc/desc', async () => {
-    setupSuccess();
-    renderInbox();
-
-    const header = await screen.findByText('APP ID');
-    fireEvent.click(header); // asc ⇒ APP-A then APP-B
-    let rowsText = screen.getAllByRole('row').map((r) => r.textContent || '');
-    expect(rowsText.join(' ')).toMatch(/APP-A[\s\S]*APP-B/);
-
-    fireEvent.click(header); // desc ⇒ APP-B then APP-A
-    rowsText = screen.getAllByRole('row').map((r) => r.textContent || '');
-    expect(rowsText.join(' ')).toMatch(/APP-B[\s\S]*APP-A/);
-  });
-
-  test('download PDF for Completed row triggers blob request', async () => {
-    setupSuccess();
-    // second call is the blob download
-    makeRequest.mockResolvedValueOnce({ data: new Blob(['%PDF'], { type: 'application/pdf' }) });
-
-    renderInbox();
-
-    const completedCell = await screen.findByText('Completed');
-    const rowEl = completedCell.closest('tr');
-    expect(rowEl).not.toBeNull();
-
-    const clickableSpans = Array.from(rowEl!.querySelectorAll('span')).filter((el) =>
-      (el.getAttribute('style') || '').includes('cursor: pointer'),
-    );
-    expect(clickableSpans.length).toBeGreaterThan(0);
-
-    fireEvent.click(clickableSpans[0]);
-
+    await waitFor(() => expect(makeRequest).toHaveBeenCalledTimes(1));
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'GET',
-        endpoints: expect.stringContaining('/api/download-pdf'),
-        responseType: 'blob',
+        endpoints: expect.stringContaining('/api/intake-form?intakeFormTrackingId=123'),
+        responseType: 'json',
       }),
     );
+    expect(setFormDataMock).toHaveBeenCalledWith({ foo: 'bar' });
+
+    expect(screen.getByText(/Intake Tracking ID/i)).toBeInTheDocument();
+    expect(screen.getByText('123')).toBeInTheDocument();
   });
 
-  test('logs when fetch fails', async () => {
-    setupFailure();
-    renderInbox();
-    await act(async () => {});
-    expect((console.error as jest.Mock).mock.calls.some((c) => /Error/.test(String(c[0])))).toBe(
-      true,
+  test('mount with no trackingId → resets form and shows "Not Available"', async () => {
+    paramsMock = {};
+    render(<StartOnboarding />);
+    expect(resetFormDataMock).toHaveBeenCalled();
+    expect(screen.getByText(/Not Available/i)).toBeInTheDocument();
+  });
+
+  test('Save → POST /api/intake-form then navigates to /gcpOnboarding/:id', async () => {
+    paramsMock = {}; // no fetch on mount
+    makeRequest.mockResolvedValueOnce({
+      data: { intakeFormTrackingId: 987 },
+      status: 200,
+    });
+
+    render(<StartOnboarding />);
+
+    click(screen.getByRole('button', { name: /Save/i }));
+    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'POST',
+        endpoints: '/api/intake-form',
+        responseType: 'json',
+        body: expect.any(Object),
+      }),
     );
+    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/987');
+  });
+
+  test('getFormData non-200 → shows error toast', async () => {
+    paramsMock = { trackingId: '555' };
+    makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
+
+    render(<StartOnboarding />);
+
+    // Toast appears with error content
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert').innerHTML).toMatch(/Error has occurred while fetching Intake Form/i);
+  });
+
+  test('Submit invalid → shows validation toast and does not hit submit API', async () => {
+    paramsMock = {};
+    // Require a field that is missing in formDataMock
+    requiredFieldsMock = ['appDetails.name'];
+    render(<StartOnboarding />);
+
+    click(screen.getByRole('button', { name: /Submit/i }));
+
+    // Validation toast is shown
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert').innerHTML).toMatch(/Please fill in all required fields/i);
+
+    // No submit API call should be made
+    expect(
+      makeRequest.mock.calls.some((c) => String(c[0]?.endpoints).includes('/api/submit-intake-form')),
+    ).toBe(false);
+  });
+
+  test('Submit valid → POST /api/submit-intake-form, show success toast, confirm navigates to /inbox', async () => {
+    paramsMock = {};
+    requiredFieldsMock = []; // no missing fields
+    makeRequest.mockResolvedValueOnce({
+      data: { intakeFormTrackingId: 4321 },
+      status: 200,
+    });
+
+    render(<StartOnboarding />);
+
+    click(screen.getByRole('button', { name: /Submit/i }));
+
+    await waitFor(() =>
+      expect(
+        makeRequest.mock.calls.some((c) =>
+          String(c[0]?.endpoints).includes('/api/submit-intake-form'),
+        ),
+      ).toBe(true),
+    );
+
+    // Success toast contains the id
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert').innerHTML).toMatch(/submitted succes?fully/i);
+    expect(screen.getByRole('alert').innerHTML).toMatch(/4321/);
+
+    // Confirm submit (via mocked dialog)
+    click(screen.getByTestId('mock-submit-confirm'));
+    expect(navigateMock).toHaveBeenCalledWith('/inbox');
+  });
+
+  test('Cancel flow with trackingId → loads existing data again on confirm', async () => {
+    paramsMock = { trackingId: '99' };
+    makeRequest.mockResolvedValueOnce({ data: { a: 1 }, status: 200 }); // initial mount GET
+    makeRequest.mockResolvedValueOnce({ data: { a: 2 }, status: 200 }); // confirm-cancel GET
+
+    render(<StartOnboarding />);
+
+    // Open cancel (click Cancel button), then confirm via mocked dialog button
+    click(screen.getByRole('button', { name: /^Cancel$/i }));
+    click(screen.getByTestId('mock-cancel-confirm'));
+
+    await waitFor(() => expect(makeRequest).toHaveBeenCalledTimes(2));
+    expect(setFormDataMock).toHaveBeenCalledWith({ a: 2 });
+  });
+
+  test('Cancel flow without trackingId → resets to initialFormData on confirm', async () => {
+    paramsMock = {};
+    render(<StartOnboarding />);
+
+    click(screen.getByRole('button', { name: /^Cancel$/i }));
+    click(screen.getByTestId('mock-cancel-confirm'));
+
+    expect(setFormDataMock).toHaveBeenCalledWith(initialFormDataMock);
+  });
+
+  test('Buttons disabled when trackingStatus === "Completed"', () => {
+    formDataMock = { ...formDataMock, trackingStatus: 'Completed' };
+    render(<StartOnboarding />);
+
+    expect(screen.getByRole('button', { name: /Save/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Submit/i })).toBeDisabled();
   });
 });
