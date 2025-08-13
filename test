@@ -1,9 +1,9 @@
-// src/sideNavbar/inbox.test.tsx  -- only the "download PDF" test changed below
+// src/sideNavbar/inbox.test.tsx
 import React from 'react';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
+// --- mocks (unchanged) ---
 jest.mock('../home/CustomNavigation', () => () => <div data-testid="nav" />);
-
 jest.mock('react-router-dom', () => ({
   __esModule: true,
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
@@ -12,7 +12,6 @@ jest.mock('react-router-dom', () => ({
     </a>
   ),
 }));
-
 jest.mock('@mui/icons-material/Info', () => () => <span data-testid="info-icon" />);
 jest.mock('@mui/icons-material/PictureAsPdf', () => () => <span data-testid="pdf-icon" />);
 
@@ -22,10 +21,17 @@ jest.mock('../services/useApiService', () => ({
   default: () => ({ makeRequest }),
 }));
 
-const createObjectURLSpy = jest.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob://url');
+// --- FIX: define createObjectURL mock BEFORE importing the SUT ---
+const createObjectURLMock = jest.fn(() => 'blob://url');
+Object.defineProperty(global, 'URL', {
+  // why: provide a minimal URL object with createObjectURL for JSDOM
+  value: { createObjectURL: createObjectURLMock },
+  writable: true,
+});
 
 import Inbox from './inbox';
 
+// --- test data & helpers (unchanged) ---
 const apiData = {
   data: {
     intakeFormList: [
@@ -120,8 +126,9 @@ describe('Inbox', () => {
     expect(rowsText.join(' ')).toMatch(/APP-B[\s\S]*APP-A/);
   });
 
-  test('download PDF only for Completed rows triggers blob request and link click', async () => {
+  test('download PDF only for Completed rows triggers blob request and object URL creation', async () => {
     setupSuccess();
+    // blob response for download
     makeRequest.mockResolvedValueOnce({ data: new Blob(['%PDF'], { type: 'application/pdf' }) });
 
     renderInbox();
@@ -130,7 +137,7 @@ describe('Inbox', () => {
     const rowEl = completedCell.closest('tr');
     expect(rowEl).not.toBeNull();
 
-    // FIX: avoid getAllByText matcher; filter spans by style instead
+    // Find clickable <span style="cursor: pointer">
     const clickableSpans = Array.from(rowEl!.querySelectorAll('span')).filter((el) =>
       (el.getAttribute('style') || '').includes('cursor: pointer'),
     );
@@ -145,7 +152,7 @@ describe('Inbox', () => {
         responseType: 'blob',
       }),
     );
-    expect(createObjectURLSpy).toHaveBeenCalled();
+    expect(createObjectURLMock).toHaveBeenCalled();
   });
 
   test('logs when fetch fails', async () => {
