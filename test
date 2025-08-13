@@ -2,10 +2,10 @@
 import { render } from '@testing-library/react';
 import React from 'react';
 
-// Capture the Template props (so we can read config)
+// Capture Template props
 const mockTemplate = jest.fn();
 
-// Mock the WF library (Template shell + helpers)
+// ---- Mock WF library shell + helpers ----
 jest.mock('@wf/react-library', () => ({
   __esModule: true,
   isNotEmpty: (v: unknown) =>
@@ -20,18 +20,18 @@ jest.mock('@wf/react-library', () => ({
     },
   }),
   Template: (props: any) => {
-    // why: capture the config passed by App without rendering the real shell
+    // why: record the config App passes to the shell
     mockTemplate(props);
     return <div data-testid="template" />;
   },
 }));
 
-// Default appConfiguration mock; individual tests will replace via jest.doMock
+// Default buildName; each test can replace with jest.doMock
 jest.mock('./app/config/appConfiguration.json', () => ({
   buildName: 'RELEASE :1.2.3',
 }));
 
-// --- Route component stubs (keep them featherweight) ---
+// ---- Route component stubs ----
 jest.mock('./sideNavbar/boarding/applicationDetails', () => () => <div />);
 jest.mock('./sideNavbar/boarding/actDetails', () => () => <div />);
 jest.mock('./sideNavbar/boarding/componentsDetails', () => () => <div />);
@@ -44,30 +44,22 @@ jest.mock('./gcp.gath/gcpProjects', () => () => <div />);
 jest.mock('./buildInventory/inventory/Inventory', () => () => <div />);
 jest.mock('./buildInventory/inventory-dashboard/inventory-dashboard', () => () => <div />);
 
-// --- Providers (return children directly) ---
+// ---- Providers (return children) ----
 jest.mock('./provision/ProvisionContext', () => ({
   ProvisionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
-// Handle both possible paths/cases for the form context
-jest.mock('./formContext', () => ({
-  FormProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 jest.mock('./sideNavbar/boarding/FormContext', () => ({
   FormProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-// --- Router bits used by App ---
+// ---- Router bits used in App ----
 jest.mock('react-router-dom', () => ({
   __esModule: true,
   Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,
   useLocation: () => ({ pathname: '/' }),
 }));
 
-/**
- * Render App in an isolated module context (so jest.doMock for appConfiguration applies).
- * We intentionally avoid jest.resetModules() here to retain our top-level mocks above.
- */
+// Helper: render App fresh so per-test mocks apply
 function renderFreshAppAndGetConfig() {
   let config: any;
   jest.isolateModules(() => {
@@ -79,13 +71,12 @@ function renderFreshAppAndGetConfig() {
   return config as Record<string, any>;
 }
 
-describe('App → passes correct Template config', () => {
+describe('App → Template config', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   test('full config with parsed footer version from buildName', () => {
-    // ensure baseline buildName
     jest.doMock('./app/config/appConfiguration.json', () => ({
       buildName: 'RELEASE :1.2.3',
     }));
@@ -94,12 +85,13 @@ describe('App → passes correct Template config', () => {
 
     // app
     expect(config.app).toEqual({
+      appId: 'apmf',
       appName: 'Google Cloud Platform',
       componentName: 'apmf-Google Cloud Platform',
       description: '',
       version: '1.0.0',
       acin: 'APMF-ARIOBF',
-      achm: 'ARIOBF',
+      cin: 'ARIOBF',
     });
 
     // theme/header/footer
@@ -118,9 +110,17 @@ describe('App → passes correct Template config', () => {
 
       { name: 'inbox', path: '/inbox', element: expect.any(Object) },
       { name: 'gcpOnboarding', path: '/gcpOnboarding', element: expect.any(Object) },
-      { name: 'gcpOnboardingTrackingId', path: '/gcpOnboarding/trackingId', element: expect.any(Object) },
+      {
+        name: 'gcpOnboardingTrackingId',
+        path: '/gcpOnboarding/trackingId',
+        element: expect.any(Object),
+      },
 
-      { name: 'Provision Details', path: '/provisions/:appId/environment', element: expect.any(Object) },
+      {
+        name: 'Provision Details',
+        path: '/provisions/:appId/environment',
+        element: expect.any(Object),
+      },
       { name: 'Provision List', path: '/provision', element: expect.any(Object) },
 
       { name: 'GCP Projects', path: '/gcpProjects', element: expect.any(Object) },
