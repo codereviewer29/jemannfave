@@ -1,11 +1,59 @@
-// __mocks__/@wf/react-library.ts
-import React from 'react';
+// jest.config.js
+module.exports = {
+  // Use ts-jest with ESM support for TypeScript + ESM dependencies
+  preset: 'ts-jest/presets/js-with-ts-esm',
+  testEnvironment: 'jsdom',
 
-export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
-export const useConfig = () => ({ apiBaseUrl: 'http://localhost' });
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
 
-export const Template = ({ config }: any) => (
-  <div data-testid="template-mock">
-    <div data-testid="header">{config?.header?.appName ?? 'App'}</div>
-  </div>
-);
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
+
+  transform: {
+    '^.+\\.[tj]sx?$': 'ts-jest',
+    '.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform',
+  },
+
+  // Allowlist @mui and crypto-es so Jest will transform them
+  transformIgnorePatterns: ['/node_modules/(?!(@mui|crypto-es)/)'],
+
+  // Treat TS files as ESM in Jest
+  extensionsToTreatAsEsm: ['.ts', '.tsx'],
+
+  globals: {
+    'ts-jest': {
+      useESM: true,
+      tsconfig: 'tsconfig.jest.json', // create this small config for test if possible
+    },
+  },
+
+  // Inline handling of CSS and static asset imports (no extra files)
+  moduleNameMapper: {
+    '\\.(css|styl|less|sass|scss)$': 'identity-obj-proxy',
+    '\\.(gif|ttf|eot|svg|png|jpe?g|webp)$': 'identity-obj-proxy',
+  },
+
+  testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
+  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
+};
+
+// tsconfig.json  (ONLY if you prefer not to create tsconfig.jest.json)
+ {
+   "compilerOptions": {
+-    "target": "es5",
++    "target": "ES2020",            // safer for ESM in tests
+     "module": "esnext",
+-    "moduleResolution": "node",
++    "moduleResolution": "NodeNext",
+     "esModuleInterop": true,
+     "allowSyntheticDefaultImports": true,
+     "isolatedModules": true,
+     "jsx": "react-jsx"
+   }
+ }
+// package.json (optional quality-of-life)
+ {
+   "scripts": {
+-    "test": "rimraf coverage && jest --coverage"
++    "test": "rimraf coverage && jest --coverage --runInBand"
+   }
+ }
