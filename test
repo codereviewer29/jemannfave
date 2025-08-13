@@ -1,3 +1,38 @@
+// jest.config.js  (replace file with this)
+module.exports = {
+  preset: 'ts-jest/presets/js-with-ts-esm',
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
+
+  transform: {
+    '^.+\\.[tj]sx?$': 'ts-jest',
+    '.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform'
+  },
+
+  // ⬅️ Key: transform ESM deps from node_modules
+  transformIgnorePatterns: ['/node_modules/(?!(@mui|crypto-es)/)'],
+
+  // TS files treated as ESM in Jest
+  extensionsToTreatAsEsm: ['.ts', '.tsx'],
+
+  globals: {
+    'ts-jest': {
+      useESM: true,
+      tsconfig: 'tsconfig.json' // <-- use your existing tsconfig
+    }
+  },
+
+  // No extra mock files needed
+  moduleNameMapper: {
+    '\\.(css|styl|less|sass|scss)$': 'identity-obj-proxy',
+    '\\.(gif|ttf|eot|svg|png|jpe?g|webp)$': 'identity-obj-proxy'
+  },
+
+  testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
+  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*']
+};
+// tsconfig.json  (ensure these exact fields/locations)
 {
   "compilerOptions": {
     "target": "ES2020",
@@ -10,12 +45,14 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
 
-    "module": "NodeNext",
+    "module": "NodeNext",            // MUST match moduleResolution
     "moduleResolution": "NodeNext",
 
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+
+    "types": ["node", "jest", "@testing-library/jest-dom"]  // <-- inside compilerOptions
   },
   "include": [
     ".eslintrc.js",
@@ -23,6 +60,5 @@
     "webpack.config.development.js",
     "webpack.config.production.js",
     "src"
-  ],
-  "types": ["node", "jest", "@testing-library/jest-dom"]
+  ]
 }
