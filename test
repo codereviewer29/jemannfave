@@ -105,9 +105,12 @@ describe('Inbox', () => {
     setupSuccess();
     renderInbox();
 
-    // MUI Select renders as a combobox without accessible name in your DOM
-    const statusSelect = await screen.findByRole('combobox');
-    fireEvent.mouseDown(statusSelect); // open menu
+    // There are TWO comboboxes (status + pagination). Pick the one that shows "All".
+    const combos = await screen.findAllByRole('combobox');
+    const statusSelect = combos.find((el) => within(el).queryByText(/^All$/));
+    expect(statusSelect).toBeTruthy();
+
+    fireEvent.mouseDown(statusSelect!); // open menu
 
     const listbox = await screen.findByRole('listbox');
     const inProgress = within(listbox).getByText(/In Progress/i);
@@ -143,7 +146,6 @@ describe('Inbox', () => {
     const rowEl = completedCell.closest('tr');
     expect(rowEl).not.toBeNull();
 
-    // clickable <span style="cursor: pointer">
     const clickableSpans = Array.from(rowEl!.querySelectorAll('span')).filter((el) =>
       (el.getAttribute('style') || '').includes('cursor: pointer'),
     );
