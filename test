@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// ── FormContext mock (control state + required fields) ──────────────────────────
+// ── FormContext mock ───────────────────────────────────────────────────────────
 const setFormDataMock = jest.fn();
 const resetFormDataMock = jest.fn();
 let requiredFieldsMock: string[] = [];
@@ -39,13 +39,12 @@ jest.mock('react-router-dom', () => ({
   ),
 }));
 
-// ── Child stubs (keep view light; test container behavior) ─────────────────────
+// ── Lightweight stubs for children + dialogs + nav ────────────────────────────
 jest.mock('./components/applicationDetails', () => () => <div data-testid="app-details" />);
 jest.mock('./components/componentsDetails', () => () => <div data-testid="components-details" />);
 jest.mock('./intake-components/guidelinesIntakeForm', () => () => <div data-testid="guidelines" />);
 jest.mock('../../home/CustomNavigation', () => () => <div data-testid="nav" />);
 
-// Dialog stubs invoke callbacks via simple buttons (for test control)
 jest.mock('./intake-components/cancelOnboarding', () => (props: any) => (
   <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel} />
 ));
@@ -91,9 +90,9 @@ describe('StartOnboarding', () => {
 
     expect(resetFormDataMock).toHaveBeenCalled();
 
-    // Use element-level textContent to handle nested nodes
+    // Flexible matcher across nested nodes
     expect(
-      screen.getByText((_c, el) => !!el && el.textContent?.includes('Not Available') === true),
+      screen.getByText((_, el) => el?.textContent?.includes('Not Available') ?? false),
     ).toBeInTheDocument();
   });
 
@@ -105,16 +104,26 @@ describe('StartOnboarding', () => {
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
 
-    // Be tolerant to trailing slash and extra properties
+    // Runtime uses trailing slash; also assert body + responseType present
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'POST',
-        endpoints: '/api/intake-form/', // note the trailing slash from runtime
+        endpoints: '/api/intake-form/',
         responseType: 'json',
         body: expect.any(Object),
       }),
     );
     expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/987');
+  });
+
+  test('Save (network error) → logs error, no navigation', async () => {
+    // Throwing simulates fetch failure path (catch branch)
+    makeRequest.mockRejectedValueOnce(new Error('boom'));
+    render(<StartOnboarding />);
+
+    click(screen.getByRole('button', { name: /^Save$/i }));
+    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   test('getFormData non-200 → error toast', async () => {
@@ -136,6 +145,7 @@ describe('StartOnboarding', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.innerHTML).toMatch(/Please fill in all required fields/i);
 
+    // Ensure no submit call went out
     expect(
       makeRequest.mock.calls.some((c) =>
         String(c[0]?.endpoints).includes('/api/submit-intake-form'),
@@ -164,6 +174,20 @@ describe('StartOnboarding', () => {
 
     click(screen.getByTestId('mock-submit-confirm'));
     expect(navigateMock).toHaveBeenCalledWith('/inbox');
+  });
+
+  test('Submit non-200 → error toast (no confirm dialog)', async () => {
+    requiredFieldsMock = [];
+    makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
+
+    render(<StartOnboarding />);
+    click(screen.getByRole('button', { name: /^Submit$/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.innerHTML).toMatch(/Error has occurred while submitting Intake Form/i);
+
+    // ensure dialog confirm is not present (we stub it as a button)
+    expect(screen.queryByTestId('mock-submit-confirm')).not.toBeInTheDocument();
   });
 
   test('Cancel confirm with trackingId → re-fetches and sets data', async () => {
@@ -201,11 +225,14 @@ describe('StartOnboarding', () => {
   test('tabs switch content', () => {
     render(<StartOnboarding />);
 
+    // default Application tab visible
     expect(screen.getByTestId('app-details')).toBeInTheDocument();
 
+    // switch to Component Details
     fireEvent.click(screen.getByRole('button', { name: /Component Details/i }));
     expect(screen.getByTestId('components-details')).toBeInTheDocument();
 
+    // switch to Guide Lines
     fireEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
     expect(screen.getByTestId('guidelines')).toBeInTheDocument();
   });
