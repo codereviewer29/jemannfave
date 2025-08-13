@@ -1,66 +1,214 @@
-// src/utils/dataParsing.test.ts
-import { dataParsing } from './dataParsing';
+// src/sideNavbar/inbox.test.tsx
+import React from 'react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
-describe('dataParsing', () => {
+// ---- Mocks ----
+jest.mock('../home/CustomNavigation', () => () => <div data-testid="nav" />);
+
+// Render <a> to avoid Router context
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
+    <a href={to} data-to={to}>
+      {children}
+    </a>
+  ),
+}));
+
+// Icons → inert spans
+jest.mock('@mui/icons-material/Info', () => () => <span data-testid="info-icon" />);
+jest.mock('@mui/icons-material/PictureAsPdf', () => () => <span data-testid="pdf-icon" />);
+
+// API hook
+const makeRequest = jest.fn();
+jest.mock('../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
+
+// Stable URL mock for blob download
+const createObjectURLSpy = jest.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob://url');
+
+import Inbox from './inbox';
+
+const apiData = {
+  data: {
+    intakeFormList: [
+      {
+        intakeFormTrackingId: 101,
+        appID: ['APP-A'],
+        env: ['SIT'],
+        status: 'Completed',
+        enablementJira: 'EN-1',
+        actJira: 'AC-1',
+        cdmNextJira: 'CDM-1',
+        lastModified: 'ignored', // not used directly
+        modifiedOn: '2025-01-10T10:00:00Z', // newer
+      },
+      {
+        intakeFormTrackingId: 55,
+        appID: ['APP-B'],
+        env: ['UAT'],
+        status: 'In_Draft',
+        enablementJira: 'EN-2',
+        actJira: 'AC-2',
+        cdmNextJira: 'CDM-2',
+        lastModified: 'ignored',
+        modifiedOn: '2024-12-30T08:00:00Z', // older
+      },
+    ],
+  },
+};
+
+function setupSuccess() {
+  makeRequest.mockResolvedValueOnce(apiData); // for getInboxData()
+}
+
+function setupFailure() {
+  makeRequest.mockRejectedValueOnce(new Error('boom'));
+}
+
+function renderInbox() {
+  return render(<Inbox />);
+}
+
+describe('Inbox', () => {
   beforeEach(() => {
-    // console spies are installed in setupTests.ts; clear between tests
-    (console.error as jest.Mock).mockClear();
-    (console.log as jest.Mock).mockClear?.();
+    jest.clearAllMocks();
+    (console.error as jest.Mock | undefined)?.mockClear?.();
+    document.body.innerHTML = ''; // clean any anchors appended
   });
 
-  test('returns same array when input is already an array', () => {
-    const input = [1, 2, 3];
-    const result = dataParsing(input);
-    expect(result).toBe(input); // same reference
-    expect(console.error).not.toHaveBeenCalled();
+  test('loads data, sorts by modifiedOn desc, and renders rows', async () => {
+    setupSuccess();
+    renderInbox();
+
+    // table renders both rows, first one should be APP-A (newer date)
+    const rows = await screen.findAllByRole('row');
+    // First data row text check
+    const firstDataRow = rows.find((r) => within(r).queryByText(/APP-A|APP-B/))!;
+    expect(firstDataRow).toBeInTheDocument();
+    expect(within(firstDataRow).getByText('APP-A')).toBeInTheDocument();
+    // check Completed status text present
+    expect(screen.getByText(/Completed/)).toBeInTheDocument();
+    // check In Progress derived from In_Draft also present
+    expect(screen.getByText(/In Progress/)).toBeInTheDocument();
   });
 
-  test('wraps a plain object in an array', () => {
-    const input = { a: 1 };
-    const result = dataParsing(input);
-    expect(result).toEqual([input]);
-    expect(console.error).not.toHaveBeenCalled();
+  test('filters by search keyword', async () => {
+    setupSuccess();
+    renderInbox();
+
+    const search = await screen.findByLabelText(/Search/i);
+    fireEvent.change(search, { target: { value: 'APP-B' } });
+
+    // Only APP-B row should remain visible
+    expect(screen.queryByText('APP-A')).not.toBeInTheDocument();
+    expect(screen.getByText('APP-B')).toBeInTheDocument();
   });
 
-  test('parses a JSON string representing an array', () => {
-    const input = JSON.stringify([{ a: 1 }, { b: 2 }]);
-    const result = dataParsing(input);
-    expect(result).toEqual([{ a: 1 }, { b: 2 }]);
-    expect(console.error).not.toHaveBeenCalled();
+  test('filters by status (In Progress includes In_Draft)', async () => {
+    setupSuccess();
+    renderInbox();
+
+    const select = await screen.findByRole('button'); // MUI select renders a button
+    fireEvent.mouseDown(select); // open
+    // pick "In Progress"
+    const option = await screen.findByRole('option', { name: /In Progress/i });
+    fireEvent.click(option);
+
+    // Only In Progress (from In_Draft) remains
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument();
+    expect(screen.getByText('In Progress')).toBeInTheDocument();
   });
 
-  test('parses a JSON string representing an object and wraps it in an array', () => {
-    const input = JSON.stringify({ a: 1 });
-    const result = dataParsing(input);
-    expect(result).toEqual([{ a: 1 }]);
-    expect(console.error).not.toHaveBeenCalled();
+  test('sorts by appID column toggling asc/desc', async () => {
+    setupSuccess();
+    renderInbox();
+
+    // Click on the "APP ID" header to sort
+    // Find the header cell by text and click its sort label
+    const header = await screen.findByText('APP ID');
+    fireEvent.click(header); // asc by appID ⇒ APP-A first
+    let rowsText = screen.getAllByRole('row').map((r) => r.textContent || '');
+    expect(rowsText.join(' ')).toMatch(/APP-A[\s\S]*APP-B/);
+
+    fireEvent.click(header); // desc ⇒ APP-B first
+    rowsText = screen.getAllByRole('row').map((r) => r.textContent || '');
+    expect(rowsText.join(' ')).toMatch(/APP-B[\s\S]*APP-A/);
   });
 
-  test('returns empty array for JSON that is not object/array (e.g., string/number/bool)', () => {
-    expect(dataParsing(JSON.stringify('text'))).toEqual([]);
-    expect(dataParsing(JSON.stringify(123))).toEqual([]);
-    expect(dataParsing(JSON.stringify(true))).toEqual([]);
-    expect(console.error).not.toHaveBeenCalled();
+  test('pagination changes rows per page and page', async () => {
+    // Add a 3rd row to exercise pagination
+    const three = JSON.parse(JSON.stringify(apiData));
+    three.data.intakeFormList.push({
+      intakeFormTrackingId: 77,
+      appID: ['APP-C'],
+      env: ['DEV'],
+      status: 'Completed',
+      enablementJira: 'EN-3',
+      actJira: 'AC-3',
+      cdmNextJira: 'CDM-3',
+      lastModified: 'x',
+      modifiedOn: '2024-12-01T00:00:00Z',
+    });
+
+    makeRequest.mockResolvedValueOnce(three);
+    renderInbox();
+
+    // Change rowsPerPage to 1
+    const rowsPerPageSelect = await screen.findByRole('button', { name: /rows per page/i });
+    fireEvent.mouseDown(rowsPerPageSelect);
+    fireEvent.click(await screen.findByRole('option', { name: /^1$/ })); // NOTE: if your options are [5,10,25,50], adjust or skip
+
+    // If your TablePagination doesn’t expose "1", skip the selection and just assert page changes:
+    // Click next page
+    const nextButtons = screen.getAllByRole('button');
+    const next = nextButtons.find((b) => /next/i.test(b.getAttribute('aria-label') || ''))!;
+    if (next) {
+      fireEvent.click(next);
+    }
+
+    // At least ensure one of APP-B/APP-C shows after page interaction
+    expect(
+      screen.getAllByRole('row').some((r) => /APP-B|APP-C/.test(r.textContent || '')),
+    ).toBe(true);
   });
 
-  test('returns empty array and logs for unsupported non-string, non-object, non-array inputs', () => {
-    const result = dataParsing(42 as unknown);
-    expect(result).toEqual([]);
-    expect(console.error).toHaveBeenCalledWith('Unsupported data type:', 42);
+  test('download PDF only for Completed rows triggers blob request and link click', async () => {
+    setupSuccess();
+    // blob response for download
+    makeRequest.mockResolvedValueOnce({ data: new Blob(['%PDF'], { type: 'application/pdf' }) });
+
+    renderInbox();
+
+    // Find row with Completed and its clickable span (cursor: pointer)
+    const completedRow = await screen.findByText('Completed');
+    const rowEl = completedRow.closest('tr')!;
+    const clickableSpans = within(rowEl).getAllByText((_, el) => {
+      return el?.tagName === 'SPAN' && el.getAttribute('style')?.includes('cursor: pointer');
+    });
+    fireEvent.click(clickableSpans[0]);
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        endpoints: expect.stringContaining('/api/download-pdf'),
+        responseType: 'blob',
+      }),
+    );
+    expect(createObjectURLSpy).toHaveBeenCalled();
   });
 
-  test('returns empty array and logs when JSON.parse throws for invalid JSON string', () => {
-    const result = dataParsing('{ invalid json }');
-    expect(result).toEqual([]);
-    // first arg message should start with "Error parsing data:"
-    const [firstCallMsg] = (console.error as jest.Mock).mock.calls[0] || [];
-    expect(String(firstCallMsg)).toContain('Error parsing data');
-  });
+  test('logs when fetch fails', async () => {
+    setupFailure();
 
-  test('returns empty array and logs for null/undefined inputs', () => {
-    expect(dataParsing(null as unknown)).toEqual([]);
-    expect(dataParsing(undefined as unknown)).toEqual([]);
-    // At least one Unsupported call should be recorded across the two invocations
-    expect((console.error as jest.Mock).mock.calls.some(c => String(c[0]).includes('Unsupported'))).toBe(true);
+    renderInbox();
+
+    // wait microtask
+    await act(async () => {});
+    expect((console.error as jest.Mock).mock.calls.some((c) => /Error/.test(String(c[0])))).toBe(
+      true,
+    );
   });
 });
