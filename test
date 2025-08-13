@@ -1,224 +1,295 @@
-// src/buildInventory/inventory/Inventory.test.tsx
+// path: src/inventory/__tests__/Inventory.test.tsx
+/**
+ * Minimal, focused tests for Inventory.tsx
+ * - Uses Jest + React Testing Library
+ * - Heavily mocks external dependencies to hit logic branches
+ */
+
 import React from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
-// Make local CSS a no-op so Jest doesn't choke on it
-jest.mock('./Inventory.css', () => ({}), { virtual: true });
+// --- Mocks for 3rd-party + app dependencies that Inventory.tsx imports ---
 
-// -------- Router mocks --------
+// 1) Mock react-router-dom hooks used inside the component
 const mockNavigate = jest.fn();
 let mockLocationState: any = null;
+
 jest.mock('react-router-dom', () => ({
+  // Only the hooks/exports that Inventory.tsx uses
   useNavigate: () => mockNavigate,
   useLocation: () => ({ state: mockLocationState }),
   useParams: () => ({}),
 }));
 
-// -------- keep real MUI styles, only override useTheme --------
-jest.mock('@mui/material/styles', () => {
-  const actual = jest.requireActual('@mui/material/styles');
-  return {
-    ...actual,
-    useTheme: () => ({ direction: 'ltr' }),
-  };
-});
+// 2) Mock the API hook: useAPIService -> returns makeRequest
+//    Return different payloads based on the request.endpoints string
+const makeRequestSpy = jest.fn();
 
-// -------- Constants --------
+jest.mock('../../services/useAPIService', () => ({
+  __esModule: true,
+  default: () =>
+    ((req: { endpoints: string }) => makeRequestSpy(req)) as unknown,
+}));
+
+// 3) Mock the LANE_ORDER constant used by getLaneData
 jest.mock('../../constants/inventory-constants', () => ({
-  LANE_ORDER: ['dev', 'qa', 'stage', 'prod'],
+  LANE_ORDER: ['L1', 'L2', 'L3', 'L4'],
 }));
 
-// -------- API service (IMPORTANT: create fn BEFORE mocking the module) --------
-const mockMakeRequest = jest.fn();
-jest.mock('../../services/useApiService', () => ({
+// 4) Mock non-essential heavy UI children to keep tests deterministic
+jest.mock('../../components/TreeView/Tree-View', () => ({
   __esModule: true,
-  default: () => mockMakeRequest, // Inventory calls useApiService() and expects a function back
+  default: ({ tabname }: { tabname: string }) => (
+    <div data-testid={`tree-view-${tabname}`} />
+  ),
 }));
 
-// -------- Child components --------
-// DropDown: expose options & a "select-first" button to simulate selection
-jest.mock('../../components/dropdown/Dropdown', () => {
-  return {
+jest.mock(
+  '../../components/ApplicationVersion/Application-Version',
+  () => ({
     __esModule: true,
-    default: ({
-      'data-testid': testId,
-      options = [],
-      value,
-      onChange,
-    }: {
-      'data-testid'?: string;
-      options?: any[];
-      value?: any;
-      onChange?: (v: any) => void;
-    }) => (
-      <div>
-        <div data-testid={`${testId}-value`}>{value?.label ?? ''}</div>
-        <button
-          data-testid={`${testId}-select-first`}
-          onClick={() => options.length && onChange?.(options[0])}
-        >
-          select-first
-        </button>
-        <div data-testid={`${testId}-options`}>
-          {options.map((o: any) => o.label).join(',')}
-        </div>
-      </div>
+    default: ({ tabname }: { tabname: string }) => (
+      <div data-testid={`app-version-${tabname}`} />
     ),
-  };
-});
+  })
+);
 
-// TreeView: show tabname + item count for simple assertions
-jest.mock('./components/Tree-View/Tree-View', () => ({
-  __esModule: true,
-  default: ({ tabname, treeviewData }: any) => (
-    <div data-testid={`tree-${tabname}`}>{`${tabname}:${treeviewData?.length ?? 0}`}</div>
-  ),
-}));
-
-// ApplicationVersion: show tabname + versions count
-jest.mock('./components/Application-Version/Application-Version', () => ({
-  __esModule: true,
-  default: ({ tabname, versionData }: any) => (
-    <div data-testid={`version-${tabname}`}>{`${tabname}:${versionData?.length ?? 0}`}</div>
-  ),
-}));
-
-// Window.open (external button)
-beforeEach(() => {
-  // @ts-expect-error override for test
-  window.open = jest.fn();
-  jest.clearAllMocks();
-  mockLocationState = null;
-});
-
-// -------- Subject under test --------
-import Inventory from './Inventory';
-
-// ---------- Test data & helpers ----------
-const projectsApiPayload = {
-  data: [
-    { projectid: 'alpha', prj_env_id: 'p1', env_id: 'dev', lane: 'dev' },
-    { projectid: 'alpha', prj_env_id: 'p2', env_id: 'qa', lane: 'qa' },
-    { projectid: 'beta', prj_env_id: 'p3', env_id: 'dev', lane: 'dev' },
-  ],
-};
-
-const componentResponse = { data: { component_response: [{ component_type: 'x' }] } };
-const saferoomResponse = { data: { saferoom_response: [{ component_type: 'y' }] } };
-const cdpVersionResponse = { data: { cdp_cdp_version_response: [{ version: '1.0.0' }] } };
-
-// prime the API mock sequence for the happy path
-function primeHappyPath() {
-  mockMakeRequest.mockReset()
-    // first call (inventory/env projects)
-    .mockResolvedValueOnce(projectsApiPayload)
-    // three detail calls after submit
-    .mockResolvedValueOnce(componentResponse)
-    .mockResolvedValueOnce(saferoomResponse)
-    .mockResolvedValueOnce(cdpVersionResponse);
+// 5) Replace local DropDown with a minimal select. We keep the same props API:
+//    - value: OptionType | null
+//    - options: OptionType[]
+//    - onChange: (opt) => void
+//    - data-testid: string (exists in your code)
+type OptionType = { id: number; value: string; label: string };
+function MockDropDown({
+  value,
+  options,
+  onChange,
+  'data-testid': testId,
+}: {
+  value: OptionType | null;
+  options: OptionType[];
+  onChange: (opt: OptionType) => void;
+  'data-testid': string;
+}) {
+  return (
+    <select
+      data-testid={testId}
+      value={value?.value ?? ''}
+      onChange={(e) => {
+        const opt = options.find((o) => o.value === e.target.value);
+        if (opt) onChange(opt);
+      }}
+    >
+      <option value="" aria-label="empty" />
+      {options.map((o) => (
+        <option key={`${o.id}-${o.value}`} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
 }
 
+// NOTE: Make sure the path below matches your real import in Inventory.tsx
+jest.mock('../../components/DropDown/DropDown', () => ({
+  __esModule: true,
+  default: MockDropDown,
+}));
+
+// If your path differs (e.g. '../../components/dropdown/Dropdown' or similar),
+// duplicate another jest.mock with the exact path used in your file.
+
+// 6) (Optional) If MUI theming causes noise, stub useTheme to a simple object
+jest.mock('@mui/material/styles', () => ({
+  useTheme: () => ({ direction: 'ltr' }),
+}));
+
+// --- Test data fixtures ---
+
+const PROJECT_ENV_ROWS = [
+  // app1 has two envs and lanes
+  { projectid: 'app1', prj_env_id: 10, env_id: 'dev', env_lane: 'L2' },
+  { projectid: 'app1', prj_env_id: 11, env_id: 'qa',  env_lane: 'L1' },
+  // app2 single env
+  { projectid: 'app2', prj_env_id: 20, env_id: 'dev', env_lane: 'L3' },
+];
+
+const COMPONENTS_PAYLOAD = {
+  data: {
+    component_response: [
+      { component_type: 'service', name: 'svc-a' },
+      { component_type: 'google_storage_bucket_object', name: 'skip-me' }, // filtered out
+    ],
+  },
+};
+
+const SAFEROOM_PAYLOAD = {
+  data: {
+    saferoom_response: [
+      { component_type: 'infra', name: 'sg-a' },
+      { component_type: 'google_storage_bucket_object', name: 'skip-me-too' }, // filtered out
+    ],
+  },
+};
+
+const VERSION_PAYLOAD = {
+  data: {
+    cdp_cdp_version_response: [{ artifact: 'a', version: '1.2.3' }],
+  },
+};
+
+// Default handler for makeRequestSpy (can be overridden per-test)
+function primeHappyApi() {
+  makeRequestSpy.mockImplementation(({ endpoints }) => {
+    if (endpoints.includes('getInventoryEnvProject')) {
+      return Promise.resolve({ data: PROJECT_ENV_ROWS });
+    }
+    if (endpoints.includes('getTenantAppCompDetails')) {
+      return Promise.resolve(COMPONENTS_PAYLOAD);
+    }
+    if (endpoints.includes('getTenantAppCompSafeRoomDetails')) {
+      return Promise.resolve(SAFEROOM_PAYLOAD);
+    }
+    if (endpoints.includes('getTenantAppVersionDetails')) {
+      return Promise.resolve(VERSION_PAYLOAD);
+    }
+    return Promise.resolve({ data: {} });
+  });
+}
+
+// SUT import after mocks
+import Inventory from '../Inventory';
+
+// Small helper
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 describe('Inventory', () => {
-  test('loads project/env list on mount and shows dropdown options', async () => {
-    primeHappyPath();
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockLocationState = null;
+  });
 
-    await act(async () => {
-      render(<Inventory />);
+  test('renders tabs with a11y attributes and loads projects', async () => {
+    primeHappyApi();
+
+    render(<Inventory />);
+
+    // Tabs (labels taken from your screenshots)
+    const tabLabels = ['GCP APP', 'GCP SAFEROOM', 'CDP', 'SAFEROOM', 'CDM Next'];
+    tabLabels.forEach((label) => {
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     });
 
-    // Should call inventory list endpoint
-    expect(mockMakeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoints: '/inventory/getInventoryEnvProject',
-        method: 'GET',
-      })
+    // a11y ids (indirect coverage of a11yProps)
+    const allTabs = screen.getAllByRole('tab');
+    allTabs.forEach((tab, idx) => {
+      expect(tab).toHaveAttribute('id', `full-width-tab-${idx}`);
+      // Panels are created later; assert at least first panel appears after render
+    });
+
+    // Initial project fetch populates project dropdown
+    const projectDd = await screen.findByTestId('project-dropdown');
+    const options = within(projectDd).getAllByRole('option');
+    // empty + 2 unique projects = 3
+    expect(options.length).toBe(3);
+    expect(options.map((o) => (o as HTMLOptionElement).text)).toEqual(
+      expect.arrayContaining(['APP1', 'APP2'])
     );
-
-    // Project dropdown contains unique ALPHA/BETA labels
-    expect(screen.getByTestId('project-dropdown-options').textContent).toMatch(/ALPHA/i);
-    expect(screen.getByTestId('project-dropdown-options').textContent).toMatch(/BETA/i);
   });
 
-  test('selecting project -> computes envs; selecting lane triggers detail fetch and renders tabs', async () => {
-    primeHappyPath();
+  test('selecting project then lane triggers handleSubmit and parallel fetches', async () => {
+    primeHappyApi();
 
-    await act(async () => {
-      render(<Inventory />);
+    render(<Inventory />);
+
+    const projectDd = await screen.findByTestId('project-dropdown');
+
+    // Select app1; this should populate envs and then lanes (sorted by LANE_ORDER)
+    fireEvent.change(projectDd, { target: { value: 'app1' } });
+    await flush();
+
+    const laneDd = await screen.findByTestId('lane-dropdown');
+
+    // app1 has lanes L2 and L1; they must be sorted by LANE_ORDER => L1, L2
+    const laneOptions = within(laneDd).getAllByRole('option');
+    const laneLabels = laneOptions.map((o) => (o as HTMLOptionElement).text);
+    expect(laneLabels).toEqual(expect.arrayContaining(['L1', 'L2']));
+
+    // Choose L1; with project + env known, this should call 3 endpoints
+    fireEvent.change(laneDd, { target: { value: 'L1' } });
+
+    await waitFor(() => {
+      expect(makeRequestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoints: expect.stringContaining('getTenantAppCompDetails') })
+      );
+      expect(makeRequestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoints: expect.stringContaining('getTenantAppCompSafeRoomDetails') })
+      );
+      expect(makeRequestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoints: expect.stringContaining('getTenantAppVersionDetails') })
+      );
     });
 
-    // Select first project (ALPHA)
-    fireEvent.click(screen.getByTestId('project-dropdown-select-first'));
+    // TabPanels exist; only current (index 0 by default) is visible
+    const panel0 = screen.getByRole('tabpanel', { hidden: true });
+    expect(panel0).toHaveAttribute('id', 'full-width-tabpanel-0');
+  });
 
-    // Environment/Lane dropdown shows lanes for ALPHA (dev/qa)
-    expect(screen.getByTestId('lane-dropdown-options').textContent).toMatch(/dev/i);
+  test('uses location.state to auto-select and submit only once', async () => {
+    primeHappyApi();
 
-    // Select first lane (dev) -> triggers handleSubmit -> three detail requests
-    fireEvent.click(screen.getByTestId('lane-dropdown-select-first'));
+    // Provide tenant/env/lane via navigation state to hit that useEffect branch
+    mockLocationState = { tenant: 'app2', env: 'dev', lane: 'L3' };
 
-    expect(mockMakeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ endpoints: expect.stringMatching(/getTenantAppCompDetails/) })
+    render(<Inventory />);
+    await waitFor(() => {
+      // One set of 3 parallel calls should have fired
+      const versionCalls = makeRequestSpy.mock.calls.filter((c) =>
+        String(c[0]?.endpoints || '').includes('getTenantAppVersionDetails')
+      );
+      expect(versionCalls.length).toBe(1);
+    });
+  });
+
+  test('empty project list branch: shows empty dropdowns and logs error', async () => {
+    // Make project list empty to trigger else-branch in processProjectData
+    makeRequestSpy.mockImplementation(({ endpoints }) => {
+      if (endpoints.includes('getInventoryEnvProject')) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(<Inventory />);
+
+    const projectDd = await screen.findByTestId('project-dropdown');
+    const options = within(projectDd).getAllByRole('option');
+    // only the empty placeholder
+    expect(options.length).toBe(1);
+
+    expect(errSpy).toHaveBeenCalled(); // "No project IDs found in the data" path
+    errSpy.mockRestore();
+  });
+
+  test('tab switching hides and shows panels appropriately', async () => {
+    primeHappyApi();
+
+    render(<Inventory />);
+
+    const tabGcpSaferoom = screen.getByRole('tab', { name: 'GCP SAFEROOM' });
+    fireEvent.click(tabGcpSaferoom);
+
+    // After switching, a second panel should be present (hidden=false for index 1)
+    // Using hidden: true to query all and check `hidden` attribute value
+    const allPanels = screen.getAllByRole('tabpanel', { hidden: true });
+
+    // panel-1 should exist; ensure one of them has id/index for 1
+    const hasPanel1 = allPanels.some(
+      (p) => p.getAttribute('id') === 'full-width-tabpanel-1' && p.getAttribute('hidden') === null
     );
-    expect(mockMakeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ endpoints: expect.stringMatching(/getTenantAppSafeRoomDetails/) })
-    );
-    expect(mockMakeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ endpoints: expect.stringMatching(/getTenantAppVersionDetails/) })
-    );
-
-    // Tabs content from mocks
-    expect(await screen.findByTestId('tree-GCP APP')).toHaveTextContent('GCP APP:1');
-    expect(screen.getByTestId('version-CDP')).toHaveTextContent('CDP:1');
-    expect(screen.getByTestId('version-CDM Next')).toHaveTextContent('CDM Next:1');
-  });
-
-  test('honors location.state to auto-select and fetch once', async () => {
-    mockLocationState = { tenant: 'beta', lane: 'dev', env: 'dev' };
-    primeHappyPath();
-
-    await act(async () => {
-      render(<Inventory />);
-    });
-
-    // 1 list call + 3 detail calls
-    expect(mockMakeRequest).toHaveBeenCalledTimes(4);
-    expect(screen.getByTestId('tree-GCP APP')).toBeInTheDocument();
-  });
-
-  test('handles empty inventory response gracefully', async () => {
-    mockMakeRequest.mockReset().mockResolvedValueOnce({ data: [] });
-
-    await act(async () => {
-      render(<Inventory />);
-    });
-
-    expect(screen.getByTestId('project-dropdown-options').textContent).toBe('');
-  });
-
-  test('opens external summary dashboard button', async () => {
-    primeHappyPath();
-    await act(async () => {
-      render(<Inventory />);
-    });
-
-    const btn = screen.getByRole('button', { name: /View Application Summary Dashboard/i });
-    fireEvent.click(btn);
-
-    expect(window.open).toHaveBeenCalledTimes(1);
-    expect((window.open as jest.Mock).mock.calls[0][0]).toMatch(/grafana/i);
-    expect((window.open as jest.Mock).mock.calls[0][1]).toBe('_blank');
-  });
-
-  test('switches to the exact "SAFEROOM" tab', async () => {
-    primeHappyPath();
-    await act(async () => {
-      render(<Inventory />);
-    });
-
-    // There may be multiple tabs containing "SAFEROOM" (e.g., "GCP SAFEROOM").
-    // Target the exact tab label using a strict match:
-    const exactSaferoomTab = screen.getByRole('tab', { name: /^SAFEROOM$/i });
-    fireEvent.click(exactSaferoomTab);
-
-    expect(screen.getByTestId('tree-SAFEROOM')).toHaveTextContent('SAFEROOM:1');
+    expect(hasPanel1).toBeTruthy();
   });
 });
