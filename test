@@ -4,30 +4,30 @@ import React from 'react';
 describe('main.tsx entry', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="root"></div>';
-    jest.resetModules(); // why: reload main.tsx with fresh mocks
+    jest.resetModules();
   });
 
   test('creates a root and renders App inside ConfigContextProvider + StrictMode', () => {
-    // Mock CSS from node_modules to avoid parsing
+    // Mock CSS to avoid parsing node_modules CSS
     jest.mock('bootstrap/dist/css/bootstrap.min.css', () => ({}), { virtual: true });
 
-    // Mock react-dom/client (default export used in main.tsx)
+    // Mock react-dom/client (default import used)
     const renderMock = jest.fn();
     const createRootMock = jest.fn(() => ({ render: renderMock }));
     jest.mock('react-dom/client', () => ({
       __esModule: true,
-      default: { createRoot: createRootMock }, // << crucial: default import path
-      createRoot: createRootMock,              // also expose named for completeness
+      default: { createRoot: createRootMock }, // needed for default import
+      createRoot: createRootMock,              // optional named export
     }));
 
-    // Mock App
+    // Mock App (function body won't execute; we only inspect element type)
     const AppMock = jest.fn(() => null);
     jest.mock('./App', () => ({
       __esModule: true,
       default: AppMock,
     }));
 
-    // Mock ConfigContextProvider (pass-through)
+    // Mock provider (pass-through)
     const MockProvider: React.FC<React.PropsWithChildren> = ({ children }) => <>{children}</>;
     jest.mock('@wf/react-library', () => ({
       __esModule: true,
@@ -57,11 +57,12 @@ describe('main.tsx entry', () => {
     expect(React.isValidElement(providerEl)).toBe(true);
     expect(providerEl.type).toBe(ConfigContextProvider);
 
-    // <App />
+    // <App/>
     const appEl = providerEl.props.children;
     const App = jest.requireMock('./App').default;
     expect(React.isValidElement(appEl)).toBe(true);
     expect(appEl.type).toBe(App);
-    expect(AppMock).toHaveBeenCalled();
+
+    // Do NOT assert AppMock invocation; React didn't reconcile the tree here.
   });
 });
