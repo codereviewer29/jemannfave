@@ -1,39 +1,66 @@
-// src/App.test.tsx  (only the footer expectations changed below)
+// src/main.test.tsx
+import React from 'react';
 
-// ...existing imports & mocks stay exactly the same...
-
-describe('App → Template config', () => {
+describe('main.tsx entry', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    document.body.innerHTML = '<div id="root"></div>';
+    jest.resetModules(); // why: reload main.tsx with fresh mocks
   });
 
-  test('full config with parsed footer version from buildName', () => {
-    jest.doMock('./app/config/appConfiguration.json', () => ({
-      buildName: 'RELEASE :1.2.3',
+  test('creates a root and renders App inside ConfigContextProvider + StrictMode', () => {
+    // --- mock react-dom/client ---
+    const renderMock = jest.fn();
+    const createRootMock = jest.fn(() => ({ render: renderMock }));
+    jest.mock('react-dom/client', () => ({
+      __esModule: true,
+      createRoot: createRootMock,
     }));
-    const config = renderFreshAppAndGetConfig();
 
-    // ...app, theme, header expectations unchanged...
+    // --- mock App component ---
+    const AppMock = jest.fn(() => null);
+    jest.mock('./App', () => ({
+      __esModule: true,
+      default: AppMock,
+    }));
 
-    // footer (FIX: include mode)
-    expect(config.footer).toEqual({ mode: 'minimum', version: '1.2.3' });
+    // --- mock ConfigContextProvider (pass-through) ---
+    const MockProvider: React.FC<React.PropsWithChildren> = ({ children }) => <>{children}</>;
+    jest.mock('@wf/react-library', () => ({
+      __esModule: true,
+      ConfigContextProvider: MockProvider,
+    }));
 
-    // ...routes & featureFlags expectations unchanged...
-  });
+    // Load the entry after mocks
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      require('./main');
+    });
 
-  test('uses default footer version when buildName is empty/whitespace', () => {
-    jest.doMock('./app/config/appConfiguration.json', () => ({ buildName: '   ' }));
-    const config = renderFreshAppAndGetConfig();
+    // --- assertions ---
+    const rootEl = document.getElementById('root');
+    expect(createRootMock).toHaveBeenCalledTimes(1);
+    expect(createRootMock).toHaveBeenCalledWith(rootEl);
 
-    // footer (FIX: include mode)
-    expect(config.footer).toEqual({ mode: 'minimum', version: '1.0.0' });
-  });
+    expect(renderMock).toHaveBeenCalledTimes(1);
+    const renderedTree = renderMock.mock.calls[0][0];
 
-  test('parses footer version when buildName is "RELEASE :2.3.4"', () => {
-    jest.doMock('./app/config/appConfiguration.json', () => ({ buildName: 'RELEASE :2.3.4' }));
-    const config = renderFreshAppAndGetConfig();
+    // StrictMode at the top level
+    expect(React.isValidElement(renderedTree)).toBe(true);
+    expect(renderedTree.type).toBe(React.StrictMode);
 
-    // footer (FIX: include mode)
-    expect(config.footer).toEqual({ mode: 'minimum', version: '2.3.4' });
+    // StrictMode child should be the provider
+    const providerEl = renderedTree.props.children;
+    const { ConfigContextProvider } = jest.requireMock('@wf/react-library');
+    expect(React.isValidElement(providerEl)).toBe(true);
+    expect(providerEl.type).toBe(ConfigContextProvider);
+
+    // Provider child should be <App />
+    const appEl = providerEl.props.children;
+    const App = jest.requireMock('./App').default;
+    expect(React.isValidElement(appEl)).toBe(true);
+    expect(appEl.type).toBe(App);
+
+    // Ensure App function component was invoked by React
+    expect(AppMock).toHaveBeenCalled();
   });
 });
