@@ -1,63 +1,171 @@
-// ---- REPLACE the "filters by status" test with this ----
-test('filters by status (In Progress includes In_Draft)', async () => {
-  setupSuccess();
-  renderInbox();
+// src/sideNavbar/inbox.test.tsx
+import React from 'react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import { within } from '@testing-library/dom';
 
-  // MUI Select renders as a combobox labeled by its value "All"
-  const statusSelect = await screen.findByRole('combobox', { name: /^All$/ });
-  fireEvent.mouseDown(statusSelect); // open menu
+// --- Lightweight stubs ---
+jest.mock('../home/CustomNavigation', () => () => <div data-testid="nav" />);
 
-  const option = await screen.findByRole('option', { name: /In Progress/i });
-  fireEvent.click(option);
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
+    <a href={to} data-to={to}>
+      {children}
+    </a>
+  ),
+}));
 
-  // allow state -> effect -> render to settle
-  await act(async () => {});
+jest.mock('@mui/icons-material/Info', () => () => <span data-testid="info-icon" />);
+jest.mock('@mui/icons-material/PictureAsPdf', () => () => <span data-testid="pdf-icon" />);
 
-  expect(screen.queryByText('Completed')).not.toBeInTheDocument();
-  expect(screen.getByText('In Progress')).toBeInTheDocument();
+// API hook
+const makeRequest = jest.fn();
+jest.mock('../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
+
+// jsdom shim (component uses it when creating download URL)
+Object.defineProperty(global, 'URL', {
+  value: { createObjectURL: jest.fn(() => 'blob://url') },
+  writable: true,
 });
 
-// ---- REPLACE the "filters by search keyword" test with this ----
-test('filters by search keyword (env, avoids appID array crash)', async () => {
-  setupSuccess();
-  renderInbox();
+import Inbox from './inbox';
 
-  const search = await screen.findByLabelText(/Search/i);
-  fireEvent.change(search, { target: { value: 'UAT' } });
+// --- Test data (NOTE: appID as string; env as array) ---
+const apiData = {
+  data: {
+    intakeFormList: [
+      {
+        intakeFormTrackingId: 101,
+        appID: 'APP-A',
+        env: ['SIT'],
+        status: 'Completed',
+        enablementJira: 'EN-1',
+        actJira: 'AC-1',
+        cdmNextJira: 'CDM-1',
+        lastModified: 'x',
+        modifiedOn: '2025-01-10T10:00:00Z', // newer
+      },
+      {
+        intakeFormTrackingId: 55,
+        appID: 'APP-B',
+        env: ['UAT'],
+        status: 'In_Draft',
+        enablementJira: 'EN-2',
+        actJira: 'AC-2',
+        cdmNextJira: 'CDM-2',
+        lastModified: 'y',
+        modifiedOn: '2024-12-30T08:00:00Z', // older
+      },
+    ],
+  },
+};
 
-  // wait for the filtered row to appear
-  await screen.findByText('APP-B');
+function setupSuccess() {
+  makeRequest.mockResolvedValueOnce(apiData);
+}
+function setupFailure() {
+  makeRequest.mockRejectedValueOnce(new Error('boom'));
+}
+function renderInbox() {
+  return render(<Inbox />);
+}
 
-  // now assert the other row is gone
-  expect(screen.queryByText('APP-A')).not.toBeInTheDocument();
-});
+describe('Inbox', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (console.error as jest.Mock | undefined)?.mockClear?.();
+    document.body.innerHTML = '';
+  });
 
-// ---- REPLACE the "download PDF" test tail assertions with this ----
-test('download PDF for Completed row triggers blob request', async () => {
-  setupSuccess();
-  // second call -> blob for download
-  makeRequest.mockResolvedValueOnce({ data: new Blob(['%PDF'], { type: 'application/pdf' }) });
+  test('loads data, sorts by modifiedOn desc, and renders rows', async () => {
+    setupSuccess();
+    renderInbox();
 
-  renderInbox();
+    const appA = await screen.findByText('APP-A');
+    expect(appA).toBeInTheDocument();
+    expect(screen.getByText(/Completed/)).toBeInTheDocument();
+    expect(screen.getByText(/In Progress/)).toBeInTheDocument(); // In_Draft → In Progress
+  });
 
-  const completedCell = await screen.findByText('Completed');
-  const rowEl = completedCell.closest('tr');
-  expect(rowEl).not.toBeNull();
+  test('filters by search keyword (uses env so it is robust)', async () => {
+    setupSuccess();
+    renderInbox();
 
-  // clickable PDF icon <span style="cursor: pointer">
-  const clickableSpans = Array.from(rowEl!.querySelectorAll('span')).filter((el) =>
-    (el.getAttribute('style') || '').includes('cursor: pointer'),
-  );
-  expect(clickableSpans.length).toBeGreaterThan(0);
+    const search = await screen.findByLabelText(/Search/i);
+    fireEvent.change(search, { target: { value: 'UAT' } });
 
-  fireEvent.click(clickableSpans[0]);
+    await screen.findByText('APP-B'); // wait for filtered render
+    expect(screen.queryByText('APP-A')).not.toBeInTheDocument();
+  });
 
-  expect(makeRequest).toHaveBeenCalledWith(
-    expect.objectContaining({
-      method: 'GET',
-      endpoints: expect.stringContaining('/api/download-pdf'),
-      responseType: 'blob',
-    }),
-  );
-  // intentionally NOT asserting URL.createObjectURL to avoid flaky env differences
+  test('filters by status (In Progress includes In_Draft)', async () => {
+    setupSuccess();
+    renderInbox();
+
+    // MUI Select renders as a combobox without accessible name in your DOM
+    const statusSelect = await screen.findByRole('combobox');
+    fireEvent.mouseDown(statusSelect); // open menu
+
+    const listbox = await screen.findByRole('listbox');
+    const inProgress = within(listbox).getByText(/In Progress/i);
+    fireEvent.click(inProgress);
+
+    await act(async () => {});
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument();
+    expect(screen.getByText('In Progress')).toBeInTheDocument();
+  });
+
+  test('sorts by appID column toggling asc/desc', async () => {
+    setupSuccess();
+    renderInbox();
+
+    const header = await screen.findByText('APP ID');
+    fireEvent.click(header); // asc ⇒ APP-A then APP-B
+    let rowsText = screen.getAllByRole('row').map((r) => r.textContent || '');
+    expect(rowsText.join(' ')).toMatch(/APP-A[\s\S]*APP-B/);
+
+    fireEvent.click(header); // desc ⇒ APP-B then APP-A
+    rowsText = screen.getAllByRole('row').map((r) => r.textContent || '');
+    expect(rowsText.join(' ')).toMatch(/APP-B[\s\S]*APP-A/);
+  });
+
+  test('download PDF for Completed row triggers blob request', async () => {
+    setupSuccess();
+    // second call is the blob download
+    makeRequest.mockResolvedValueOnce({ data: new Blob(['%PDF'], { type: 'application/pdf' }) });
+
+    renderInbox();
+
+    const completedCell = await screen.findByText('Completed');
+    const rowEl = completedCell.closest('tr');
+    expect(rowEl).not.toBeNull();
+
+    // clickable <span style="cursor: pointer">
+    const clickableSpans = Array.from(rowEl!.querySelectorAll('span')).filter((el) =>
+      (el.getAttribute('style') || '').includes('cursor: pointer'),
+    );
+    expect(clickableSpans.length).toBeGreaterThan(0);
+
+    fireEvent.click(clickableSpans[0]);
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        endpoints: expect.stringContaining('/api/download-pdf'),
+        responseType: 'blob',
+      }),
+    );
+  });
+
+  test('logs when fetch fails', async () => {
+    setupFailure();
+    renderInbox();
+    await act(async () => {});
+    expect((console.error as jest.Mock).mock.calls.some((c) => /Error/.test(String(c[0])))).toBe(
+      true,
+    );
+  });
 });
