@@ -1,46 +1,53 @@
+import { createRoot } from 'react-dom/client';
+
+// ⬇️ add this line
+jest.mock('bootstrap/dist/css/bootstrap.min.css', () => ({}), { virtual: true });
+
+// If you mock this lib, return a component so children render safely
+jest.mock('@wf/react-library', () => ({
+  ConfigContextProvider: ({ children }: any) => <>{children}</>,
+}));
+
+jest.mock('./App', () => () => <div>MockApp</div>);
+
+describe('bootstrap', () => {
+  it('renders App within ConfigContextProvider and React.StrictMode', () => {
+    const mockRender = jest.fn();
+    (createRoot as unknown as jest.Mock).mockReturnValue({ render: mockRender });
+
+    require('./main');
+
+    expect(createRoot).toHaveBeenCalled();
+    expect(mockRender).toHaveBeenCalled();
+  });
+});
 // jest.config.js
-/** Jest config for TS + ESM deps without changing tsconfig.json */
 module.exports = {
-  preset: 'ts-jest/presets/js-with-ts-esm',
+  preset: 'ts-jest',
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
-  modulePathIgnorePatterns: ['<rootDir>/dist/'],
-
   transform: {
-    '^.+\\.[tj]sx?$': 'ts-jest',
-    '.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform',
+    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
+    '^.+\\.(css|scss|sass)$': 'jest-css-modules-transform',
   },
-
-  // Key: transform ESM deps from node_modules
-  transformIgnorePatterns: ['/node_modules/(?!(@mui|crypto-es)/)'],
-
-  // Treat TS as ESM
-  extensionsToTreatAsEsm: ['.ts', '.tsx'],
-
-  globals: {
-    'ts-jest': {
-      useESM: true,
-      // Inline TS compiler options for Jest ONLY (no new files, no editor warnings)
-      tsconfig: {
-        target: 'ES2020',
-        module: 'NodeNext',
-        moduleResolution: 'NodeNext',
-        jsx: 'react-jsx',
-        esModuleInterop: true,
-        allowSyntheticDefaultImports: true,
-        resolveJsonModule: true,
-        isolatedModules: true,
-        types: ['node', 'jest', '@testing-library/jest-dom']
-      }
-    }
-  },
-
-  // No separate mock files
+  transformIgnorePatterns: ['node_modules/(?!(@mui)/)'],
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
   moduleNameMapper: {
-    '\\.(css|styl|less|sass|scss)$': 'identity-obj-proxy',
-    '\\.(gif|ttf|eot|svg|png|jpe?g|webp)$': 'identity-obj-proxy'
+    '\\.(jpg|jpeg|png|gif|svg)$': '<rootDir>/src/__mocks__/fileMock.js', // optional
+    '^@/(.*)$': '<rootDir>/src/$1', // if you use "@/" alias
   },
+};
 
-  testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
-  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*']
+{
+  "compilerOptions": {
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["*"]
+    }
+  }
+}
+
+module.exports = {
+  // …
+  moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' }
 };
