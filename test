@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Why: we must fully control form state & required fields across tests
+// --- form context mock ---
 const setFormDataMock = jest.fn();
 const resetFormDataMock = jest.fn();
 let requiredFieldsMock: string[] = [];
@@ -20,14 +20,14 @@ jest.mock('./FormContext', () => ({
   initialFormData: initialFormDataMock,
 }));
 
-// Why: isolate network I/O
+// --- api mock ---
 const makeRequest = jest.fn();
 jest.mock('../../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest }),
 }));
 
-// Why: control navigation & params
+// --- router mock ---
 const navigateMock = jest.fn();
 let paramsMock: Record<string, string | undefined> = {};
 jest.mock('react-router-dom', () => ({
@@ -35,21 +35,15 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
   useParams: () => paramsMock,
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
-    <a href={to} data-to={to}>
-      {children}
-    </a>
+    <a href={to} data-to={to}>{children}</a>
   ),
 }));
 
-// Why: keep children light to focus on container logic
+// --- child pages + dialogs + nav ---
 jest.mock('./components/applicationDetails', () => () => <div data-testid="app-details" />);
 jest.mock('./components/componentsDetails', () => () => <div data-testid="components-details" />);
-jest.mock('./intake-components/guidelinesIntakeForm', () => () => (
-  <div data-testid="guidelines" />
-));
+jest.mock('./intake-components/guidelinesIntakeForm', () => () => <div data-testid="guidelines" />);
 jest.mock('../../home/CustomNavigation', () => () => <div data-testid="nav" />);
-
-// Why: surface dialog callbacks as clickable elements
 jest.mock('./intake-components/cancelOnboarding', () => (props: any) => (
   <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel} />
 ));
@@ -57,6 +51,7 @@ jest.mock('./intake-components/confirmationOnboarding', () => (props: any) => (
   <button data-testid="mock-submit-confirm" onClick={props.handleConfirmSubmit} />
 ));
 
+// --- SUT ---
 import StartOnboarding from './startOnboarding';
 
 const click = (el: HTMLElement) => fireEvent.click(el);
@@ -69,7 +64,7 @@ describe('StartOnboarding', () => {
     formDataMock = { trackingStatus: '', appDetails: {}, cdmNextDetails: {} };
   });
 
-  test('mount with trackingId → fetches data and renders id', async () => {
+  test('mount with trackingId → fetches data and shows id', async () => {
     paramsMock = { trackingId: '123' };
     makeRequest.mockResolvedValueOnce({ data: { foo: 'bar' }, status: 200 });
 
@@ -84,31 +79,28 @@ describe('StartOnboarding', () => {
       }),
     );
     expect(setFormDataMock).toHaveBeenCalledWith({ foo: 'bar' });
-
-    // Tracking ID section visible
     expect(screen.getByText(/Intake Tracking ID/i)).toBeInTheDocument();
     expect(screen.getByText('123')).toBeInTheDocument();
   });
 
-  test('mount with no trackingId → resets form and shows "Not Available"', () => {
+  test('mount without trackingId → resets form and shows "Not Available"', () => {
     paramsMock = {};
     render(<StartOnboarding />);
+
     expect(resetFormDataMock).toHaveBeenCalled();
 
-    // Flexible matcher: text can be split by nested tags
-    expect(
-      screen.getByText((t) => t.includes('Not Available')),
-    ).toBeInTheDocument();
+    // Flexible matcher because DOM may split this text across nodes
+    expect(screen.getByText((t) => t.includes('Not Available'))).toBeInTheDocument();
   });
 
   test('Save → POST /api/intake-form then navigates to /gcpOnboarding/:id', async () => {
     makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 987 }, status: 200 });
 
     render(<StartOnboarding />);
+    click(screen.getByRole('button', { name: /^Cancel$/i })); // ensure buttons present
     click(screen.getByRole('button', { name: /^Save$/i }));
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
-
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'POST',
@@ -119,7 +111,7 @@ describe('StartOnboarding', () => {
     expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/987');
   });
 
-  test('getFormData non-200 → shows error toast', async () => {
+  test('getFormData non-200 → error toast', async () => {
     paramsMock = { trackingId: '555' };
     makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
 
@@ -129,8 +121,8 @@ describe('StartOnboarding', () => {
     expect(alert.innerHTML).toMatch(/Error has occurred while fetching Intake Form/i);
   });
 
-  test('Submit invalid → shows validation toast; does not hit submit API', async () => {
-    requiredFieldsMock = ['appDetails.name']; // missing
+  test('Submit invalid → validation toast; no submit POST', async () => {
+    requiredFieldsMock = ['appDetails.name'];
     render(<StartOnboarding />);
 
     click(screen.getByRole('button', { name: /^Submit$/i }));
@@ -145,12 +137,11 @@ describe('StartOnboarding', () => {
     ).toBe(false);
   });
 
-  test('Submit valid → POST /api/submit-intake-form; success toast; confirm navigates to /inbox', async () => {
+  test('Submit valid → POST submit, success toast, confirm navigates to inbox', async () => {
     requiredFieldsMock = [];
     makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 4321 }, status: 200 });
 
     render(<StartOnboarding />);
-
     click(screen.getByRole('button', { name: /^Submit$/i }));
 
     await waitFor(() =>
@@ -169,14 +160,13 @@ describe('StartOnboarding', () => {
     expect(navigateMock).toHaveBeenCalledWith('/inbox');
   });
 
-  test('Cancel confirm with trackingId → re-fetches and sets form data', async () => {
+  test('Cancel confirm with trackingId → re-fetches and sets data', async () => {
     paramsMock = { trackingId: '99' };
     makeRequest
       .mockResolvedValueOnce({ data: { a: 1 }, status: 200 }) // mount
-      .mockResolvedValueOnce({ data: { a: 2 }, status: 200 }); // on confirm
+      .mockResolvedValueOnce({ data: { a: 2 }, status: 200 }); // confirm-cancel
 
     render(<StartOnboarding />);
-
     click(screen.getByRole('button', { name: /^Cancel$/i }));
     click(screen.getByTestId('mock-cancel-confirm'));
 
@@ -194,11 +184,26 @@ describe('StartOnboarding', () => {
     expect(setFormDataMock).toHaveBeenCalledWith(initialFormDataMock);
   });
 
-  test('Save/Submit disabled when trackingStatus === "Completed"', () => {
+  test('buttons disabled when trackingStatus = Completed', () => {
     formDataMock = { ...formDataMock, trackingStatus: 'Completed' };
     render(<StartOnboarding />);
 
     expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /^Submit$/i })).toBeDisabled();
+  });
+
+  test('tabs switch content', () => {
+    render(<StartOnboarding />);
+
+    // default Application tab visible
+    expect(screen.getByTestId('app-details')).toBeInTheDocument();
+
+    // Component Details tab
+    click(screen.getByRole('button', { name: /Component Details/i }));
+    expect(screen.getByTestId('components-details')).toBeInTheDocument();
+
+    // Guide Lines tab
+    click(screen.getByRole('button', { name: /Guide Lines/i }));
+    expect(screen.getByTestId('guidelines')).toBeInTheDocument();
   });
 });
