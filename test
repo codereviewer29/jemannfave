@@ -4,11 +4,14 @@ import React from 'react';
 describe('main.tsx entry', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="root"></div>';
-    jest.resetModules(); // why: reload main.tsx with fresh mocks
+    jest.resetModules();
   });
 
   test('creates a root and renders App inside ConfigContextProvider + StrictMode', () => {
-    // --- mock react-dom/client ---
+    // Mock CSS from node_modules to avoid transform/parsing
+    jest.mock('bootstrap/dist/css/bootstrap.min.css', () => ({}), { virtual: true });
+
+    // Mock react-dom/client
     const renderMock = jest.fn();
     const createRootMock = jest.fn(() => ({ render: renderMock }));
     jest.mock('react-dom/client', () => ({
@@ -16,27 +19,26 @@ describe('main.tsx entry', () => {
       createRoot: createRootMock,
     }));
 
-    // --- mock App component ---
+    // Mock App
     const AppMock = jest.fn(() => null);
     jest.mock('./App', () => ({
       __esModule: true,
       default: AppMock,
     }));
 
-    // --- mock ConfigContextProvider (pass-through) ---
+    // Mock ConfigContextProvider (pass-through)
     const MockProvider: React.FC<React.PropsWithChildren> = ({ children }) => <>{children}</>;
     jest.mock('@wf/react-library', () => ({
       __esModule: true,
       ConfigContextProvider: MockProvider,
     }));
 
-    // Load the entry after mocks
+    // Load entry after mocks are in place
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       require('./main');
     });
 
-    // --- assertions ---
     const rootEl = document.getElementById('root');
     expect(createRootMock).toHaveBeenCalledTimes(1);
     expect(createRootMock).toHaveBeenCalledWith(rootEl);
@@ -44,23 +46,21 @@ describe('main.tsx entry', () => {
     expect(renderMock).toHaveBeenCalledTimes(1);
     const renderedTree = renderMock.mock.calls[0][0];
 
-    // StrictMode at the top level
+    // <StrictMode>
     expect(React.isValidElement(renderedTree)).toBe(true);
     expect(renderedTree.type).toBe(React.StrictMode);
 
-    // StrictMode child should be the provider
+    // <ConfigContextProvider>
     const providerEl = renderedTree.props.children;
     const { ConfigContextProvider } = jest.requireMock('@wf/react-library');
     expect(React.isValidElement(providerEl)).toBe(true);
     expect(providerEl.type).toBe(ConfigContextProvider);
 
-    // Provider child should be <App />
+    // <App />
     const appEl = providerEl.props.children;
     const App = jest.requireMock('./App').default;
     expect(React.isValidElement(appEl)).toBe(true);
     expect(appEl.type).toBe(App);
-
-    // Ensure App function component was invoked by React
     expect(AppMock).toHaveBeenCalled();
   });
 });
