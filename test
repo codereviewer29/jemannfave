@@ -1,181 +1,239 @@
+// File: src/onboarding/__tests__/StartOnboarding.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-// SUT
-import StartOnboarding from './startOnboarding';
-
-// ---------- Mocks & test doubles ----------
-
-// Route bits
-const navigateMock = jest.fn();
-let paramsMock: Record<string, string | undefined> = {};
+// ----------------- Router mocks -----------------
+const mockNavigate = jest.fn();
+let mockParams: any = {};
 
 jest.mock('react-router-dom', () => ({
-  __esModule: true,
-  useNavigate: () => navigateMock,
-  useParams: () => paramsMock,
+  ...jest.requireActual('react-router-dom'),
+  useParams: () => mockParams,
+  useNavigate: () => mockNavigate,
 }));
 
-// API hook -> returns a function we can assert on
-const makeRequestMock = jest.fn();
-
-jest.mock('../../services/useApiService', () => ({
+// ----------------- API hook mock -----------------
+const makeRequest = jest.fn();
+jest.mock('../services/ApiService', () => ({
   __esModule: true,
-  default: () => makeRequestMock,
+  default: () => ({ makeRequest }),
 }));
 
-// Form context
-const resetFormDataMock = jest.fn();
-const setFormDataMock = jest.fn();
+// ----------------- Context mock -----------------
+let ctxFormData: any;
+let setFormData: jest.Mock;
+let resetFormData: jest.Mock;
+let requiredFields: string[];
 
-jest.mock('../FormContext', () => ({
-  __esModule: true,
-  useFormContext: () => ({
-    formData: {
-      trackingStatus: '',
-      appDetails: {},
-      cdmNextDetails: {},
-    },
-    setFormData: setFormDataMock,
-    resetFormData: resetFormDataMock,
-    requiredFields: [], // keep component happy
+jest.mock('../forms/onboardingFormContext', () => ({
+  useOnboardingContext: () => ({
+    formData: ctxFormData,
+    setFormData,
+    requiredFields,
+    resetFormData,
   }),
 }));
 
-// Child pages: keep minimal
-jest.mock('../applicationDetails', () => ({
+// ----------------- Child components mocks -----------------
+jest.mock('../intake-components/applicationDetails', () => ({
   __esModule: true,
-  default: () => <div data-testid="app-details" />,
-}));
-jest.mock('../componentsDetails', () => ({
-  __esModule: true,
-  default: () => <div data-testid="comp-details" />,
-}));
-jest.mock('../guidelinesIntakeForm', () => ({
-  __esModule: true,
-  default: () => <div data-testid="guide-lines" />,
+  default: ({ validationErrors }: any) => (
+    <div data-testid="ApplicationDetails">Application Details {Object.keys(validationErrors || {}).length}</div>
+  ),
 }));
 
-// Confirmation dialog used by StartOnboarding
+jest.mock('../intake-components/componentsDetails', () => ({
+  __esModule: true,
+  default: ({ validationErrors }: any) => (
+    <div data-testid="ComponentsDetails">Components Details {Object.keys(validationErrors || {}).length}</div>
+  ),
+}));
+
+jest.mock('../intake-components/guidelinesIntakeForm', () => ({
+  __esModule: true,
+  default: () => <div data-testid="GuidelinesIntakeForm">Guide Lines Content</div>,
+}));
+
+// Cancel dialog renders a button that triggers its confirm handler
+let cancelConfirmHandler: (() => void) | null = null;
+jest.mock('../intake-components/cancelOnboarding', () => ({
+  __esModule: true,
+  default: ({ openCancelDialog, handleConfirmCancel, handleCloseCancelDialog }: any) => {
+    cancelConfirmHandler = handleConfirmCancel;
+    return openCancelDialog ? (
+      <div data-testid="CancelOnboarding">
+        <button onClick={handleConfirmCancel}>confirm-cancel</button>
+        <button onClick={handleCloseCancelDialog}>close-cancel</button>
+      </div>
+    ) : null;
+  },
+}));
+
+// Confirmation dialog renders a button that triggers submit handler
+let submitConfirmHandler: (() => void) | null = null;
 jest.mock('../intake-components/confirmationOnboarding', () => ({
   __esModule: true,
-  default: (props: {
-    openConfirmSubmitDialog: boolean;
-    handleConfirmCancel: () => void;
-    handleConfirmSubmit: () => void;
-  }) =>
-    props.openConfirmSubmitDialog ? (
-      <div>
-        <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel}>
-          Cancel
-        </button>
-        <button data-testid="mock-submit-confirm" onClick={props.handleConfirmSubmit}>
-          Submit
-        </button>
+  default: ({ openConfirmSubmitDialog, handleConfirmSubmit }: any) => {
+    submitConfirmHandler = handleConfirmSubmit;
+    return openConfirmSubmitDialog ? (
+      <div data-testid="ConfirmationOnboarding">
+        <button onClick={handleConfirmSubmit}>confirm-submit</button>
       </div>
-    ) : null,
+    ) : null;
+  },
 }));
 
-// Typography / snackbar etc. — real MUI is fine; no mock needed.
+// --------------- Import SUT (after mocks) ---------------
+import StartOnboarding from '../startOnboarding';
 
-// ---------- Helpers ----------
-const renderStart = () => render(<StartOnboarding />);
+// --------------- Helpers ---------------
+function resetCtx(overrides?: Partial<any>) {
+  ctxFormData = {
+    trackingStatus: 'In_Draft',
+    cdpNextDetails: {},
+    ...overrides,
+  };
+  setFormData = jest.fn((next: any) => {
+    ctxFormData = typeof next === 'function' ? next(ctxFormData) : next;
+  });
+  resetFormData = jest.fn();
+  requiredFields = [];
+  makeRequest.mockReset();
+  mockNavigate.mockReset();
+  mockParams = {};
+}
 
-// Robust matcher for "Not Available" (text can be split across nodes)
-const hasNotAvailable = (_: string, el?: Element | null) =>
-  (el?.textContent || '').replace(/\s+/g, ' ').includes('Not Available');
+const renderSut = () => render(<StartOnboarding />);
 
-// Reset shared state for each test
-beforeEach(() => {
-  jest.clearAllMocks();
-  paramsMock = {}; // default: no trackingId
-  makeRequestMock.mockReset();
-  navigateMock.mockReset();
-});
-
-// ---------- Tests ----------
+// --------------- Tests ---------------
 describe('StartOnboarding', () => {
-  test('mount without trackingId → resets form and shows "Not Available"', () => {
-    renderStart();
+  beforeEach(() => resetCtx());
 
-    expect(resetFormDataMock).toHaveBeenCalled();
-
-    expect(screen.getByText(hasNotAvailable)).toBeInTheDocument();
+  test('renders default tab and action buttons', () => {
+    renderSut();
+    expect(screen.getByTestId('ApplicationDetails')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Submit$/i })).toBeInTheDocument();
   });
 
-  test('Save → POST /api/intake-form then navigates to /gcpOnboarding/:id', async () => {
-    // Arrange: confirm dialog opens on success path (component sets it)
-    makeRequestMock.mockResolvedValueOnce({
+  test('useEffect with trackingId fetches form and sets formData', async () => {
+    mockParams = { trackingId: '42' };
+    makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 42, foo: 'bar' }, status: 200 });
+
+    renderSut();
+
+    // async fetch will call setFormData with server data
+    await screen.findByTestId('ApplicationDetails');
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'GET', endpoints: expect.stringContaining('42') })
+    );
+    // setFormData receives the server data
+    expect(setFormData).toHaveBeenCalledWith(expect.objectContaining({ foo: 'bar' }));
+  });
+
+  test('useEffect without trackingId resets form', () => {
+    renderSut();
+    expect(resetFormData).toHaveBeenCalled();
+  });
+
+  test('Save posts intake-form, shows toast and navigates to onboarding route', async () => {
+    makeRequest.mockResolvedValueOnce({
+      data: { intakeFormTrackingId: 777 },
       status: 200,
-      data: { intakeFormTrackingId: '123' },
     });
 
-    renderStart();
+    renderSut();
 
-    // The confirm dialog appears only after submit handler runs (component's internal flow).
-    // Click the confirm "Submit" button stub to trigger formSubmit().
-    // If your UI opens this dialog via a separate button, add that click before this.
-    const submitBtn = screen.getByTestId('mock-submit-confirm');
-    fireEvent.click(submitBtn);
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    await waitFor(() =>
-      expect(makeRequestMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'POST',
-          endpoints: '/api/intake-form',
-          responseType: 'json',
-        })
-      )
+    // POST called
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'POST', endpoints: expect.stringMatching(/api\/intake-form/) })
     );
 
-    // After POST success, component navigates with returned id
-    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/123');
+    // Toast HTML heading appears (Snackbar with dangerouslySetInnerHTML)
+    expect(await screen.findByText(/Intake form saved successfully/i)).toBeInTheDocument();
+
+    expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('/gcpOnboarding/777'));
   });
 
-  test('Submit non-200 → shows error toast and no confirm dialog rendered', async () => {
-    // Force non-200 status
-    makeRequestMock.mockResolvedValueOnce({ status: 500 });
+  test('getFormData non-200 shows error toast', async () => {
+    mockParams = { trackingId: '5' };
+    makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
 
-    renderStart();
+    renderSut();
 
-    // Try to submit; confirm dialog should not be shown for non-200 path
-    // (the component should only open it on success).
-    expect(screen.queryByTestId('mock-submit-confirm')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Error has occurred while fetching Intake Form/i)).toBeInTheDocument();
   });
 
-  test('Cancel confirm with trackingId → re-fetches and sets data', async () => {
-    // Have a trackingId in the route
-    paramsMock = { trackingId: '42' };
+  test('Submit invalid shows validation error list in toast', async () => {
+    // one required field path missing to fail validation
+    requiredFields = ['app.name'];
+    ctxFormData = { app: {} };
 
-    // First call: opening confirm (success submit)
-    makeRequestMock.mockResolvedValueOnce({
-      status: 200,
-      data: { intakeFormTrackingId: '42' },
-    });
-    // Second call: GET after cancel confirm
-    makeRequestMock.mockResolvedValueOnce({
-      status: 200,
-      data: { some: 'payload' },
-    });
+    renderSut();
 
-    renderStart();
+    await userEvent.click(screen.getByRole('button', { name: /^Submit$/i }));
 
-    // Open confirm dialog success path then click cancel
-    const submitBtn = screen.getByTestId('mock-submit-confirm');
-    fireEvent.click(submitBtn);
+    expect(
+      await screen.findByText(/Please fill in all required fields before submitting/i)
+    ).toBeInTheDocument();
+  });
 
-    const cancelBtn = await screen.findByTestId('mock-cancel-confirm');
-    fireEvent.click(cancelBtn);
+  test('Submit valid opens confirmation, confirm triggers submit API and shows toast', async () => {
+    requiredFields = []; // validation passes
+    makeRequest
+      .mockResolvedValueOnce({ data: { intakeFormTrackingId: 1 }, status: 200 }) // submit POST
+      .mockResolvedValueOnce({}); // navigate call doesn't make a request; keep stack clean
 
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+    renderSut();
 
-    // Second call must be GET with tracking id in endpoint
-    expect(makeRequestMock.mock.calls[1][0]).toEqual(
-      expect.objectContaining({
-        method: 'GET',
-        endpoints: expect.stringContaining('intakeFormTrackingId=42'),
-        responseType: 'json',
-      })
+    await userEvent.click(screen.getByRole('button', { name: /^Submit$/i }));
+
+    // Confirmation dialog visible (our mock renders a trigger)
+    expect(screen.getByTestId('ConfirmationOnboarding')).toBeInTheDocument();
+
+    // Trigger confirm
+    await userEvent.click(screen.getByText('confirm-submit'));
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'POST', endpoints: expect.stringMatching(/api\/submit-intake-form/) })
     );
+    expect(
+      await screen.findByText(/Intake form submitted successfully/i)
+    ).toBeInTheDocument();
+  });
+
+  test('Cancel → confirm (with trackingId) reloads server form', async () => {
+    mockParams = { trackingId: '99' };
+    makeRequest.mockResolvedValue({ data: { intakeFormTrackingId: 99, xyz: 'abc' }, status: 200 });
+
+    renderSut();
+
+    await userEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+
+    // Our cancel mock shows a button to invoke confirm
+    expect(screen.getByTestId('CancelOnboarding')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('confirm-cancel'));
+
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'GET', endpoints: expect.stringContaining('99') })
+    );
+    expect(setFormData).toHaveBeenCalledWith(expect.objectContaining({ xyz: 'abc' }));
+  });
+
+  test('tab switching renders correct panels', async () => {
+    renderSut();
+
+    await userEvent.click(screen.getByRole('button', { name: /Component Details/i }));
+    expect(screen.getByTestId('ComponentsDetails')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
+    expect(screen.getByTestId('GuidelinesIntakeForm')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Application Details/i }));
+    expect(screen.getByTestId('ApplicationDetails')).toBeInTheDocument();
   });
 });
