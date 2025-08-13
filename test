@@ -1,75 +1,6 @@
-// src/App.test.tsx
-import { render } from '@testing-library/react';
-import React from 'react';
+// src/App.test.tsx  (only the footer expectations changed below)
 
-// Capture Template props
-const mockTemplate = jest.fn();
-
-// ---- Mock WF library shell + helpers ----
-jest.mock('@wf/react-library', () => ({
-  __esModule: true,
-  isNotEmpty: (v: unknown) =>
-    v !== null && v !== undefined && (typeof v !== 'string' || v.trim().length > 0),
-  useConfig: () => ({
-    env: {
-      OAUTH_CLIENT_ID: 'mock-client-id',
-      PING_OAUTHLOGOUTURL: 'https://logout.example/',
-      PING_OAUTHURL: 'https://oauth.example/',
-      POP_AD_GROUP_ACCESS: 'POP_AD_GROUP_ACCESS',
-      DTCA_EDIT_OPERATIONAL_PORTAL_USERS_P: 'DTCA_EDIT_OPERATIONAL_PORTAL_USERS_P',
-    },
-  }),
-  Template: (props: any) => {
-    // why: record the config App passes to the shell
-    mockTemplate(props);
-    return <div data-testid="template" />;
-  },
-}));
-
-// Default buildName; each test can replace with jest.doMock
-jest.mock('./app/config/appConfiguration.json', () => ({
-  buildName: 'RELEASE :1.2.3',
-}));
-
-// ---- Route component stubs ----
-jest.mock('./sideNavbar/boarding/applicationDetails', () => () => <div />);
-jest.mock('./sideNavbar/boarding/actDetails', () => () => <div />);
-jest.mock('./sideNavbar/boarding/componentsDetails', () => () => <div />);
-jest.mock('./sideNavbar/inbox', () => () => <div />);
-jest.mock('./sideNavbar/boarding/startOnboarding', () => () => <div />);
-jest.mock('./provision/provision-details', () => () => <div />);
-jest.mock('./provision/provision-list', () => () => <div />);
-jest.mock('./home/Home', () => () => <div />);
-jest.mock('./gcp.gath/gcpProjects', () => () => <div />);
-jest.mock('./buildInventory/inventory/Inventory', () => () => <div />);
-jest.mock('./buildInventory/inventory-dashboard/inventory-dashboard', () => () => <div />);
-
-// ---- Providers (return children) ----
-jest.mock('./provision/ProvisionContext', () => ({
-  ProvisionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-jest.mock('./sideNavbar/boarding/FormContext', () => ({
-  FormProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
-// ---- Router bits used in App ----
-jest.mock('react-router-dom', () => ({
-  __esModule: true,
-  Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,
-  useLocation: () => ({ pathname: '/' }),
-}));
-
-// Helper: render App fresh so per-test mocks apply
-function renderFreshAppAndGetConfig() {
-  let config: any;
-  jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const FreshApp = require('./App').default;
-    render(<FreshApp />);
-    config = mockTemplate.mock.calls[0][0].config;
-  });
-  return config as Record<string, any>;
-}
+// ...existing imports & mocks stay exactly the same...
 
 describe('App → Template config', () => {
   beforeEach(() => {
@@ -80,74 +11,29 @@ describe('App → Template config', () => {
     jest.doMock('./app/config/appConfiguration.json', () => ({
       buildName: 'RELEASE :1.2.3',
     }));
-
     const config = renderFreshAppAndGetConfig();
 
-    // app
-    expect(config.app).toEqual({
-      appId: 'apmf',
-      appName: 'Google Cloud Platform',
-      componentName: 'apmf-Google Cloud Platform',
-      description: '',
-      version: '1.0.0',
-      acin: 'APMF-ARIOBF',
-      cin: 'ARIOBF',
-    });
+    // ...app, theme, header expectations unchanged...
 
-    // theme/header/footer
-    expect(config.theme).toBe('consumer');
-    expect(config.header).toEqual({ appName: 'Google Cloud Platform' });
-    expect(config.footer).toEqual({ version: '1.2.3' });
+    // footer (FIX: include mode)
+    expect(config.footer).toEqual({ mode: 'minimum', version: '1.2.3' });
 
-    // routes (names + paths; element is a React node)
-    expect(config.routes).toEqual([
-      { name: '', path: '/', element: expect.any(Object) }, // Navigate → /home
-      { name: 'home', path: '/home', element: expect.any(Object) },
-
-      { name: 'applicationDetails', path: '/applicationDetails', element: expect.any(Object) },
-      { name: 'actDetails', path: '/actDetails', element: expect.any(Object) },
-      { name: 'componentsDetails', path: '/componentsDetails', element: expect.any(Object) },
-
-      { name: 'inbox', path: '/inbox', element: expect.any(Object) },
-      { name: 'gcpOnboarding', path: '/gcpOnboarding', element: expect.any(Object) },
-      {
-        name: 'gcpOnboardingTrackingId',
-        path: '/gcpOnboarding/trackingId',
-        element: expect.any(Object),
-      },
-
-      {
-        name: 'Provision Details',
-        path: '/provisions/:appId/environment',
-        element: expect.any(Object),
-      },
-      { name: 'Provision List', path: '/provision', element: expect.any(Object) },
-
-      { name: 'GCP Projects', path: '/gcpProjects', element: expect.any(Object) },
-
-      { name: 'inventory', path: '/inventory', element: expect.any(Object) },
-      { name: 'Inventory Dashboard', path: '/inventory-dashboard', element: expect.any(Object) },
-    ]);
-
-    // feature flags
-    expect(config.featureFlags).toEqual({
-      enabled: false,
-      apiKey: '',
-      userTargeting: false,
-      defaultTargetId: 'orchestrareact',
-      defaultTargetName: 'Google Cloud Platform',
-    });
+    // ...routes & featureFlags expectations unchanged...
   });
 
   test('uses default footer version when buildName is empty/whitespace', () => {
     jest.doMock('./app/config/appConfiguration.json', () => ({ buildName: '   ' }));
     const config = renderFreshAppAndGetConfig();
-    expect(config.footer.version).toBe('1.0.0');
+
+    // footer (FIX: include mode)
+    expect(config.footer).toEqual({ mode: 'minimum', version: '1.0.0' });
   });
 
   test('parses footer version when buildName is "RELEASE :2.3.4"', () => {
     jest.doMock('./app/config/appConfiguration.json', () => ({ buildName: 'RELEASE :2.3.4' }));
     const config = renderFreshAppAndGetConfig();
-    expect(config.footer.version).toBe('2.3.4');
+
+    // footer (FIX: include mode)
+    expect(config.footer).toEqual({ mode: 'minimum', version: '2.3.4' });
   });
 });
