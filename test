@@ -1,58 +1,144 @@
-// jest.config.js
-module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'jsdom',
-  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
-  modulePathIgnorePatterns: ['<rootDir>/dist/'],
-  transform: {
-    '^.+\\.(css|styl|less|sass|scss)$': 'jest-css-modules-transform',
-  },
-  transformIgnorePatterns: ['node_modules/(?!(@mui)/)'],
-  testPathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
-  coveragePathIgnorePatterns: ['<rootDir>/src/buildInventory/*'],
-  moduleNameMapper: {
-    // ✅ map both package names you’ve shown
-    '^@wf/react-library$': '<rootDir>/src/__mocks__/@wf/react-library.tsx',
-    '^qf/react-library$': '<rootDir>/src/__mocks__/qf/react-library.tsx',
-    // style stubs (if you don’t already have them)
-    '\\.(css|scss)$': '<rootDir>/src/test-utils/styleStub.js',
-  },
-};
-
+// src/App.test.tsx
+import { render } from '@testing-library/react';
 import React from 'react';
 
-export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
-export const useConfig = () => ({ apiBaseUrl: 'http://localhost', header: { appName: 'App' } });
+// SUT
+import App from './App';
 
-// Optional: some code imports Template from @wf/react-library
-export const Template = ({ config, children }: { config?: any; children?: React.ReactNode }) => (
-  <div data-testid="template-mock">
-    <div data-testid="header">{config?.header?.appName ?? 'App'}</div>
-    {children}
-  </div>
-);
+// --- Mocks for @wf/react-library (Template shell & helpers) ---
+const mockTemplate = jest.fn();
+jest.mock('@wf/react-library', () => ({
+  __esModule: true,
+  // simple truthy check used by footer version logic
+  isNotEmpty: (v: unknown) =>
+    v !== null && v !== undefined && (typeof v !== 'string' || v.trim().length > 0),
+  useConfig: () => ({
+    env: {
+      OAUTH_CLIENT_ID: 'mock-client-id',
+      PING_OAUTHLOGOUTURL: 'https://logout.example/',
+      PING_OAUTHURL: 'https://oauth.example/',
+      POP_AD_GROUP_ACCESS: 'POP_AD_GROUP_ACCESS',
+      DTCA_EDIT_OPERATIONAL_PORTAL_USERS_P: 'DTCA_EDIT_OPERATIONAL_PORTAL_USERS_P',
+    },
+  }),
+  Template: (props: any) => {
+    // why: capture the config passed by App without rendering real shell
+    mockTemplate(props);
+    return <div data-testid="template" />;
+  },
+}));
 
-import React from 'react';
+// --- Stable default for buildName; individual tests will override when needed ---
+jest.mock('./app/config/appConfiguration.json', () => ({
+  buildName: 'RELEASE :1.2.3',
+}));
 
-export const useAppGlobalState = () => ({ getToken: () => 'test-token' });
-export const useConfig = () => ({ apiBaseUrl: 'http://localhost', header: { appName: 'App' } });
+// --- Lightweight stubs for all route components/providers used by App ---
+jest.mock('./sideNavbar/boarding/applicationDetails', () => () => <div />);
+jest.mock('./sideNavbar/boarding/actDetails', () => () => <div />);
+jest.mock('./sideNavbar/boarding/componentsDetails', () => () => <div />);
+jest.mock('./sideNavbar/inbox', () => () => <div />);
+jest.mock('./sideNavbar/boarding/startOnboarding', () => () => <div />);
+jest.mock('./provision/provision-details', () => () => <div />);
+jest.mock('./provision/provision-list', () => () => <div />);
+jest.mock('./home/Home', () => () => <div />);
+jest.mock('./gcp.gath/gcpProjects', () => () => <div />);
+jest.mock('./buildInventory/inventory/Inventory', () => () => <div />);
+jest.mock('./buildInventory/inventory-dashboard/inventory-dashboard', () => () => <div />);
+jest.mock('./provision/ProvisionContext', () => ({
+  ProvisionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+jest.mock('./formContext', () => ({
+  FormProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+// Router bits used by App (Navigate/useLocation) – keep minimal
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,
+  useLocation: () => ({ pathname: '/' }),
+}));
 
-export const Template = ({ config, children }: { config?: any; children?: React.ReactNode }) => (
-  <div data-testid="template-mock">
-    <div data-testid="header">{config?.header?.appName ?? 'App'}</div>
-    {children}
-  </div>
-);
-module.exports = {};
+describe('App → Template config', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // important: reset module registry when we swap appConfiguration mock below
+    jest.resetModules();
+  });
 
-import '@testing-library/jest-dom';
+  function renderFreshApp() {
+    // re-require after optional doMock in certain tests
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const FreshApp = require('./App').default;
+    render(<FreshApp />);
+    return mockTemplate.mock.calls[0][0].config as Record<string, any>;
+  }
 
-// quieten react act warnings if you like
-const orig = console.error;
-console.error = (...args: any[]) => {
-  if (/ReactDOMTestUtils\.act is deprecated/i.test(String(args[0]))) return;
-  orig.call(console, ...args);
-};
+  test('passes complete config with parsed footer version from buildName', () => {
+    // ensure baseline buildName
+    jest.doMock('./app/config/appConfiguration.json', () => ({
+      buildName: 'RELEASE :1.2.3',
+    }));
 
-// if needed by some components:
-if (!window.scrollTo) (window as any).scrollTo = () => {};
+    const config = renderFreshApp();
+
+    // app section
+    expect(config.app).toEqual({
+      appName: 'Google Cloud Platform',
+      componentName: 'apmf-Google Cloud Platform',
+      description: '',
+      version: '1.0.0',
+      acin: 'APMF-ARIOBF',
+      achm: 'ARIOBF',
+    });
+
+    // theme/header/footer
+    expect(config.theme).toBe('consumer');
+    expect(config.header).toEqual({
+      appName: 'Google Cloud Platform',
+    });
+    expect(config.footer).toEqual({ version: '1.2.3' });
+
+    // routes: assert names & paths exist (elements are React nodes)
+    expect(config.routes).toEqual([
+      { name: '', path: '/', element: expect.any(Object) }, // Navigate → /home
+      { name: 'home', path: '/home', element: expect.any(Object) },
+
+      { name: 'applicationDetails', path: '/applicationDetails', element: expect.any(Object) },
+      { name: 'actDetails', path: '/actDetails', element: expect.any(Object) },
+      { name: 'componentsDetails', path: '/componentsDetails', element: expect.any(Object) },
+
+      { name: 'inbox', path: '/inbox', element: expect.any(Object) },
+      { name: 'gcpOnboarding', path: '/gcpOnboarding', element: expect.any(Object) },
+      { name: 'gcpOnboardingTrackingId', path: '/gcpOnboarding/trackingId', element: expect.any(Object) },
+
+      { name: 'Provision Details', path: '/provisions/:appId/environment', element: expect.any(Object) },
+      { name: 'Provision List', path: '/provision', element: expect.any(Object) },
+
+      { name: 'GCP Projects', path: '/gcpProjects', element: expect.any(Object) },
+
+      { name: 'inventory', path: '/inventory', element: expect.any(Object) },
+      { name: 'Inventory Dashboard', path: '/inventory-dashboard', element: expect.any(Object) },
+    ]);
+
+    // feature flags
+    expect(config.featureFlags).toEqual({
+      enabled: false,
+      apiKey: '',
+      userTargeting: false,
+      defaultTargetId: 'orchestrareact',
+      defaultTargetName: 'Google Cloud Platform',
+    });
+  });
+
+  test('uses default footer version when buildName is empty/whitespace', () => {
+    jest.doMock('./app/config/appConfiguration.json', () => ({ buildName: '   ' }));
+    const config = renderFreshApp();
+    expect(config.footer.version).toBe('1.0.0');
+  });
+
+  test('parses arbitrary buildName format "RELEASE :2.3.4" → "2.3.4"', () => {
+    jest.doMock('./app/config/appConfiguration.json', () => ({ buildName: 'RELEASE :2.3.4' }));
+    const config = renderFreshApp();
+    expect(config.footer.version).toBe('2.3.4');
+  });
+});
