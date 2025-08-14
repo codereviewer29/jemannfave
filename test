@@ -1,52 +1,29 @@
-function generateDateLabels(days: number): string[];
-function generateDateLabels(startDate: string | Date, days: number): string[];
-function generateDateLabels(a: number | string | Date, b?: number): string[] {
-  // Case 1: called as (days) — preserves your previous behavior
-  if (typeof a === 'number') {
-    const days = a;
-    const today = new Date();
-    const start = new Date(today);
-    start.setHours(0, 0, 0, 0);
-    start.setDate(today.getDate() - (days - 1));
-    return Array.from({ length: days }, (_, i) =>
-      new Date(start.getTime() + i * 86400000).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      }),
-    );
-  }
+const parseApiDate = (s: string) => {
+  // guard
+  if (!s) return new Date('1970-01-01');
+  // support both "08-05-25" and "08/05/25" just in case
+  const parts = s.includes('-') ? s.split('-') : s.split('/');
+  const [mm, dd, yy] = parts.map(Number);
+  return new Date(2000 + yy, (mm ?? 1) - 1, dd ?? 1);
+};
 
-  // Case 2: called as (startDate, days) — used for custom date range
-  const start = new Date(a);
-  start.setHours(0, 0, 0, 0);
-  const days = b ?? 0;
-  return Array.from({ length: days }, (_, i) =>
-    new Date(start.getTime() + i * 86400000).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    }),
-  );
-}
-
+/** Format Date -> "Aug 5" (labels on x-axis) */
+const formatLabel = (d: Date) =>
+  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
 if (!filteredChartData.length) return;
 
-  // How many points to show
-  const count =
-    summaryDataOfChart2?.summaryDataOfChart?.dayCount ??
-    filteredChartData.length;
+  // Sort ascending by date so x-axis is left→right
+  const sorted = [...filteredChartData].sort(
+    (a, b) => parseApiDate(a.date).getTime() - parseApiDate(b.date).getTime()
+  );
 
-  // Helper to read a date key safely from your items
-  const pickDateKey = (item: any) =>
-    item?.date ?? item?.day ?? item?.ts ?? item?.timestamp ?? null;
+  // Labels directly from API dates
+  const labels = sorted.map((item) => formatLabel(parseApiDate(item.date)));
+  setChartLabels(labels);
 
-  // Preferred: API startDate; Fallback: first item date
-  const apiStart: string | undefined =
-    summaryDataOfChart2?.summaryDataOfChart?.startDate;
-  const dataStart: string | undefined = pickDateKey(filteredChartData?.[0]) ?? undefined;
-
-  const startDate = apiStart ?? dataStart;
-  if (!count || !startDate) return;
-
-  // ---- labels for custom date window
-  setChartLabels(generateDateLabels(startDate, count))
+  // Series aligned 1:1 with labels
+  const fileCount = sorted.map((i) => i.filecount ?? 0);
+  const avgFileSize = sorted.map((i) => i.avg_filesize_in_mb ?? 0);
+  const avgTime = sorted.map((i) => i.avg_time_in_min ?? 0);
+  const avgThroughput = sorted.map((i) => i.avg_throughput ?? 0);
