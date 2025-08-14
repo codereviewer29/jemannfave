@@ -1,19 +1,52 @@
-useEffect(() => {
-  if (!filteredChartData.length) return;
+function generateDateLabels(days: number): string[];
+function generateDateLabels(startDate: string | Date, days: number): string[];
+function generateDateLabels(a: number | string | Date, b?: number): string[] {
+  // Case 1: called as (days) — preserves your previous behavior
+  if (typeof a === 'number') {
+    const days = a;
+    const today = new Date();
+    const start = new Date(today);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(today.getDate() - (days - 1));
+    return Array.from({ length: days }, (_, i) =>
+      new Date(start.getTime() + i * 86400000).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      }),
+    );
+  }
 
-  // total points to plot
+  // Case 2: called as (startDate, days) — used for custom date range
+  const start = new Date(a);
+  start.setHours(0, 0, 0, 0);
+  const days = b ?? 0;
+  return Array.from({ length: days }, (_, i) =>
+    new Date(start.getTime() + i * 86400000).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    }),
+  );
+}
+
+
+if (!filteredChartData.length) return;
+
+  // How many points to show
   const count =
     summaryDataOfChart2?.summaryDataOfChart?.dayCount ??
     filteredChartData.length;
 
-  // 1) API-provided start date (preferred)
-  const apiStart = summaryDataOfChart2?.summaryDataOfChart?.startDate;
+  // Helper to read a date key safely from your items
+  const pickDateKey = (item: any) =>
+    item?.date ?? item?.day ?? item?.ts ?? item?.timestamp ?? null;
 
-  // 2) Fallback: derive from the first data item (adjust the field name!)
-  const dataStart = filteredChartData?.[0]?.date; // <-- if your field is 'day' or 'timestamp', change it here
+  // Preferred: API startDate; Fallback: first item date
+  const apiStart: string | undefined =
+    summaryDataOfChart2?.summaryDataOfChart?.startDate;
+  const dataStart: string | undefined = pickDateKey(filteredChartData?.[0]) ?? undefined;
 
   const startDate = apiStart ?? dataStart;
   if (!count || !startDate) return;
 
-  setChartLabels(generateDateLabels(startDate, count));
-}, [filteredChartData, summaryDataOfChart2]);
+  // ---- labels for custom date window
+  setChartLabels(generateDateLabels(startDate, count))
