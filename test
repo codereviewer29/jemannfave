@@ -1,20 +1,49 @@
-const generateDateLabels = (startDate: string | Date, days: number) => {
-  const start = new Date(startDate);
-  return Array.from({ length: days }, (_, i) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + i); // go forward from start date
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  });
-};
+// Overloads
+function generateDateLabels(days: number): string[];
+function generateDateLabels(startDate: string | Date, days: number): string[];
+
+// Implementation
+function generateDateLabels(a: number | string | Date, b?: number): string[] {
+  // Case 1: called with (days)
+  if (typeof a === 'number') {
+    const days = a;
+    const today = new Date();
+    const start = new Date(today);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(today.getDate() - (days - 1));
+    return Array.from({ length: days }, (_, i) =>
+      new Date(start.getTime() + i * 86400000).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      }),
+    );
+  }
+
+  // Case 2: called with (startDate, days)
+  const start = new Date(a);
+  start.setHours(0, 0, 0, 0);
+  const days = b ?? 0;
+  return Array.from({ length: days }, (_, i) =>
+    new Date(start.getTime() + i * 86400000).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    }),
+  );
+}
 
 useEffect(() => {
   if (!filteredChartData.length) return;
 
-  const count = summaryDataOfChart2?.summaryDataOfChart?.dayCount;
-  const startDate = summaryDataOfChart2?.summaryDataOfChart?.startDate; // <-- Make sure API sends this
-  
+  const count =
+    summaryDataOfChart2?.summaryDataOfChart?.dayCount ??
+    filteredChartData.length;
+
+  // Prefer the API-provided start date; otherwise use the chosen filter value
+  const startDate =
+    summaryDataOfChart2?.summaryDataOfChart?.startDate ??
+    filters?.startDate; // <-- replace with your actual state/prop name
+
   if (!count || !startDate) return;
 
-  const labels = generateDateLabels(startDate, count);
-  setChartLabels(labels);
+  setChartLabels(generateDateLabels(startDate, count));
 }, [filteredChartData]);
