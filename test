@@ -1,24 +1,282 @@
-/* ------------------------------- Helpers ------------------------------ */
+// src/sideNavbar/boarding/applicationDetails.test.tsx
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
+/* ------------------------------ Module mocks ------------------------------ */
+
+// React Router: the component uses <Link />, but we don't want a Router dependency.
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
+}));
+
+// API service hook used inside the component
+const makeRequest = jest.fn();
+jest.mock('../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+  useApiService: () => ({ makeRequest }),
+}));
+
+// MUI DatePicker → render a tiny input that calls onChange when clicked
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  __esModule: true,
+  DatePicker: ({ label, onChange }: any) => (
+    <input
+      data-testid="mock-date"
+      aria-label={label}
+      onClick={() => onChange?.('2025-01-01' as any)}
+    />
+  ),
+}));
+
+// The component consumes a FormContext via a custom hook.
+// We mock the whole module so we can provide our own Provider + initial data.
+let ctxValueRef: any = null;
+
+jest.mock('./FormContext', () => {
+  const React = require('react');
+  const Context = React.createContext<any>(null);
+
+  return {
+    __esModule: true,
+    // Expose the context so tests can wrap with Provider
+    FormContext: Context,
+    // Hook used by the component
+    useFormContext: () => React.useContext(Context),
+    // Keep the same export name so imports in the component keep working
+    default: Context,
+    // A very small initial form; tests will override via Provider
+    initialFormData: {
+      applicationDetails: {
+        applicationID: '',
+        applicationName: '',
+        summary: '',
+        description: '',
+        purposeAndBenefit: '',
+        lobDomain: '',
+        environmentsNeeded: [],
+        requesterName: '',
+        requesterEmail: '',
+        techContact: '',
+        applicationOwnerApprover: '',
+        primaryTechManager: '',
+        auNumber: '',
+        dataSource: 'External', // valid option in your Select to avoid MUI warnings
+        dataFormat: [],
+        timelineSandbox: null,
+        timelineNonProd: null,
+        timelineProd: null,
+      },
+      actDetails: {},
+    },
+  };
+});
+
+/* --------------------------------- SUT ---------------------------------- */
+
+import ApplicationDetails from './applicationDetails';
+import { FormContext as RealFormContext, initialFormData as realInitial } from './FormContext';
+
+/* ------------------------------- Helpers -------------------------------- */
 
 // Accept Testing Library's TextMatch (string | RegExp | function)
 type TextMatch = Parameters<typeof screen.getByLabelText>[0];
 
 const typeIn = (label: TextMatch, text: string) => {
-  const el = screen.getByLabelText(label) as HTMLInputElement | HTMLTextAreaElement;
+  const el = screen.getByLabelText(label, { selector: 'input,textarea' }) as
+    | HTMLInputElement
+    | HTMLTextAreaElement;
   const nameAttr = el.getAttribute('name') || '';
   fireEvent.change(el, { target: { name: nameAttr, value: text } });
 };
 
-const clickFirstButtonNamed = (name: RegExp) => {
-  const btn = screen.getAllByRole('button').find((b) =>
-    new RegExp(name, 'i').test((b.textContent || '').trim())
-  );
-  if (!btn) throw new Error(`Button with name ${name} not found`);
-  fireEvent.click(btn);
+const openSelectByLabel = (label: TextMatch) => {
+  const input = screen.getByLabelText(label, { selector: 'input' });
+  fireEvent.mouseDown(input); // MUI Select opens on mouseDown
 };
 
-const openSelectByLabel = (label: TextMatch) => {
-  const input = screen.getByLabelText(label);
-  // For MUI Select, mouseDown on the input opens the menu reliably
-  fireEvent.mouseDown(input);
+const withForm = () => {
+  // Build a minimal-but-safe shape so nested reads/writes work
+  const baseFormData = {
+    ...realInitial,
+    applicationDetails: {
+      ...(realInitial as any).applicationDetails,
+      applicationID: '',
+      applicationName: '',
+      summary: '',
+      description: '',
+      purposeAndBenefit: '',
+      lobDomain: '',
+      environmentsNeeded: [],
+      requesterName: '',
+      requesterEmail: '',
+      techContact: '',
+      applicationOwnerApprover: '',
+      primaryTechManager: '',
+      auNumber: '',
+      dataSource: 'External',
+      dataFormat: [],
+      timelineSandbox: null,
+      timelineNonProd: null,
+      timelineProd: null,
+    },
+  };
+
+  const setFormData = jest.fn();
+  const Provider = ({ children }: { children: React.ReactNode }) => (
+    <RealFormContext.Provider
+      value={{
+        formData: baseFormData,
+        setFormData,
+        requiredFields: [],
+        resetFormData: jest.fn(),
+      }}
+    >
+      {children}
+    </RealFormContext.Provider>
+  );
+
+  return { Provider, setFormData };
 };
+
+/* --------------------------------- Tests -------------------------------- */
+
+describe('ApplicationDetails (lite)', () => {
+  beforeEach(() => {
+    makeRequest.mockReset();
+  });
+
+  test('renders Overview + a few core fields', () => {
+    const { Provider } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // Avoid matching tooltip icons: use role+name for the actual inputs
+    expect(screen.getByRole('textbox', { name: /Application ID/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /^Application Name$/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Summary/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Purpose and Benefit/i })).toBeInTheDocument();
+    expect(screen.getByText(/Environments Needed/i)).toBeInTheDocument();
+  });
+
+  test('typing in Summary updates form via setFormData (text handler)', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    typeIn(/Summary/i, 'hello world');
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('changing AU Number triggers number handler', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    typeIn(/AU Number/i, '12345');
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('Environments Needed (multi-select) updates form via setFormData', async () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    openSelectByLabel(/Environments Needed/i);
+    // Pick options that exist in your TSX
+    fireEvent.click(await screen.findByText('SIT'));
+    fireEvent.click(await screen.findByText('UAT'));
+    // Close the menu
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('date pickers call handler without crashing (Sandbox timeline)', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // Our DatePicker mock emits onChange on click
+    fireEvent.click(screen.getByTestId('mock-date'));
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('search by App ID triggers both services and may open the toaster (happy path)', async () => {
+    const { Provider, setFormData } = withForm();
+
+    // 1st call → BAM details, 2nd call → env validation
+    makeRequest
+      .mockResolvedValueOnce({ data: { applicationID: 'APP123', applicationName: 'My App' }, status: 200 })
+      .mockResolvedValueOnce({ data: { environments: ['SIT'] }, status: 200 });
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // Type the App ID
+    typeIn(/Application ID/i, 'APP123');
+
+    // Click the search icon (IconButton) next to the App ID field
+    const appIdInput = screen.getByRole('textbox', { name: /Application ID/i });
+    const searchBtn =
+      (appIdInput.closest('.MuiFormControl-root') || appIdInput.parentElement)?.querySelector(
+        'button'
+      ) as HTMLButtonElement;
+    fireEvent.click(searchBtn);
+
+    await waitFor(() => expect(makeRequest).toHaveBeenCalledTimes(2));
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('ART Request → Add "Other Field" then remove → setFormData called', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // The visible text is near the icon button; click the nearby button
+    const addText = screen.getByText(/Add Other Field/i);
+    const addBtn =
+      (addText.closest('div')?.previousElementSibling as HTMLElement)?.querySelector('button') ||
+      addText.closest('div')?.querySelector('button');
+    if (!addBtn) throw new Error('Add button not found');
+    fireEvent.click(addBtn);
+
+    // Remove the first "remove" icon if present
+    const removeBtn =
+      screen
+        .getAllByRole('button')
+        .find((b) => /remove/i.test(b.getAttribute('aria-label') || b.title || '')) ||
+      screen.getAllByRole('button').find((b) => /remove/i.test((b.textContent || '').toLowerCase()));
+    if (removeBtn) fireEvent.click(removeBtn);
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+});
