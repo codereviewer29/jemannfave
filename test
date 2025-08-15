@@ -1,65 +1,59 @@
+// src/sideNavbar/boarding/startOnboarding.test.tsx
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-/* -----------------------------------------------------------
-   Child component stubs (no reads from formData, so no crashes)
-   ----------------------------------------------------------- */
+/* ---------- Child stubs (no reads from formData) ---------- */
 jest.mock('./applicationDetails', () => () => <div data-testid="app-details" />);
 jest.mock('./componentsDetails', () => () => <div data-testid="components-details" />);
-jest.mock('./intake-components/guidelinesIntakeForm', () => () => (
+jest.mock('../intake-components/guidelinesIntakeForm', () => () => (
   <div data-testid="guidelines" />
 ));
 
-/* dialogs used by StartOnboarding (kept as tiny buttons to click) */
-jest.mock('./intake-components/cancelOnboarding', () => (props: any) => (
-  <button data-testid="dlg-cancel-confirm" onClick={props.handleConfirmCancel} />
-));
-jest.mock('./intake-components/confirmationOnboarding', () => (props: any) => (
-  <button data-testid="dlg-submit-confirm" onClick={props.handleConfirmSubmit} />
-));
+/* ---------- Dialog stubs (respect "open" flags) ---------- */
+jest.mock('../intake-components/cancelOnboarding', () => (props: any) =>
+  props.openCancelDialog ? (
+    <button data-testid="dlg-cancel-confirm" onClick={props.handleConfirmCancel} />
+  ) : null
+);
 
-/* Top nav (keep DOM small) */
+jest.mock('../intake-components/confirmationOnboarding', () => (props: any) =>
+  props.openConfirmSubmitDialog ? (
+    <button data-testid="dlg-submit-confirm" onClick={props.handleConfirmSubmit} />
+  ) : null
+);
+
+/* ---------- Keep top nav tiny ---------- */
 jest.mock('../../home/CustomNavigation', () => () => <nav data-testid="nav" />);
 
-/* -----------------------------------------------------------
-   API service mock (so we never import ESM libs from node_modules)
-   ----------------------------------------------------------- */
+/* ---------- API service mock ---------- */
 const makeRequest = jest.fn();
 jest.mock('../../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest }),
 }));
 
-/* -----------------------------------------------------------
-   Router mocks used directly by StartOnboarding
-   ----------------------------------------------------------- */
+/* ---------- Router mocks used by StartOnboarding ---------- */
 const navigateMock = jest.fn();
 let paramsMock: Record<string, string> | undefined;
-
 jest.mock('react-router-dom', () => ({
   __esModule: true,
   useNavigate: () => navigateMock,
-  useParams: () => (paramsMock ?? {}),
+  useParams: () => paramsMock ?? {},
   Link: ({ to, children }: any) => <a href={typeof to === 'string' ? to : '/'}>{children}</a>,
 }));
 
-/* -----------------------------------------------------------
-   FormContext mock: minimal but correct shape
-   (include both appDetails & applicationDetails to be safe)
-   ----------------------------------------------------------- */
+/* ---------- FormContext mock: minimal but correct ---------- */
 const setFormDataMock = jest.fn();
 const resetFormDataMock = jest.fn();
 const requiredFieldsMock: string[] = [];
-
 const baseFormData = {
   trackingStatus: '',
-  // Some code uses these keys; keep them present and harmless
+  // keep both keys present; pages read them
   appDetails: {},
   applicationDetails: {},
   cdmNextDetails: {},
 };
-
-jest.mock('../FormContext', () => ({
+jest.mock('./FormContext', () => ({
   __esModule: true,
   useFormContext: () => ({
     formData: baseFormData,
@@ -70,16 +64,13 @@ jest.mock('../FormContext', () => ({
   }),
 }));
 
-/* -----------------------------------------------------------
-   SUT
-   ----------------------------------------------------------- */
+/* ---------- SUT ---------- */
 import StartOnboarding from './startOnboarding';
 
 describe('StartOnboarding (lite)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    paramsMock = undefined; // default: no trackingId
-    // keep base form data in a neutral state for each test
+    paramsMock = undefined; // default: no trackingId in URL
     (baseFormData as any).trackingStatus = '';
   });
 
@@ -88,10 +79,9 @@ describe('StartOnboarding (lite)', () => {
 
     expect(resetFormDataMock).toHaveBeenCalled();
 
-    // Header text from the page (keep it simple & robust)
+    // robust header assertion
     expect(screen.getByText(/GCP Onboarding Form/i)).toBeInTheDocument();
-
-    // Default tab content (our stub)
+    // default tab content (our stub)
     expect(screen.getByTestId('app-details')).toBeInTheDocument();
   });
 
@@ -105,10 +95,10 @@ describe('StartOnboarding (lite)', () => {
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'GET',
-        // Your code builds this with a query param; match loosely
+        // code builds with a query param; match loosely
         endpoints: expect.stringMatching(/\/api\/intake-form\?intakeFormTrackingId=123/i),
         responseType: 'json',
-      }),
+      })
     );
   });
 
@@ -117,31 +107,36 @@ describe('StartOnboarding (lite)', () => {
 
     render(<StartOnboarding />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Save/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
+    // Save uses /api/intake-form/   (not /api/submit-intake-form/)
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'POST',
-        // Keep trailing slash if your component uses it
         endpoints: '/api/intake-form/',
         responseType: 'json',
         body: expect.any(Object),
-      }),
+      })
     );
     expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/987');
   });
 
-  test('Submit non‑200 → stays on page (no navigation); confirm dialog not shown', async () => {
+  test('Submit non-200 → stays on page; confirm dialog not shown; shows alert', async () => {
     makeRequest.mockRejectedValueOnce(new Error('boom'));
 
     render(<StartOnboarding />);
-    fireEvent.click(screen.getByRole('button', { name: /Submit/i }));
 
-    // We only assert the failure effects we care about:
+    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
+
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
     expect(navigateMock).not.toHaveBeenCalled();
+    // confirm dialog (our stub) should not be visible because "open" never set
     expect(screen.queryByTestId('dlg-submit-confirm')).not.toBeInTheDocument();
+
+    // MUI Alert inside Snackbar uses role="alert"
+    const alert = await screen.findByRole('alert');
+    expect(alert).toBeInTheDocument();
   });
 
   test('buttons disabled when trackingStatus is "Completed"', () => {
@@ -149,28 +144,28 @@ describe('StartOnboarding (lite)', () => {
 
     render(<StartOnboarding />);
 
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /^Submit$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /submit/i })).toBeDisabled();
   });
 
   test('tabs switch content (stubs)', () => {
     render(<StartOnboarding />);
 
-    // Application tab is default
+    // default tab
     expect(screen.getByTestId('app-details')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Component Details/i }));
+    fireEvent.click(screen.getByRole('button', { name: /component details/i }));
     expect(screen.getByTestId('components-details')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
+    fireEvent.click(screen.getByRole('button', { name: /guide lines/i }));
     expect(screen.getByTestId('guidelines')).toBeInTheDocument();
   });
 
   test('Cancel confirm without trackingId → resets to initialFormData', () => {
     render(<StartOnboarding />);
 
-    // Clicking the page "Cancel" should surface our stub dialog button; click it
-    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+    // clicking page "Cancel" sets openCancelDialog true; our stub will then show confirm button
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     fireEvent.click(screen.getByTestId('dlg-cancel-confirm'));
 
     expect(setFormDataMock).toHaveBeenCalledWith(baseFormData);
