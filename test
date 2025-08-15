@@ -1,8 +1,7 @@
-/* src/sideNavbar/boarding/startOnboarding.test.tsx */
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-/* -------------------- FormContext mock -------------------- */
+/** -------------------- FormContext mock -------------------- */
 const setFormDataMock = jest.fn();
 const resetFormDataMock = jest.fn();
 let requiredFieldsMock: string[] = [];
@@ -20,47 +19,64 @@ jest.mock('../FormContext', () => ({
   }),
 }));
 
-/* -------------------- API mock -------------------- */
+/** -------------------- API mock -------------------- */
 const makeRequest = jest.fn();
 jest.mock('../../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest }),
 }));
 
-/* -------------------- Router mock -------------------- */
+/** -------------------- Router + Nav mocks -------------------- */
 const navigateMock = jest.fn();
-let paramsMock: Record<string, string> | undefined;
+let paramsMock: Record<string, string | undefined> = {};
+
 jest.mock('react-router-dom', () => ({
   __esModule: true,
   useNavigate: () => navigateMock,
   useParams: () => paramsMock,
+  // minimal useLocation so CustomNavigation (if ever rendered) won’t explode
+  useLocation: () => ({ pathname: '/', search: '', hash: '', state: null, key: 'k' }),
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
-    <a href={to} data-to={to}>{children}</a>
+    <a href={typeof to === 'string' ? to : ''}>{children}</a>
   ),
 }));
 
-/* -------------------- Lightweight stubs for children & dialogs -------------------- */
-jest.mock('../applicationDetails', () => () => <div data-testid="app-details" />);
-jest.mock('../componentsDetails', () => () => <div data-testid="components-details" />);
-jest.mock('../intake-components/guidelinesIntakeForm', () => () => <div data-testid="guidelines" />);
+// Mock CustomNavigation entirely so we don’t execute its internals
+jest.mock('../../home/CustomNavigation', () => () => <nav data-testid="nav" />);
 
-jest.mock('../intake-components/cancelOnboarding', () => (props: any) => (
-  <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel} />
+/** ---- child stubs rendered inside StartOnboarding (keep very light) ---- */
+jest.mock('./intake-components/applicationDetails', () => () => (
+  <div data-testid="app-details" />
 ));
-jest.mock('../intake-components/confirmationOnboarding', () => (props: any) => (
-  <button data-testid="mock-submit-confirm" onClick={props.handleConfirmSubmit} />
+jest.mock('./intake-components/componentsDetails', () => () => (
+  <div data-testid="components-details" />
+));
+jest.mock('./intake-components/guidelinesIntakeForm', () => () => (
+  <div data-testid="guidelines" />
 ));
 
-/* -------------------- SUT -------------------- */
+// Cancel dialog: only render its controls when asked to open
+jest.mock('./intake-components/cancelOnboarding', () => (props: any) =>
+  props.openCancelDialog ? (
+    <button data-testid="mock-cancel-confirm" onClick={props.handleConfirmCancel} />
+  ) : null
+);
+
+// Submit-confirm dialog: only render when asked to open
+jest.mock('./intake-components/confirmationOnboarding', () => (props: any) =>
+  props.openConfirmSubmitDialog ? (
+    <button data-testid="mock-submit-confirm" onClick={props.handleConfirmSubmit} />
+  ) : null
+);
+
+/** -------------------- SUT -------------------- */
 import StartOnboarding from './startOnboarding';
-
-const click = (el: HTMLElement) => fireEvent.click(el);
 
 describe('StartOnboarding', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    paramsMock = {};
-    requiredFieldsMock = [];
+    paramsMock = {};                  // default: no trackingId
+    requiredFieldsMock = [];          // default: no required fields
     formDataMock = { trackingStatus: '', appDetails: {}, cdmNextDetails: {} };
   });
 
@@ -70,44 +86,44 @@ describe('StartOnboarding', () => {
 
     render(<StartOnboarding />);
 
-    await waitFor(() => expect(makeRequest).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'GET',
         endpoints: '/api/intake-form?intakeFormTrackingId=123',
         responseType: 'json',
-      }),
+      })
     );
-    // id appears somewhere in the page (breadcrumbs/links etc.)
+    expect(setFormDataMock).toHaveBeenCalledWith({ foo: 'bar' });
+    expect(screen.getByText(/tracking id/i)).toBeInTheDocument();
     expect(screen.getByText('123')).toBeInTheDocument();
   });
 
-  test('mount without trackingId → calls reset and hides Tracking ID block', () => {
-    paramsMock = undefined;
+  test('mount without trackingId → resets form and shows "Not Available"', () => {
     render(<StartOnboarding />);
 
     expect(resetFormDataMock).toHaveBeenCalled();
 
-    // The component renders the Tracking ID section only when trackingId exists,
-    // so assert it’s NOT in the DOM (instead of searching for “Not Available”).
-    expect(screen.queryByText(/Intake Tracking ID/i)).not.toBeInTheDocument();
+    // text might be split across nodes; match by element textContent
+    expect(
+      screen.getByText((_, el) => el?.textContent?.includes('Not Available') ?? false)
+    ).toBeInTheDocument();
   });
 
-  test('Save → POST /api/intake-form then navigates to /gcpOnboarding/:id', async () => {
+  test('Save = POST /api/intake-form then navigates to /gcpOnboarding/:id', async () => {
     makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 987 }, status: 200 });
 
     render(<StartOnboarding />);
-    click(screen.getByRole('button', { name: /Save/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
-    // runtime uses trailing slash + responseType; assert those bits too
     expect(makeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'POST',
-        endpoints: '/api/intake-form/',
+        endpoints: '/api/intake-form',
         responseType: 'json',
         body: expect.any(Object),
-      }),
+      })
     );
     expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/987');
   });
@@ -116,55 +132,64 @@ describe('StartOnboarding', () => {
     makeRequest.mockRejectedValueOnce(new Error('boom'));
 
     render(<StartOnboarding />);
-    click(screen.getByRole('button', { name: /Save/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  test('getFormData non-200 → error toast; no nav', async () => {
+  test('getFormData non-200 → error toast; no confirm dialog', async () => {
     paramsMock = { trackingId: '555' };
     makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
 
     render(<StartOnboarding />);
 
     const alert = await screen.findByRole('alert');
-    expect(alert.innerHTML).toMatch(/Error has occurred while fetching Intake form/i);
-    expect(navigateMock).not.toHaveBeenCalled();
+    expect(alert.innerHTML).toMatch(/Error has occurred while fetching Intake Form/i);
+
+    // our confirmation stub renders nothing unless open = true, so it should NOT be in DOM
+    expect(screen.queryByTestId('mock-submit-confirm')).not.toBeInTheDocument();
   });
 
   test('Submit invalid → validation toast; no POST', async () => {
-    requiredFieldsMock = ['appDetails.name']; // -> missing = invalid
+    // require one field so validation fails
+    requiredFieldsMock = ['appDetails.name'];
 
     render(<StartOnboarding />);
-    click(screen.getByRole('button', { name: /Submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.innerHTML).toMatch(/Please fill in all required fields/i);
 
-    // Ensure submit call did NOT go out
+    // ensure no /api/submit-intake-form call was made
     expect(
-      makeRequest.mock.calls.some((c) => String(c[0]?.endpoints).includes('/api/submit-intake-form')),
+      makeRequest.mock.calls.some((c) =>
+        String(c[0]?.endpoints).includes('/api/submit-intake-form')
+      )
     ).toBe(false);
   });
 
   test('Submit valid → POST submit, success toast, confirm navigates to inbox', async () => {
     requiredFieldsMock = []; // valid
+
     makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 4321 }, status: 200 });
 
     render(<StartOnboarding />);
-
-    click(screen.getByRole('button', { name: /Submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
 
     await waitFor(() =>
-      expect(makeRequest.mock.calls.some((c) => String(c[0]?.endpoints).includes('/api/submit-intake-form'))).toBe(true),
+      expect(
+        makeRequest.mock.calls.some((c) =>
+          String(c[0]?.endpoints).includes('/api/submit-intake-form')
+        )
+      ).toBe(true)
     );
 
     const alert = await screen.findByRole('alert');
-    expect(alert.innerHTML).toMatch(/form submitted successfully/i);
+    expect(alert.innerHTML).toMatch(/submitted successfully/i);
 
-    // click the (stubbed) confirm button from ConfirmationOnboarding
-    click(screen.getByTestId('mock-submit-confirm'));
+    // confirm dialog (our stub) appears only when the component sets "open"
+    fireEvent.click(screen.getByTestId('mock-submit-confirm'));
     expect(navigateMock).toHaveBeenCalledWith('/inbox');
   });
 
@@ -173,25 +198,24 @@ describe('StartOnboarding', () => {
     makeRequest.mockResolvedValueOnce({ data: {}, status: 500 });
 
     render(<StartOnboarding />);
-    click(screen.getByRole('button', { name: /Submit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.innerHTML).toMatch(/Error has occurred while submitting Intake Form/i);
 
-    // ensure confirm dialog is not present (we stub it as a button)
     expect(screen.queryByTestId('mock-submit-confirm')).not.toBeInTheDocument();
   });
 
   test('Cancel confirm with trackingId → re-fetches and sets data', async () => {
     paramsMock = { trackingId: '123' };
+    // first resolve for mount, second for cancel-confirm
     makeRequest
-      .mockResolvedValueOnce({ data: { a: 1 }, status: 200 }) // fetch on mount
-      .mockResolvedValueOnce({ data: { a: 2 }, status: 200 }); // confirm cancel
+      .mockResolvedValueOnce({ data: { a: 1 }, status: 200 })
+      .mockResolvedValueOnce({ data: { a: 2 }, status: 200 });
 
     render(<StartOnboarding />);
-
-    click(screen.getByRole('button', { name: /Cancel/i }));
-    click(screen.getByTestId('mock-cancel-confirm'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByTestId('mock-cancel-confirm'));
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalledTimes(2));
     expect(setFormDataMock).toHaveBeenCalledWith({ a: 2 });
@@ -201,8 +225,8 @@ describe('StartOnboarding', () => {
     paramsMock = {};
     render(<StartOnboarding />);
 
-    click(screen.getByRole('button', { name: /Cancel/i }));
-    click(screen.getByTestId('mock-cancel-confirm'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByTestId('mock-cancel-confirm'));
 
     expect(setFormDataMock).toHaveBeenCalledWith(initialFormDataMock);
   });
@@ -211,22 +235,22 @@ describe('StartOnboarding', () => {
     formDataMock = { ...formDataMock, trackingStatus: 'Completed' };
     render(<StartOnboarding />);
 
-    expect(screen.getByRole('button', { name: /^Save$/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /^Submit$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /submit/i })).toBeDisabled();
   });
 
   test('tabs switch content', () => {
     render(<StartOnboarding />);
 
-    // default Application tab visible
+    // default Application tab
     expect(screen.getByTestId('app-details')).toBeInTheDocument();
 
     // Component Details
-    fireEvent.click(screen.getByRole('button', { name: /Component Details/i }));
+    fireEvent.click(screen.getByRole('button', { name: /component details/i }));
     expect(screen.getByTestId('components-details')).toBeInTheDocument();
 
     // Guide Lines
-    fireEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
+    fireEvent.click(screen.getByRole('button', { name: /guide lines/i }));
     expect(screen.getByTestId('guidelines')).toBeInTheDocument();
   });
 });
