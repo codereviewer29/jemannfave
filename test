@@ -1,133 +1,183 @@
-/**
- * applicationDetails.test.tsx
- * Lightweight tests focused on handlers + key UI glue.
- * We mock the FormContext hook and the service layer.
- */
-
+// src/sideNavbar/boarding/applicationDetails.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// -------------------- Mocks --------------------
+/* ----------------------------- External mocks ----------------------------- */
 
-// DatePicker → render a simple input we can click
+// DatePicker: render a bare input that calls onChange when clicked
 jest.mock('@mui/x-date-pickers/DatePicker', () => ({
   __esModule: true,
-  DatePicker: ({ label, onChange }: any) => (
-    <input
-      data-testid="mock-date"
-      aria-label={label}
-      onClick={() => onChange?.('2025-01-01' as any)}
-    />
-  ),
+  DatePicker:
+    ({ label, onChange }: any) => (
+      <input
+        data-testid="mock-date"
+        aria-label={label}
+        onClick={() => onChange?.('2025-01-01' as any)}
+      />
+    ),
 }));
 
-// Link is used in the component; avoid Router context errors
-jest.mock('react-router-dom', () => ({
+// dayjs adapter not needed in tests
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
   __esModule: true,
-  Link: ({ children }: any) => <a>{children}</a>,
+  LocalizationProvider: ({ children }: any) => <>{children}</>,
 }));
 
-// API service used inside the component
+// Services used by the component
 const makeRequest = jest.fn();
-jest.mock('../services/useApiService', () => ({
+jest.mock('../../services/useApiService', () => ({
   __esModule: true,
-  default: () => makeRequest,
+  default: () => ({ makeRequest }),
 }));
 
-// The component consumes FormContext via the hook `useFormContext`
+const saveActIntake = jest.fn();
+const saveGcpIntakeFinal = jest.fn();
+jest.mock('../../services/gcpIntakeOnboardingService', () => ({
+  __esModule: true,
+  default: {
+    saveActIntake: (...args: any[]) => saveActIntake(...args),
+    saveGcpIntakeFinal: (...args: any[]) => saveGcpIntakeFinal(...args),
+  },
+}));
+
+/* --------------------------- Mock FormContext hook ------------------------- */
+
+// The component uses useFormContext(). We’ll supply our own Provider + value.
+let ctxValueRef: any = null;
+
 jest.mock('./FormContext', () => {
-  const actual = jest.requireActual('./FormContext');
+  const React = require('react');
+  const Context = React.createContext<any>(null);
+
   return {
     __esModule: true,
-    ...actual,
-    useFormContext: jest.fn(),
+    // context (for our Provider)
+    FormContext: Context,
+    // hook consumed by the component
+    useFormContext: () => {
+      const v = React.useContext(Context);
+      if (!v) throw new Error('useFormContext used outside Provider in test');
+      ctxValueRef = v;
+      return v;
+    },
+    // also export the real initial so keys exist
+    initialFormData: require('./FormContext').initialFormData,
   };
 });
-import { useFormContext, initialFormData as realInitial } from './FormContext';
 
-// -------------------- Helpers --------------------
+/* --------------------------------- SUT ------------------------------------ */
+
+import ApplicationDetails from './applicationDetails';
+
+/* ------------------------------- Test helpers ----------------------------- */
 
 // Accept Testing Library's TextMatch (string | RegExp | function)
 type TextMatch = Parameters<typeof screen.getByLabelText>[0];
 
-// Safely type into MUI inputs/textareas (respects component onChange signature)
-const typeIn = (label: TextMatch, text: string) => {
-  const el = screen.getByLabelText(label, { selector: 'input,textarea' }) as
-    | HTMLInputElement
-    | HTMLTextAreaElement;
-  const nameAttr = el.getAttribute('name') ?? '';
+// Type into a text input/textarea. Uses accessible name to find control.
+const typeIn = (name: RegExp | string, text: string) => {
+  const el =
+    screen.getByRole('textbox', { name }) as HTMLInputElement | HTMLTextAreaElement;
+  const nameAttr = el.getAttribute('name') || '';
   fireEvent.change(el, { target: { name: nameAttr, value: text } });
 };
 
-// For MUI Select: mouseDown on the input opens the menu
-const openSelectByLabel = (label: TextMatch) => {
-  const input = screen.getByLabelText(label, { selector: 'input' });
-  fireEvent.mouseDown(input);
+// Open a MUI Select by its visible label (button role)
+const openSelectByButtonName = (name: RegExp | string) => {
+  const button = screen.getByRole('button', { name });
+  fireEvent.mouseDown(button);
 };
 
-// Build a minimal, safe formData for this suite (only fields the component reads/writes)
-const baseFormData = {
-  ...realInitial,
-  applicationDetails: {
-    ...(realInitial as any).applicationDetails,
-    applicationID: '',
-    applicationName: '',
-    summary: '',
-    description: '',
-    purposeAndBenefit: '',
-    lobDomain: '',
-    environmentsNeeded: [] as string[],
-    requesterName: '',
-    requesterEmail: '',
-    businessExecutiveSponsor: '',
-    applicationBusinessOwner: '',
-    applicationPortfolioOwner: '',
-    techExecutiveSponsor: '',
-    primaryTechManager: '',
-    cloudAccountableExecutive: '',
-    applicationArchitect: '',
-    auNumber: '',
-    techContact: '',
-    dmiCloudContact: '',
-    serviceNowSupportGroup: '',
-    developersList: '',
-    applicationOwnerApprover: '',
-    timelineSandbox: null as any,
-    timelineNonProd: null as any,
-    timelineProd: null as any,
-    dataSource: 'External', // valid option to avoid MUI warning
-    dataFormat: [] as string[],
-    dataSLATime: '',
-    dataClassification: '',
-    panCardDataInScope: '',
-    panCardDetails: '',
-    sarUarData: '',
-    internationalUsers: '',
-    externalIngress: '',
-    externalIngressDetails: '',
-    serviceNowCI: '',
-    technicalConstraints: '',
-  },
-  actDetails: {},
+// Click the end‑adornment button next to an input (e.g., search icon for App ID)
+const clickEndAdornmentButton = (name: RegExp | string) => {
+  const textbox = screen.getByRole('textbox', { name });
+  // go up to the OutlinedInput root and find the first button in the adornment
+  const root = textbox.closest('.MuiFormControl-root') || textbox.parentElement!;
+  const btn = root.querySelector('button') as HTMLButtonElement | null;
+  if (!btn) throw new Error('End‑adornment button not found');
+  fireEvent.click(btn);
 };
 
-// A tiny helper that wires `useFormContext` for each test
-const withMockedForm = (overrides?: Partial<typeof baseFormData>) => {
-  const setFormData = jest.fn();
-  (useFormContext as jest.Mock).mockReturnValue({
+/* ------------------------------- Test setup -------------------------------- */
+
+function withForm(overrides?: Partial<any>) {
+  // minimal, safe formData the component reads/writes
+  const baseFormData = {
+    applicationDetails: {
+      applicationID: '',
+      applicationName: '',
+      summary: '',
+      description: '',
+      purposeAndBenefit: '',
+      lobDomain: '',
+      environmentsNeeded: [] as string[],
+      requesterName: '',
+      requesterEmail: '',
+      businessExecutiveSponsor: '',
+      applicationBusinessOwner: '',
+      applicationPortfolioOwner: '',
+      techExecutiveSponsor: '',
+      primaryTechManager: '',
+      cloudAccountableExecutive: '',
+      applicationArchitect: '',
+      auNumber: '',
+      techContact: '',
+      dmiCloudContact: '',
+      serviceNowSupportGroup: '',
+      applicationOwnerApprover: '',
+      timelineSandbox: null as any,
+      timelineNonProd: null as any,
+      timelineProd: null as any,
+      dataSource: 'External',
+      dataFormat: [] as string[],
+      dataSLATime: '',
+      dataClassification: '',
+      panCardDataInScope: '',
+      panCardDetails: '',
+      sarUarData: '',
+      internationalUsers: '',
+      externalIngress: '',
+      externalIngressDetails: '',
+      serviceNowCI: '',
+      technicalConstraints: '',
+      reviewedWithCIO: '',
+      reviewedWithArchitect: '',
+      requiresCloudReview: '',
+      appLinkBAN: '',
+      beamsStatus: '',
+      applicationLocation: '',
+    },
+    actDetails: {},
+  };
+
+  const setFormData = jest.fn((updater: any) => {
+    // support functional updates like the real setter
+    if (typeof updater === 'function') {
+      const next = updater(baseFormData);
+      Object.assign(baseFormData, next);
+    } else {
+      Object.assign(baseFormData, updater);
+    }
+  });
+
+  const value = {
     formData: { ...baseFormData, ...(overrides || {}) },
     setFormData,
     requiredFields: [],
     resetFormData: jest.fn(),
-  });
-  return { setFormData };
-};
+  };
 
-// SUT import (after mocks)
-import ApplicationDetails from './applicationDetails';
+  const Provider = ({ children }: { children: React.ReactNode }) => (
+    <(_FormContext.Provider as any) value={value}>{children}</(_FormContext.Provider>
+  );
 
-// -------------------- Tests --------------------
+  return { Provider, setFormData };
+}
+
+// Pull the mocked context back out (exported from our jest.mock above)
+const { FormContext: _FormContext } = jest.requireMock('./FormContext');
+
+/* --------------------------------- Tests ----------------------------------- */
 
 describe('ApplicationDetails (lite)', () => {
   beforeEach(() => {
@@ -135,44 +185,42 @@ describe('ApplicationDetails (lite)', () => {
   });
 
   test('renders Overview + a few core fields', () => {
-    withMockedForm();
+    const { Provider } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
-    // Use labels that are unique in your TSX to avoid duplicates
-    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Summary/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Purpose and Benefit/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Environments Needed/i)).toBeInTheDocument();
+    // Use role queries that are unique
+    expect(screen.getByRole('textbox', { name: /Application ID/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /^Summary$/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Purpose and Benefit/i })).toBeInTheDocument();
+    // MUI Select label shows as a button/combobox
+    expect(screen.getByRole('button', { name: /Environments Needed/i })).toBeInTheDocument();
   });
 
   test('typing in Summary updates form via setFormData (text handler)', () => {
-    const { setFormData } = withMockedForm();
+    const { Provider, setFormData } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
-    typeIn(/Summary/i, 'Short summary');
+    typeIn(/^Summary$/, 'hello');
     expect(setFormData).toHaveBeenCalled();
   });
 
-  test('typing AU Number triggers number handler', () => {
-    const { setFormData } = withMockedForm();
+  test('changing AU Number triggers number handler', () => {
+    const { Provider, setFormData } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
     typeIn(/AU Number/i, '12345');
@@ -180,108 +228,100 @@ describe('ApplicationDetails (lite)', () => {
   });
 
   test('Environments Needed (multi-select) triggers setFormData', async () => {
-    const { setFormData } = withMockedForm();
+    const { Provider, setFormData } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
-    openSelectByLabel(/Environments Needed/i);
+    openSelectByButtonName(/Environments Needed/i);
 
-    // Pick a couple of concrete items you showed in screenshots
-    fireEvent.click(await screen.findByText('SIT'));
-    fireEvent.click(await screen.findByText('UAT'));
+    // choose a couple of options that exist in your TSX
+    fireEvent.click(await screen.findByRole('option', { name: /SIT/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /UAT/i }));
 
-    // Close the menu (Esc is the most reliable for MUI)
+    // Close popover: Escape
     fireEvent.keyDown(document.body, { key: 'Escape' });
 
     expect(setFormData).toHaveBeenCalled();
   });
 
   test('date pickers call handler without crashing (Sandbox timeline)', () => {
-    const { setFormData } = withMockedForm();
+    const { Provider, setFormData } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
-    // Our DatePicker mock exposes label → click triggers onChange
-    const sandbox = screen.getByLabelText(/Timeline for Sandbox/i);
-    fireEvent.click(sandbox);
+    fireEvent.click(screen.getByTestId('mock-date')); // our DatePicker mock
     expect(setFormData).toHaveBeenCalled();
   });
 
   test('radio groups call handler → data classification "Public"', () => {
-    const { setFormData } = withMockedForm();
+    const { Provider, setFormData } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
-    // Pick one radio by its label text
-    const publicRadio = screen.getByRole('radio', { name: /Public/i });
+    // Most reliable for MUI radios is label text
+    const publicRadio = screen.getByLabelText(/Public/i);
     fireEvent.click(publicRadio);
     expect(setFormData).toHaveBeenCalled();
   });
 
-  test('typing requester email validates format (invalid → shows helper via setValidationErrors)', () => {
-    withMockedForm();
+  test('typing requester email validates format (invalid → helper via setValidationErrors)', () => {
     const setValidationErrors = jest.fn();
+    const { Provider } = withForm();
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={setValidationErrors}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={setValidationErrors} />
+      </Provider>
     );
 
     typeIn(/Requester Email/i, 'not-an-email');
 
-    expect(setValidationErrors).toHaveBeenCalledWith(
+    // The component uses updater function; assert it and execute to verify merge
+    expect(setValidationErrors).toHaveBeenCalled();
+    const updater = setValidationErrors.mock.calls[0][0];
+    expect(typeof updater).toBe('function');
+    const merged = updater({}); // simulate prev = {}
+    expect(merged).toEqual(
       expect.objectContaining({
         applicationDetails: expect.objectContaining({
-          requesterEmail: expect.any(String),
+          requesterEmail: expect.stringMatching(/invalid email/i),
         }),
       })
     );
   });
 
   test('search by App ID triggers both services and may open the toaster (happy path)', async () => {
-    const { setFormData } = withMockedForm();
+    const { Provider, setFormData } = withForm();
 
-    // 1st call: BAM app details
-    makeRequest.mockResolvedValueOnce({
-      data: { applicationID: 'APP123', applicationName: 'My App' },
-      status: 200,
-    });
-
-    // 2nd call: env duplication validation
-    makeRequest.mockResolvedValueOnce({
-      data: { environments: ['SIT'] },
-      status: 200,
-    });
+    // 1) BAM details
+    makeRequest
+      .mockResolvedValueOnce({ data: { applicationID: 'APP123', applicationName: 'My App' }, status: 200 })
+      // 2) env validation API
+      .mockResolvedValueOnce({ data: { environments: ['SIT'] }, status: 200 });
 
     render(
-      <ApplicationDetails
-        validationErrors={{}}
-        setValidationErrors={jest.fn()}
-      />
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
 
-    // The search icon is inside InputAdornment (IconButton). Click the first button in the row.
-    const allButtons = screen.getAllByRole('button');
-    fireEvent.click(allButtons[0]);
+    // Enter App ID then click the adornment search button
+    typeIn(/Application ID/i, 'APP123');
+    clickEndAdornmentButton(/Application ID/i);
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalledTimes(2));
-    expect(setFormData).toHaveBeenCalled(); // patched with BAM + env results
+    expect(setFormData).toHaveBeenCalled(); // patched with BAM details + envs
   });
 });
