@@ -1,119 +1,139 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import {
-  FormProvider,
-  useFormContext,
-  initialFormData,
-  GlobalFormData,
-} from './FormContext';
 
-// ---------- helpers ----------
-/** A tiny consumer to read & change the context */
-const Probe: React.FC = () => {
-  const { formData, setFormData, resetFormData, requiredFields } = useFormContext();
+// ---- Stub inner forms so we can assert they're rendered & get props ----
+const GcpFormMock = jest.fn((props: any) => (
+  <div data-testid="gcp-form">{Object.keys(props.validationErrors || {}).join(',')}</div>
+));
+const CdmNextFormMock = jest.fn((props: any) => (
+  <div data-testid="cdm-form">{Object.keys(props.validationErrors || {}).join(',')}</div>
+));
 
-  return (
-    <div>
-      <div data-testid="trackingStatus">{String(formData.trackingStatus)}</div>
-      <div data-testid="envs">{(formData.applicationDetails.environmentsNeeded || []).join(',')}</div>
-      <div data-testid="streamRealTime">{String(formData.cdmNextDetails.streamingSourceRealTime)}</div>
-      <div data-testid="req-count">{requiredFields.length}</div>
+jest.mock('../../intake-components/gcpComponentIntakeForm', () => ({
+  __esModule: true,
+  default: (props: any) => GcpFormMock(props),
+}));
+jest.mock('../../intake-components/cdmNextIntakeForm', () => ({
+  __esModule: true,
+  default: (props: any) => CdmNextFormMock(props),
+}));
 
-      <button
-        onClick={() => {
-          const updated: GlobalFormData = {
-            ...formData,
-            trackingStatus: 'Completed',
-            applicationDetails: {
-              ...formData.applicationDetails,
-              applicationName: 'NewApp',
-            },
-          };
-          setFormData(updated);
-        }}
-      >
-        update
-      </button>
+// ---- Test-friendly MUI Accordion stubs (no real MUI dependency) ----
+// We keep Summary/Details as simple passthroughs and make Accordion
+// call onChange with the next-expanded state when its toggle button is clicked.
+jest.mock('@mui/material', () => {
+  const React = require('react');
+  const getText = (node: any): string =>
+    typeof node === 'string'
+      ? node
+      : Array.isArray(node)
+      ? node.map(getText).join(' ')
+      : node && node.props
+      ? getText(node.props.children)
+      : '';
 
-      <button onClick={() => resetFormData()}>reset</button>
-    </div>
-  );
-};
-
-const renderWithProvider = (ui: React.ReactElement) =>
-  render(<FormProvider>{ui}</FormProvider>);
-
-// ---------- tests ----------
-describe('FormContext', () => {
-  test('provides initial form data from provider (spot check across shape)', () => {
-    renderWithProvider(<Probe />);
-
-    // from initialFormData
-    expect(screen.getByTestId('trackingStatus').textContent).toBe('In_Draft');
-
-    // nested array exists with the known defaults
-    expect(screen.getByTestId('envs').textContent).toBe('Sandbox,SIT,UAT,Prod');
-
-    // another nested field under cdmNextDetails
-    expect(screen.getByTestId('streamRealTime').textContent).toBe('Kafka');
-
-    // required fields are present (we don’t need exact full list here)
-    expect(Number(screen.getByTestId('req-count').textContent)).toBeGreaterThan(0);
-  });
-
-  test('setFormData updates context', () => {
-    renderWithProvider(<Probe />);
-
-    fireEvent.click(screen.getByText('update'));
-
-    // update applied
-    expect(screen.getByTestId('trackingStatus').textContent).toBe('Completed');
-  });
-
-  test('resetFormData restores initialFormData', () => {
-    renderWithProvider(<Probe />);
-
-    // mutate first
-    fireEvent.click(screen.getByText('update'));
-    expect(screen.getByTestId('trackingStatus').textContent).toBe('Completed');
-
-    // reset back
-    fireEvent.click(screen.getByText('reset'));
-    expect(screen.getByTestId('trackingStatus').textContent).toBe('In_Draft');
-
-    // also check a nested value snaps back to default
-    expect(screen.getByTestId('envs').textContent).toBe(
-      initialFormData.applicationDetails.environmentsNeeded.join(',')
+  const Accordion = ({
+    expanded,
+    onChange,
+    children,
+  }: {
+    expanded?: boolean;
+    onChange?: (e: any, expanded: boolean) => void;
+    children: React.ReactNode;
+  }) => {
+    const label = (children && getText(children)) || '';
+    return (
+      <div data-testid={`accordion-${expanded ? 'open' : 'closed'}`}>
+        {/* The label makes it easy to target a specific accordion */}
+        <button
+          type="button"
+          aria-label={`toggle ${label}`}
+          onClick={() => onChange?.({}, !expanded)}
+        >
+          toggle
+        </button>
+        {expanded ? <div data-testid="panel">{children}</div> : null}
+      </div>
     );
+  };
+
+  const AccordionSummary = ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="summary">{children}</div>
+  );
+  const AccordionDetails = ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="details">{children}</div>
+  );
+  const Typography = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
+
+  return {
+    __esModule: true,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Typography,
+  };
+});
+
+// ---- SUT ----
+import ComponentsDetails from '../componentsDetails';
+
+describe('ComponentsDetails', () => {
+  const validationErrors = {
+    foo: 'err1',
+    bar: 'err2',
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  test('useFormContext throws outside of provider', () => {
-    // a component that calls the hook without provider
-    const Rogue: React.FC = () => {
-      useFormContext();
-      return null;
-    };
+  test('renders both sections expanded by default with their forms', () => {
+    render(<ComponentsDetails validationErrors={validationErrors} />);
 
-    // React Testing Library suppresses errors by default; capture it to assert
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => render(<Rogue />)).toThrow(/must be used within a FormProvider/i);
-    consoleSpy.mockRestore();
+    // Both mocked forms should be in the document initially
+    expect(screen.getByTestId('gcp-form')).toBeInTheDocument();
+    expect(screen.getByTestId('cdm-form')).toBeInTheDocument();
+
+    // And they should have received the validationErrors prop
+    expect(GcpFormMock).toHaveBeenCalledWith(
+      expect.objectContaining({ validationErrors }),
+      expect.anything()
+    );
+    expect(CdmNextFormMock).toHaveBeenCalledWith(
+      expect.objectContaining({ validationErrors }),
+      expect.anything()
+    );
+
+    // Quick content check: we render the keys of validationErrors in each stub
+    expect(screen.getByTestId('gcp-form').textContent).toMatch(/foo/);
+    expect(screen.getByTestId('cdm-form').textContent).toMatch(/bar/);
   });
 
-  test('requiredFields list contains expected keys (sample subset)', () => {
-    // read requiredFields through the consumer
-    const RequiredProbe: React.FC = () => {
-      const { requiredFields } = useFormContext();
-      return <div data-testid="required">{requiredFields.join('|')}</div>;
-    };
+  test('toggles the GCP section (collapse then expand)', () => {
+    render(<ComponentsDetails validationErrors={{}} />);
 
-    renderWithProvider(<RequiredProbe />);
-    const joined = screen.getByTestId('required').textContent ?? '';
+    // Collapse GCP accordion
+    fireEvent.click(screen.getByLabelText(/toggle\s+GCP Data Component/i));
+    expect(screen.queryByTestId('gcp-form')).not.toBeInTheDocument();
+    // CDM section should still be visible
+    expect(screen.getByTestId('cdm-form')).toBeInTheDocument();
 
-    // Check a few representative keys you showed in the file:
-    expect(joined).toMatch(/applicationDetails\.applicationName/);
-    expect(joined).toMatch(/applicationDetails\.requesterEmail/);
-    expect(joined).toMatch(/applicationDetails\.serviceNowCI/);
-    expect(joined).toMatch(/applicationDetails\.dataClassification/);
+    // Expand GCP accordion again
+    fireEvent.click(screen.getByLabelText(/toggle\s+GCP Data Component/i));
+    expect(screen.getByTestId('gcp-form')).toBeInTheDocument();
+  });
+
+  test('toggles the CDM Next section (collapse then expand)', () => {
+    render(<ComponentsDetails validationErrors={{}} />);
+
+    // Collapse CDM Next accordion
+    fireEvent.click(screen.getByLabelText(/toggle\s+CDM Next/i));
+    expect(screen.queryByTestId('cdm-form')).not.toBeInTheDocument();
+    // GCP still visible
+    expect(screen.getByTestId('gcp-form')).toBeInTheDocument();
+
+    // Expand CDM Next accordion again
+    fireEvent.click(screen.getByLabelText(/toggle\s+CDM Next/i));
+    expect(screen.getByTestId('cdm-form')).toBeInTheDocument();
   });
 });
