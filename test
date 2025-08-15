@@ -1,174 +1,119 @@
-// src/sideNavbar/boarding/startOnboarding.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  FormProvider,
+  useFormContext,
+  initialFormData,
+  GlobalFormData,
+} from './FormContext';
 
-/* ─────────────────────────── stubs (keep DOM small) ────────────────────────── */
-// These never read FormContext so they won't crash.
-jest.mock('../applicationDetails', () => () => <div data-testid="app-details" />);
-jest.mock('../componentsDetails', () => () => <div data-testid="components-details" />);
-jest.mock('../intake-components/guidelinesIntakeForm', () => () => <div data-testid="guidelines" />);
+// ---------- helpers ----------
+/** A tiny consumer to read & change the context */
+const Probe: React.FC = () => {
+  const { formData, setFormData, resetFormData, requiredFields } = useFormContext();
 
-// Dialogs used by StartOnboarding: respect their `open` prop so tests can assert visibility.
-jest.mock('../intake-components/cancelOnboarding', () => (props: any) =>
-  props.open ? (
-    <button data-testid="dlg-cancel-confirm" onClick={props.handleConfirmCancel} />
-  ) : null
-);
-jest.mock('../intake-components/confirmationOnboarding', () => (props: any) =>
-  props.open ? (
-    <button data-testid="dlg-submit-confirm" onClick={props.handleConfirmSubmit} />
-  ) : null
-);
+  return (
+    <div>
+      <div data-testid="trackingStatus">{String(formData.trackingStatus)}</div>
+      <div data-testid="envs">{(formData.applicationDetails.environmentsNeeded || []).join(',')}</div>
+      <div data-testid="streamRealTime">{String(formData.cdmNextDetails.streamingSourceRealTime)}</div>
+      <div data-testid="req-count">{requiredFields.length}</div>
 
-// Top nav (avoid pulling hooks/logic)
-jest.mock('../../home/CustomNavigation', () => () => <nav data-testid="nav" />);
+      <button
+        onClick={() => {
+          const updated: GlobalFormData = {
+            ...formData,
+            trackingStatus: 'Completed',
+            applicationDetails: {
+              ...formData.applicationDetails,
+              applicationName: 'NewApp',
+            },
+          };
+          setFormData(updated);
+        }}
+      >
+        update
+      </button>
 
-/* ─────────────────────────── service + router mocks ────────────────────────── */
-const makeRequest = jest.fn();
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest }),
-}));
-
-const navigateMock = jest.fn();
-let paramsMock: Record<string, string> | undefined;
-
-jest.mock('react-router-dom', () => ({
-  __esModule: true,
-  useNavigate: () => navigateMock,
-  useParams: () => paramsMock ?? {},
-  Link: ({ to, children }: any) => <a href={typeof to === 'string' ? to : '/'}>{children}</a>,
-}));
-
-/* ─────────────────────────── FormContext mock ──────────────────────────────── */
-const setFormDataMock = jest.fn();
-const resetFormDataMock = jest.fn();
-const requiredFieldsMock: string[] = [];
-
-const baseFormData = {
-  trackingStatus: '',
-  appDetails: {},
-  applicationDetails: {},   // keep both keys present, component reads these
-  cdmNextDetails: {},
+      <button onClick={() => resetFormData()}>reset</button>
+    </div>
+  );
 };
 
-jest.mock('../FormContext', () => ({
-  __esModule: true,
-  useFormContext: () => ({
-    formData: baseFormData,
-    setFormData: setFormDataMock,
-    resetFormData: resetFormDataMock,
-    requiredFields: requiredFieldsMock,
-    initialFormData: baseFormData,
-  }),
-}));
+const renderWithProvider = (ui: React.ReactElement) =>
+  render(<FormProvider>{ui}</FormProvider>);
 
-/* ─────────────────────────── SUT ──────────────────────────────────────────── */
-import StartOnboarding from './startOnboarding';
+// ---------- tests ----------
+describe('FormContext', () => {
+  test('provides initial form data from provider (spot check across shape)', () => {
+    renderWithProvider(<Probe />);
 
-/* helper */
-const click = (el: HTMLElement) => fireEvent.click(el);
+    // from initialFormData
+    expect(screen.getByTestId('trackingStatus').textContent).toBe('In_Draft');
 
-describe('StartOnboarding (lite)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    paramsMock = undefined; // default: no trackingId
-    (baseFormData as any).trackingStatus = '';
+    // nested array exists with the known defaults
+    expect(screen.getByTestId('envs').textContent).toBe('Sandbox,SIT,UAT,Prod');
+
+    // another nested field under cdmNextDetails
+    expect(screen.getByTestId('streamRealTime').textContent).toBe('Kafka');
+
+    // required fields are present (we don’t need exact full list here)
+    expect(Number(screen.getByTestId('req-count').textContent)).toBeGreaterThan(0);
   });
 
-  test('mount without trackingId → calls reset and shows basic UI', () => {
-    render(<StartOnboarding />);
+  test('setFormData updates context', () => {
+    renderWithProvider(<Probe />);
 
-    expect(resetFormDataMock).toHaveBeenCalled();
+    fireEvent.click(screen.getByText('update'));
 
-    // header present (keep simple so DOM changes don’t break the test)
-    expect(screen.getByText(/GCP Onboarding Form/i)).toBeInTheDocument();
-
-    // default tab (our stub)
-    expect(screen.getByTestId('app-details')).toBeInTheDocument();
+    // update applied
+    expect(screen.getByTestId('trackingStatus').textContent).toBe('Completed');
   });
 
-  test('mount with trackingId → performs GET for intake form', async () => {
-    paramsMock = { trackingId: '123' };
-    makeRequest.mockResolvedValueOnce({ data: { foo: 'bar' }, status: 200 });
+  test('resetFormData restores initialFormData', () => {
+    renderWithProvider(<Probe />);
 
-    render(<StartOnboarding />);
+    // mutate first
+    fireEvent.click(screen.getByText('update'));
+    expect(screen.getByTestId('trackingStatus').textContent).toBe('Completed');
 
-    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'GET',
-        // your code builds `/api/intake-form?intakeFormTrackingId=123`
-        endpoints: expect.stringMatching(/\/api\/intake-form\?intakeFormTrackingId=123/),
-        responseType: 'json',
-      })
+    // reset back
+    fireEvent.click(screen.getByText('reset'));
+    expect(screen.getByTestId('trackingStatus').textContent).toBe('In_Draft');
+
+    // also check a nested value snaps back to default
+    expect(screen.getByTestId('envs').textContent).toBe(
+      initialFormData.applicationDetails.environmentsNeeded.join(',')
     );
   });
 
-  test('Save → POST then navigates to /gcpOnboarding/:id', async () => {
-    makeRequest.mockResolvedValueOnce({ data: { intakeFormTrackingId: 987 }, status: 200 });
+  test('useFormContext throws outside of provider', () => {
+    // a component that calls the hook without provider
+    const Rogue: React.FC = () => {
+      useFormContext();
+      return null;
+    };
 
-    render(<StartOnboarding />);
-    click(screen.getByRole('button', { name: /Save/i }));
-
-    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'POST',
-        // accept with or without trailing slash
-        endpoints: expect.stringMatching(/^\/api\/intake-form\/?$/),
-        responseType: 'json',
-        body: expect.any(Object),
-      })
-    );
-
-    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding/987');
+    // React Testing Library suppresses errors by default; capture it to assert
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<Rogue />)).toThrow(/must be used within a FormProvider/i);
+    consoleSpy.mockRestore();
   });
 
-  test('Submit non-200 → shows an error alert (confirm dialog not shown)', async () => {
-    // First click opens confirm dialog (component calls formSubmit inside)
-    makeRequest.mockRejectedValueOnce(new Error('boom'));
+  test('requiredFields list contains expected keys (sample subset)', () => {
+    // read requiredFields through the consumer
+    const RequiredProbe: React.FC = () => {
+      const { requiredFields } = useFormContext();
+      return <div data-testid="required">{requiredFields.join('|')}</div>;
+    };
 
-    render(<StartOnboarding />);
-    click(screen.getByRole('button', { name: /Submit/i }));
+    renderWithProvider(<RequiredProbe />);
+    const joined = screen.getByTestId('required').textContent ?? '';
 
-    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
-    // confirm dialog should NOT be visible in the error path
-    expect(screen.queryByTestId('dlg-submit-confirm')).not.toBeInTheDocument();
-  });
-
-  test('buttons disabled when trackingStatus is "Completed"', () => {
-    (baseFormData as any).trackingStatus = 'Completed';
-
-    render(<StartOnboarding />);
-    expect(screen.getByRole('button', { name: /Save/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Submit/i })).toBeDisabled();
-  });
-
-  test('tabs switch content (stubs)', () => {
-    render(<StartOnboarding />);
-
-    // default tab is Application
-    expect(screen.getByTestId('app-details')).toBeInTheDocument();
-
-    // switch to Component Details
-    fireEvent.click(screen.getByRole('button', { name: /Component Details/i }));
-    expect(screen.getByTestId('components-details')).toBeInTheDocument();
-
-    // switch to Guide Lines
-    fireEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
-    expect(screen.getByTestId('guidelines')).toBeInTheDocument();
-  });
-
-  test('Cancel confirm without trackingId → resets to initialFormData', () => {
-    render(<StartOnboarding />);
-
-    // Page "Cancel" opens dialog; our stub shows a button only when `open` is true.
-    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
-
-    // click confirm inside dialog
-    fireEvent.click(screen.getByTestId('dlg-cancel-confirm'));
-
-    expect(setFormDataMock).toHaveBeenCalledWith(baseFormData);
+    // Check a few representative keys you showed in the file:
+    expect(joined).toMatch(/applicationDetails\.applicationName/);
+    expect(joined).toMatch(/applicationDetails\.requesterEmail/);
+    expect(joined).toMatch(/applicationDetails\.serviceNowCI/);
+    expect(joined).toMatch(/applicationDetails\.dataClassification/);
   });
 });
