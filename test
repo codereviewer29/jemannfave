@@ -1,8 +1,11 @@
 jest.mock('./FormContext', () => {
   const React = require('react');
-  const Context = React.createContext(null as any);  // no `<any>` here
+
+  // Get the actual implementation so we can keep the real initialFormData
+  const actual = jest.requireActual('./FormContext');
 
   let ctxValueRef: any = null;
+  const Context = React.createContext<any>(null);
 
   return {
     __esModule: true,
@@ -13,6 +16,6 @@ jest.mock('./FormContext', () => {
       ctxValueRef = v;
       return v;
     },
-    initialFormData: require('./FormContext').initialFormData,
+    initialFormData: actual.initialFormData, // use real data from actual module
   };
 });
