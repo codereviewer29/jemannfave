@@ -1,233 +1,326 @@
-/**
- * @file actDetails.test.tsx
- * High‑signal tests for ActDetails with lightweight mocks.
- * Drop-in replacement.
- */
-
-import React from 'react';
+import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-/* ──────────────────────────────────────────────────────────────────────────
-   Mocks: child libs & context
-   ────────────────────────────────────────────────────────────────────────── */
+/* ----------------------- child/infra mocks ----------------------- */
 
-// Minimal FormContext we can fully control in tests
-jest.mock('../../FormContext', () => {
-  const React = require('react');
-  const real = jest.requireActual('../../FormContext');
+// MUI x-date-pickers (render a simple clickable input that triggers onChange)
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  __esModule: true,
+  DatePicker: ({ label, onChange }: any) => (
+    <input
+      data-testid={`mock-date-${String(label).toLowerCase().replace(/\s+/g, '-')}`}
+      aria-label={label}
+      onClick={() => onChange?.('2025-01-01' as any)}
+    />
+  ),
+}));
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
+  __esModule: true,
+  LocalizationProvider: ({ children }: any) => <>{children}</>,
+}));
 
-  const FormContext = React.createContext({
-    formData: real.initialFormData,
-    setFormData: jest.fn(),
-    requiredFields: [],
-    resetFormData: jest.fn(),
-  });
+// Top-level navigation links/icons that don’t matter in tests
+jest.mock('@mui/icons-material/ExpandMore', () => ({
+  __esModule: true,
+  default: () => <span data-testid="icon-expand-more" />,
+}));
+jest.mock('@mui/icons-material/AddCircle', () => ({
+  __esModule: true,
+  default: () => <span data-testid="icon-add" />,
+}));
+jest.mock('@mui/icons-material/RemoveCircle', () => ({
+  __esModule: true,
+  default: () => <span data-testid="icon-remove" />,
+}));
+jest.mock('@mui/icons-material/Search', () => ({
+  __esModule: true,
+  default: () => <span data-testid="icon-search" />,
+}));
+jest.mock('@mui/icons-material/RadioButtonUnchecked', () => ({
+  __esModule: true,
+  default: () => <span />,
+}));
+jest.mock('@mui/icons-material/ErrorOutline', () => ({
+  __esModule: true,
+  default: () => <span />,
+}));
 
-  const useFormContext = () => React.useContext(FormContext);
-
-  return {
-    __esModule: true,
-    FormContext,
-    useFormContext,
-    // Reuse the real initial so the shape matches component expectations
-    initialFormData: real.initialFormData,
-  };
-});
-
-// Provide a tiny EnvContext so component can read envData
-jest.mock('../../envContext', () => {
-  const React = require('react');
-  const EnvContext = React.createContext({ envData: { env: 'dev' } });
-  const useEnv = () => React.useContext(EnvContext);
-  const Provider = ({ children }: any) => (
-    <EnvContext.Provider value={{ envData: { env: 'dev' } }}>
-      {children}
-    </EnvContext.Provider>
-  );
-  return { __esModule: true, EnvContext, default: Provider, useEnv };
-});
-
-// API service used for GET cloud services
+// API service – we only need makeRequest
 const makeRequest = jest.fn();
 jest.mock('../../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest }),
 }));
 
-// Business service used for Save / Submit
-const saveActIntake = jest.fn();
-const saveGcpIntakeFinal = jest.fn();
-jest.mock('../../services/gcpIntakeOnboardingService', () => ({
-  __esModule: true,
-  default: {
-    saveActIntake: (...args: any[]) => (saveActIntake as any)(...args),
-    saveGcpIntakeFinal: (...args: any[]) => (saveGcpIntakeFinal as any)(...args),
-  },
-}));
-
-// DatePicker: render a simple input that calls onChange when clicked
-jest.mock('@mui/x-date-pickers/DatePicker', () => ({
-  DatePicker: ({ label, onChange }: any) => (
-    <input
-      data-testid="mock-date"
-      aria-label={label}
-      onClick={() => onChange('2025-01-01' as any)}
-    />
-  ),
-}));
-
-/* ──────────────────────────────────────────────────────────────────────────
-   SUT
-   ────────────────────────────────────────────────────────────────────────── */
-
-import { FormContext, initialFormData as _realInitial } from '../../FormContext';
-import ActDetails from './actDetails';
-
-/* ──────────────────────────────────────────────────────────────────────────
-   Helpers
-   ────────────────────────────────────────────────────────────────────────── */
-
-// Keep only the fields ActDetails reads/writes so no undefined access
-const baseFormData = {
-  ..._realInitial,
-  actDetails: {
-    ...(_realInitial as any).actDetails,
-    summary: '',
-    cloudServices: [], // rendered via Select
-    appId: '',
-    requesterName: '',
-    requesterEmail: '',
-    adGroup: '',
-    vaultAdGroup: '',
-    adEntServiceAccount: '',
-    tfeServiceAccountRequest: '',
-    targetDate: null as any,
-  },
-  cloudServices: [], // source list for the Select’s menu items
+/* ----------------------- form context shim ----------------------- */
+type MinimalForm = {
+  applicationDetails: Record<string, any>;
+  artRequestDetails?: any[];
 };
 
-const setFormDataMock = jest.fn();
+const FormContext = React.createContext<any>(null);
 
-const renderWithProviders = (ui: React.ReactElement) => {
-  return render(
+const baseFormData: MinimalForm = {
+  applicationDetails: {
+    applicationID: '',
+    applicationName: '',
+    summary: '',
+    description: '',
+    // multi-selects
+    environmentsNeeded: [],
+    dataFormat: [],
+    // dates
+    timelineSandbox: null,
+    timelineNonProd: null,
+    timelineProd: null,
+    // text/number/dropdowns used all over
+    requesterName: '',
+    requesterEmail: '',
+    lobDomain: '',
+    auNumber: '',
+    appLocation: '',
+    appLinkBAN: '',
+    beamsStatus: '',
+    datasource: '',
+    dataSLATime: '',
+    dataClassification: '',
+    panCardDataInScope: '',
+    panCardDetails: '',
+    sarUarData: '',
+    internationalUsers: '',
+    externalIngress: '',
+    externalIngressDetails: '',
+    serviceNowCI: '',
+    technicalConstraints: '',
+    // radios that appear many times
+    isNewApp: '',
+    reviewedWithCIO: '',
+    reviewedWithArchitect: '',
+    requiresCloudReview: '',
+    // contacts
+    businessExecutiveSponsor: '',
+    applicationBusinessOwner: '',
+    applicationPortfolioOwner: '',
+    primaryTechManager: '',
+    cloudAccountableExecutive: '',
+    applicationArchitect: '',
+    techContact: '',
+    dmiCloudContact: '',
+    serviceNowSupportGroup: '',
+    applicationOwnerApprover: '',
+  },
+  artRequestDetails: [],
+};
+
+function withForm(values: Partial<MinimalForm> = {}) {
+  const initial = {
+    ...baseFormData,
+    ...values,
+    applicationDetails: { ...baseFormData.applicationDetails, ...(values as any).applicationDetails },
+  };
+  const setFormData = jest.fn();
+  const Provider = ({ children }: { children: React.ReactNode }) => (
     <FormContext.Provider
       value={{
-        formData: baseFormData as any,
-        setFormData: setFormDataMock,
+        formData: initial,
+        setFormData,
         requiredFields: [],
         resetFormData: jest.fn(),
       }}
     >
-      {ui}
+      {children}
     </FormContext.Provider>
   );
+  return { Provider, setFormData, initial };
+}
+
+// The real component imports useFormContext from our module.
+// Provide a tiny shim that returns our testing context.
+jest.mock('../FormContext', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    useFormContext: () => React.useContext(require('./applicationDetails.test').FormContext),
+  };
+});
+// export context so the shim above can read it
+// @ts-ignore (export for the jest.mock shim)
+export { FormContext };
+
+/* ----------------------- SUT ----------------------- */
+import ApplicationDetails from './applicationDetails';
+
+/* ----------------------- helpers ----------------------- */
+const typeIn = (label: string, value: string) => {
+  const node = screen.getByLabelText(label) as HTMLInputElement;
+  fireEvent.change(node, { target: { name: node.getAttribute('name') || '', value } });
+  return node;
 };
 
-beforeEach(() => {
-  jest.clearAllMocks();
-  // Default GET for cloud services returns two services; one is mandatory
-  makeRequest.mockResolvedValue({
-    data: [
-      { id: 1, label: 'Big Query', isMandatory: true },
-      { id: 2, label: 'KMS', isMandatory: false },
-    ],
+describe('ApplicationDetails (lite)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
-  // Default Save returns cloudServices as string to exercise normalization
-  saveActIntake.mockResolvedValue({
-    data: { cloudServices: 'Big Query, KMS' },
-  });
-  saveGcpIntakeFinal.mockResolvedValue({ data: {} });
-});
 
-/* ──────────────────────────────────────────────────────────────────────────
-   Tests
-   ────────────────────────────────────────────────────────────────────────── */
-
-describe('ActDetails', () => {
-  test('mount → performs GET of cloud services and renders basic fields', async () => {
-    renderWithProviders(
-      <ActDetails
-        isAppComplete
-        isComponentComplete
-        intakeFormTrackingId={987}
-      />
+  test('renders Overview + a few core fields', () => {
+    const { Provider } = withForm();
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
     );
+
+    // overview section bits we can reliably assert
+    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Application Name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Summary/i)).toBeInTheDocument();
+  });
+
+  test('typing requester email validates format (invalid → shows helper via setValidationErrors)', async () => {
+    const { Provider } = withForm();
+    const SpyWrapper = () => {
+      const [validationErrors, setValidationErrors] = useState<Record<string, any>>({});
+      return (
+        <Provider>
+          <ApplicationDetails
+            validationErrors={validationErrors}
+            setValidationErrors={setValidationErrors}
+          />
+        </Provider>
+      );
+    };
+
+    render(<SpyWrapper />);
+
+    typeIn('Requester Email', 'not-an-email');
+
+    // helper text is shown only after setValidationErrors runs; assert by text
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Invalid email format/i)
+      ).toBeInTheDocument()
+    );
+  });
+
+  test('changing Summary and AU Number calls setFormData (text + number handler)', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    typeIn('Summary', 'hello world');
+    typeIn('AU Number/ AU Owner', '12345');
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('Environments Needed (multi-select) updates form via setFormData', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // Select is rendered with an InputLabel; change with array value
+    const select = screen.getByLabelText(/Environments Needed/i) as HTMLInputElement;
+    fireEvent.change(select, { target: { name: 'environmentsNeeded', value: ['SIT', 'UAT'] } });
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('data pickers call handler without crashing (Sandbox timeline)', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // our DatePicker mock renders a clickable input that triggers onChange
+    fireEvent.click(screen.getByTestId('mock-date-timeline-for-sandbox'));
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('radio groups call handler → data classification "public"', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // pick "Public" classification
+    const publicRadio = screen.getByLabelText(/Public/i);
+    fireEvent.click(publicRadio);
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('Add "Other Field" in ART Request then remove → setFormData called', () => {
+    const { Provider, setFormData } = withForm();
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // There is an "Add Other Field" button near ART details
+    const addBtn = screen.getAllByRole('button').find((b) =>
+      /add other field/i.test(b.textContent || '')
+    );
+    expect(addBtn).toBeTruthy();
+    addBtn && fireEvent.click(addBtn);
+
+    // After adding, there will be a remove icon button we can click
+    const removeIcon = screen.getAllByTestId('icon-remove')[0];
+    fireEvent.click(removeIcon);
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('search by App ID triggers both services and may open the toaster (happy path)', async () => {
+    const { Provider } = withForm({
+      applicationDetails: {
+        ...baseFormData.applicationDetails,
+        applicationID: 'APP123',
+        environmentsNeeded: ['SIT'], // so the env validation will detect duplicates
+      },
+    });
+
+    // 1st call: BAM details
+    makeRequest
+      .mockResolvedValueOnce({ data: { applicationID: 'APP123', applicationName: 'My App' }, status: 200 })
+      // 2nd call: env validation
+      .mockResolvedValueOnce({ data: { environments: ['SIT'] }, status: 200 });
+
+    render(
+      <Provider>
+        <ApplicationDetails validationErrors={{}} setValidationErrors={jest.fn()} />
+      </Provider>
+    );
+
+    // Click search icon button in the Application ID adornment
+    // (there are many buttons; pick the first search icon's parent button)
+    const searchIcon = screen.getByTestId('icon-search');
+    const searchBtn = searchIcon.closest('button') || screen.getAllByRole('button')[0];
+    fireEvent.click(searchBtn!);
 
     await waitFor(() => expect(makeRequest).toHaveBeenCalled());
 
-    // Assert GET shape (loose match)
-    expect(makeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'GET',
-        responseType: 'json',
-        endpoints: expect.stringMatching(/\/api\/act-details\/cloud-services/),
-      })
-    );
-
-    // Two key fields should be present
-    expect(screen.getByLabelText(/Summary/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/App ID/i)).toBeInTheDocument();
-  });
-
-  test('typing in Summary updates form via setFormData', async () => {
-    renderWithProviders(
-      <ActDetails isAppComplete isComponentComplete intakeFormTrackingId={123} />
-    );
-
-    const summary = screen.getByLabelText(/Summary/i);
-    fireEvent.change(summary, { target: { name: 'summary', value: 'Hello' } });
-
-    // setFormData is called with updater; we only assert it was called
-    expect(setFormDataMock).toHaveBeenCalled();
-  });
-
-  test('date picker change calls handler (mocked) without crashing', async () => {
-    renderWithProviders(
-      <ActDetails isAppComplete isComponentComplete intakeFormTrackingId={123} />
-    );
-
-    // Click our stubbed date picker
-    fireEvent.click(screen.getByTestId('mock-date'));
-    // No explicit assertion (just ensure no errors), but the change also calls setFormData
-    expect(setFormDataMock).toHaveBeenCalled();
-  });
-
-  test('Save → calls service, normalizes cloudServices string, and shows success alert', async () => {
-    renderWithProviders(
-      <ActDetails isAppComplete isComponentComplete intakeFormTrackingId={321} />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /Save/i }));
-
-    await waitFor(() => expect(saveActIntake).toHaveBeenCalled());
-
-    // Our Save mock returns "Big Query, KMS" string; component converts to array and calls setFormData
-    expect(setFormDataMock).toHaveBeenCalled();
-
-    // Success alert should appear
-    const success = await screen.findByText(/ACT details saved successfully/i);
-    expect(success).toBeInTheDocument();
-  });
-
-  test('Submit → calls final service and shows submitted alert', async () => {
-    renderWithProviders(
-      <ActDetails isAppComplete isComponentComplete intakeFormTrackingId={444} />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /Submit/i }));
-
-    await waitFor(() => expect(saveGcpIntakeFinal).toHaveBeenCalledWith(444));
-
-    const info = await screen.findByText(/Intake details submitted successfully/i);
-    expect(info).toBeInTheDocument();
-  });
-
-  test('buttons are disabled when either isAppComplete or isComponentComplete is false', () => {
-    renderWithProviders(
-      <ActDetails isAppComplete={false} isComponentComplete={true} intakeFormTrackingId={1} />
-    );
-
-    expect(screen.getByRole('button', { name: /Save/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Submit/i })).toBeDisabled();
+    // after second call, component may open info snackbar if env already submitted
+    // Snackbar uses role=alert inside <Alert>
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent || '').toMatch(/already submitted/i);
+    });
   });
 });
