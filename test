@@ -1,21 +1,21 @@
 jest.mock('./FormContext', () => {
-  const React = require('react') as typeof import('react');   // <- now typed
-  const Context = React.createContext<any>(null);             // generic OK
+  const React = require('react');
+
+  // Get the actual implementation so we can keep the real initialFormData
+  const actual = jest.requireActual('./FormContext');
 
   let ctxValueRef: any = null;
+  const Context = React.createContext<any>(null);
 
   return {
     __esModule: true,
-    // expose a real Context for our Provider
     FormContext: Context,
-    // custom hook used by the component
     useFormContext: () => {
       const v = React.useContext(Context);
       if (!v) throw new Error('useFormContext used outside Provider in test');
       ctxValueRef = v;
       return v;
     },
-    // re‑export the real initial so shape/keys match
-    initialFormData: require('./FormContext').initialFormData,
+    initialFormData: actual.initialFormData, // use real data from actual module
   };
 });
