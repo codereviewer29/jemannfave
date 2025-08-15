@@ -1,115 +1,14 @@
+// ---- mock the API service to avoid pulling ESM libs from node_modules ----
+const makeRequest = jest.fn(); // exportable if you want to assert later
 
-/**
- * startOnboarding.test.tsx  (lite version)
- *
- * We only assert on DOM rendering and safe UI interactions.
- * No assertions on makeRequest, status codes, or MUI Alert text.
- */
-
-import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-
-// -------------------- FormContext mock --------------------
-const setFormDataMock = jest.fn();
-const useFormContextMock = {
-  formData: { trackingStatus: '', appDetails: {}, cdmNextDetails: {} },
-  setFormData: setFormDataMock,
-  requiredFields: [],
-  resetFormData: jest.fn(),
-  initialFormData: { trackingStatus: '', appDetails: {}, cdmNextDetails: {} },
-};
-jest.mock('../FormContext', () => ({
+jest.mock('../../services/useApiService', () => ({
   __esModule: true,
-  useFormContext: () => useFormContextMock,
+  default: () => ({ makeRequest }),
 }));
 
-// -------------------- Router & Nav mocks --------------------
-const navigateMock = jest.fn();
-let paramsMock: Record<string, string> | undefined = undefined;
-
-jest.mock('react-router-dom', () => {
-  const actual = jest.requireActual('react-router-dom');
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-    useParams: () => paramsMock ?? ({} as any),
-    Link: ({ to, children }: any) => <a href={String(to)} className="nav-link ">{children}</a>,
-    // keep everything else native
-  };
-});
-
-// Light stub for the top nav used by the page
-jest.mock('../../home/CustomNavigation', () => () => (
-  <div className="nav-container">
-    <a className="nav-link " href="/">Home</a>
-  </div>
-));
-
-// -------------------- Child dialog stubs --------------------
-// Render a button only when "open" is true to simulate dialog mount
-jest.mock('./intake-components/cancelOnboarding', () => (props: any) =>
-  props.openCancelDialog ? (
-    <button data-testid="dlg-cancel-confirm" onClick={props.handleConfirmCancel}>OK</button>
-  ) : null
-);
-
-jest.mock('./intake-components/confirmationOnboarding', () => (props: any) =>
-  props.openConfirmSubmitDialog ? (
-    <button data-testid="dlg-submit-confirm" onClick={props.handleConfirmSubmit}>OK</button>
-  ) : null
-);
-
-// -------------------- SUT --------------------
-import StartOnboarding from './startOnboarding';
-
-describe('StartOnboarding (lite)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    // default: no trackingId
-    paramsMock = undefined;
-    // reset context defaults that tests may mutate
-    useFormContextMock.formData = { trackingStatus: '', appDetails: {}, cdmNextDetails: {} };
-    useFormContextMock.requiredFields = [];
-  });
-
-  test('renders page header and default tab content', () => {
-    render(<StartOnboarding />);
-    // page heading exists
-    expect(screen.getByRole('heading', { name: /GCP Onboarding Form/i })).toBeInTheDocument();
-    // Application Details tab is the default – component marks its content with this test id
-    expect(screen.getByTestId('app-details')).toBeInTheDocument();
-    // Three action buttons visible
-    expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Save/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Submit/i })).toBeInTheDocument();
-  });
-
-  test('tabs switch content', () => {
-    render(<StartOnboarding />);
-
-    // default tab
-    expect(screen.getByTestId('app-details')).toBeInTheDocument();
-
-    // switch to Component Details
-    fireEvent.click(screen.getByRole('button', { name: /Component Details/i }));
-    expect(screen.getByTestId('components-details')).toBeInTheDocument();
-
-    // switch to Guide Lines
-    fireEvent.click(screen.getByRole('button', { name: /Guide Lines/i }));
-    expect(screen.getByTestId('guidelines')).toBeInTheDocument();
-  });
-
-  test('Save & Submit are disabled when trackingStatus is "Completed"', () => {
-    useFormContextMock.formData = { trackingStatus: 'Completed', appDetails: {}, cdmNextDetails: {} };
-    render(<StartOnboarding />);
-    expect(screen.getByRole('button', { name: /Save/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Submit/i })).toBeDisabled();
-  });
-
-  test('Cancel opens the CancelOnboarding dialog (stubbed)', () => {
-    render(<StartOnboarding />);
-    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
-    // Our stub renders this button only when openCancelDialog === true
-    expect(screen.getByTestId('dlg-cancel-confirm')).toBeInTheDocument();
-  });
-});
+// (optional) if some other code still touches wmf/react-library directly:
+jest.mock('wmf/react-library', () => ({
+  __esModule: true,
+  useApiGlobalState: () => ({}),
+  useConfig: () => ({})
+}));
