@@ -1,21 +1,267 @@
-// before
-// expect(GcpFormMock).toHaveBeenCalledWith(
-//   expect.objectContaining({ validationErrors }),
-//   expect.anything()
-// );
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// after
-expect(GcpFormMock).toHaveBeenCalledWith(
-  expect.objectContaining({ validationErrors })
-);
-expect(CdmNextFormMock).toHaveBeenCalledWith(
-  expect.objectContaining({ validationErrors })
+/* ---------- Light stubs to keep DOM small ---------- */
+
+// MUI DatePicker -> simple input that forwards onChange(value)
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  DatePicker: (props: any) => (
+    <input
+      aria-label="Desired (prod) date"
+      data-testid="date-input"
+      onChange={(e) => props.onChange?.((e.target as HTMLInputElement).value)}
+    />
+  ),
+}));
+
+// Keep @mui/material Alert discoverable by role="alert"
+jest.mock('@mui/material', () => {
+  const actual = jest.requireActual('@mui/material');
+  return {
+    ...actual,
+    Alert: (p: any) => <div role="alert" {...p} />,
+  };
+});
+
+/* ---------- Env & API service mocks ---------- */
+
+const makeRequest = jest.fn();
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
+
+const saveACTIntake = jest.fn();
+const saveGcpIntakeFinal = jest.fn();
+jest.mock('../../services/gcpIntakeOnboardingService', () => ({
+  __esModule: true,
+  default: {
+    saveACTIntake: (...args: any[]) => saveACTIntake(...args),
+    saveGcpIntakeFinal: (...args: any[]) => saveGcpIntakeFinal(...args),
+  },
+}));
+
+// EnvContext provider (just needs to exist)
+jest.mock('../../envContext', () => ({
+  __esModule: true,
+  EnvContext: {
+    Provider: ({ children }: any) => <>{children}</>,
+  },
+}));
+
+/* ---------- FormContext test harness ---------- */
+
+import { FormContext, initialFormData as _initial } from '../../FormContext';
+
+// small initial formData with only the fields ActDetails reads/writes
+const initialFormData = {
+  ..._initial,
+  actDetails: {
+    ..._initial.actDetails,
+  },
+  cloudServices: [],
+  appId: '',
+  requesterName: '',
+  requesterEmail: '',
+  adGroup: '',
+  vaultAdGroup: '',
+  adEntServiceAccount: '',
+  tfeServiceAccountRequest: '',
+  targetDate: null as any,
+};
+
+const setFormData = jest.fn();
+
+const withFormProvider = (ui: React.ReactElement) => (
+  <FormContext.Provider
+    value={{
+      formData: initialFormData,
+      setFormData,
+      requiredFields: [],
+      resetFormData: jest.fn(),
+    }}
+  >
+    {ui}
+  </FormContext.Provider>
 );
 
-// (optional: if the form might render more than once, assert the last call)
-expect(GcpFormMock).toHaveBeenLastCalledWith(
-  expect.objectContaining({ validationErrors })
-);
-expect(CdmNextFormMock).toHaveBeenLastCalledWith(
-  expect.objectContaining({ validationErrors })
-);
+/* ---------- SUT ---------- */
+import ActDetails from '../actDetails';
+
+/* ========================================================= */
+
+describe('ActDetails', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('mount -> GET /api/act-details/cloud-services and adds mandatory services', async () => {
+    // API returns two services; one is mandatory
+    makeRequest.mockResolvedValueOnce({
+      data: [
+        { id: 'bq', label: 'Big Query', isMandatory: true },
+        { id: 'iam', label: 'IAM', isMandatory: false },
+      ],
+    });
+
+    render(
+      withFormProvider(
+        <ActDetails
+          isAppComplete={true}
+          isComponentComplete={true}
+          intakeFormTrackingId={987}
+        />
+      )
+    );
+
+    await waitFor(() => expect(makeRequest).toHaveBeenCalled());
+
+    // it should call GET with the right endpoint
+    expect(makeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        endpoints: '/api/act-details/cloud-services',
+        responseType: 'json',
+      })
+    );
+
+    // Mandatory service label should appear in the menu (component renders MenuItem text)
+    expect(await screen.findByText('Big Query')).toBeInTheDocument();
+
+    // And FormContext should be updated to include mandatory service
+    expect(setFormData.mock.calls.some((c) => {
+      const arg = c[0];
+      return Array.isArray(arg.cloudServices) && arg.cloudServices.includes('Big Query');
+    })).toBe(true);
+  });
+
+  test('typing into "App ID" updates form data', () => {
+    render(
+      withFormProvider(
+        <ActDetails
+          isAppComplete={true}
+          isComponentComplete={true}
+          intakeFormTrackingId={111}
+        />
+      )
+    );
+
+    const appId = screen.getByLabelText(/App ID/i);
+    fireEvent.change(appId, { target: { name: 'appId', value: 'APP-123' } });
+
+    expect(setFormData).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'APP-123' })
+    );
+  });
+
+  test('multi-select change updates cloudServices', async () => {
+    makeRequest.mockResolvedValueOnce({
+      data: [
+        { id: 1, label: 'Big Query', isMandatory: true },
+        { id: 2, label: 'IAM', isMandatory: false },
+      ],
+    });
+
+    render(
+      withFormProvider(
+        <ActDetails
+          isAppComplete={true}
+          isComponentComplete={true}
+          intakeFormTrackingId={222}
+        />
+      )
+    );
+
+    // wait for initial GET to finish and options to appear
+    await screen.findByText('Big Query');
+
+    const select = screen.getByLabelText(/Cloud Services/i);
+    // MUI Select forwards change with event.target.value (array for multiple)
+    fireEvent.change(select, {
+      target: { name: 'cloudServices', value: ['IAM', 'Big Query'] },
+    });
+
+    expect(setFormData).toHaveBeenCalledWith(
+      expect.objectContaining({ cloudServices: ['IAM', 'Big Query'] })
+    );
+  });
+
+  test('date picker change writes targetDate', () => {
+    render(
+      withFormProvider(
+        <ActDetails
+          isAppComplete={true}
+          isComponentComplete={true}
+          intakeFormTrackingId={333}
+        />
+      )
+    );
+
+    fireEvent.change(screen.getByTestId('date-input'), {
+      target: { value: '2025-12-31' },
+    });
+
+    expect(setFormData).toHaveBeenCalledWith(
+      expect.objectContaining({ targetDate: '2025-12-31' })
+    );
+  });
+
+  test('Save -> calls saveACTIntake and shows success alert; normalizes string cloudServices', async () => {
+    // service returns cloudServices as CSV; component turns it into array
+    saveACTIntake.mockResolvedValueOnce({
+      data: { cloudServices: 'IAM, Big Query' },
+    });
+
+    render(
+      withFormProvider(
+        <ActDetails
+          isAppComplete={true}
+          isComponentComplete={true}
+          intakeFormTrackingId={444}
+        />
+      )
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(saveACTIntake).toHaveBeenCalled());
+
+    // success alert shows
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /ACT details saved successfully/i
+    );
+
+    // one of setFormData calls should contain normalized array
+    expect(setFormData.mock.calls.some((c) => {
+      const arg = c[0];
+      return Array.isArray(arg.cloudServices) &&
+             arg.cloudServices.includes('IAM') &&
+             arg.cloudServices.includes('Big Query');
+    })).toBe(true);
+  });
+
+  test('Cancel -> hides success alert state (no alert after clicking Cancel)', async () => {
+    // put it into a "saved" state by resolving Save first
+    saveACTIntake.mockResolvedValueOnce({ data: { cloudServices: [] } });
+    render(
+      withFormProvider(
+        <ActDetails
+          isAppComplete={true}
+          isComponentComplete={true}
+          intakeFormTrackingId={555}
+        />
+      )
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await screen.findByRole('alert'); // success visible
+
+    // now click Cancel and alert should disappear
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // the component toggles internal state; just assert no alert in DOM
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+});
