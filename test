@@ -1,21 +1,80 @@
+/* ---------------------- Mock FormContext hook ---------------------- */
+// The component uses useFormContext(). We supply our own Provider + value.
+// Also keep the real initialFormData to avoid changing the shape used by the app.
 jest.mock('./FormContext', () => {
-  const React = require('react');
+  // make the require typed so generics are allowed
+  const React: typeof import('react') = require('react');
 
-  // Get the actual implementation so we can keep the real initialFormData
+  // pull the real module so we can re-export its initialFormData
   const actual = jest.requireActual('./FormContext');
 
   let ctxValueRef: any = null;
-  const Context = React.createContext<any>(null);
+
+  // either of these is fine:
+  // const FormContext = React.createContext<any>(null);
+  const FormContext = (React as any).createContext(null) as React.Context<any>;
 
   return {
     __esModule: true,
-    FormContext: Context,
+    FormContext,
     useFormContext: () => {
-      const v = React.useContext(Context);
+      const v = React.useContext(FormContext);
       if (!v) throw new Error('useFormContext used outside Provider in test');
       ctxValueRef = v;
       return v;
     },
-    initialFormData: actual.initialFormData, // use real data from actual module
+    initialFormData: actual.initialFormData, // real data, no recursion
   };
 });
+
+// Helper to wrap the SUT with our mocked context
+function withForm(overrides: Partial<any> = {}) {
+  const React = require('react');
+  const { FormContext } = jest.requireMock('./FormContext');
+
+  // minimal base state that matches what ApplicationDetails reads/writes
+  const baseFormData = {
+    ...(jest.requireActual('./FormContext').initialFormData as any),
+    applicationDetails: {
+      ...((jest.requireActual('./FormContext').initialFormData as any).applicationDetails ?? {}),
+      applicationID: '',
+      applicationName: '',
+      summary: '',
+      purposeAndBenefit: '',
+      environmentsNeeded: [],
+      requesterName: '',
+      requesterEmail: '',
+      techContact: '',
+      applicationOwnerApprover: '',
+      primaryTechManager: '',
+      auNumber: '',
+      dataSource: 'External',       // valid initial to silence MUI warning
+      dataFormat: [],
+      timelineSandbox: null,
+      timelineNonProd: null,
+      timelineProd: null,
+    },
+    actDetails: {},
+  };
+
+  const setFormData = jest.fn((updater: any) => {
+    if (typeof updater === 'function') {
+      Object.assign(baseFormData, updater(baseFormData));
+    } else {
+      Object.assign(baseFormData, updater);
+    }
+  });
+
+  const value = {
+    formData: { ...baseFormData, ...(overrides || {}) },
+    setFormData,
+    requiredFields: [],
+    resetFormData: jest.fn(),
+  };
+
+  const Provider = ({ children }: { children: React.ReactNode }) => (
+    <FormContext.Provider value={value}>{children}</FormContext.Provider>
+  );
+
+  return { Provider, setFormData };
+}
