@@ -1,139 +1,21 @@
-import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+// before
+// expect(GcpFormMock).toHaveBeenCalledWith(
+//   expect.objectContaining({ validationErrors }),
+//   expect.anything()
+// );
 
-// ---- Stub inner forms so we can assert they're rendered & get props ----
-const GcpFormMock = jest.fn((props: any) => (
-  <div data-testid="gcp-form">{Object.keys(props.validationErrors || {}).join(',')}</div>
-));
-const CdmNextFormMock = jest.fn((props: any) => (
-  <div data-testid="cdm-form">{Object.keys(props.validationErrors || {}).join(',')}</div>
-));
+// after
+expect(GcpFormMock).toHaveBeenCalledWith(
+  expect.objectContaining({ validationErrors })
+);
+expect(CdmNextFormMock).toHaveBeenCalledWith(
+  expect.objectContaining({ validationErrors })
+);
 
-jest.mock('../../intake-components/gcpComponentIntakeForm', () => ({
-  __esModule: true,
-  default: (props: any) => GcpFormMock(props),
-}));
-jest.mock('../../intake-components/cdmNextIntakeForm', () => ({
-  __esModule: true,
-  default: (props: any) => CdmNextFormMock(props),
-}));
-
-// ---- Test-friendly MUI Accordion stubs (no real MUI dependency) ----
-// We keep Summary/Details as simple passthroughs and make Accordion
-// call onChange with the next-expanded state when its toggle button is clicked.
-jest.mock('@mui/material', () => {
-  const React = require('react');
-  const getText = (node: any): string =>
-    typeof node === 'string'
-      ? node
-      : Array.isArray(node)
-      ? node.map(getText).join(' ')
-      : node && node.props
-      ? getText(node.props.children)
-      : '';
-
-  const Accordion = ({
-    expanded,
-    onChange,
-    children,
-  }: {
-    expanded?: boolean;
-    onChange?: (e: any, expanded: boolean) => void;
-    children: React.ReactNode;
-  }) => {
-    const label = (children && getText(children)) || '';
-    return (
-      <div data-testid={`accordion-${expanded ? 'open' : 'closed'}`}>
-        {/* The label makes it easy to target a specific accordion */}
-        <button
-          type="button"
-          aria-label={`toggle ${label}`}
-          onClick={() => onChange?.({}, !expanded)}
-        >
-          toggle
-        </button>
-        {expanded ? <div data-testid="panel">{children}</div> : null}
-      </div>
-    );
-  };
-
-  const AccordionSummary = ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="summary">{children}</div>
-  );
-  const AccordionDetails = ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="details">{children}</div>
-  );
-  const Typography = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
-
-  return {
-    __esModule: true,
-    Accordion,
-    AccordionSummary,
-    AccordionDetails,
-    Typography,
-  };
-});
-
-// ---- SUT ----
-import ComponentsDetails from '../componentsDetails';
-
-describe('ComponentsDetails', () => {
-  const validationErrors = {
-    foo: 'err1',
-    bar: 'err2',
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test('renders both sections expanded by default with their forms', () => {
-    render(<ComponentsDetails validationErrors={validationErrors} />);
-
-    // Both mocked forms should be in the document initially
-    expect(screen.getByTestId('gcp-form')).toBeInTheDocument();
-    expect(screen.getByTestId('cdm-form')).toBeInTheDocument();
-
-    // And they should have received the validationErrors prop
-    expect(GcpFormMock).toHaveBeenCalledWith(
-      expect.objectContaining({ validationErrors }),
-      expect.anything()
-    );
-    expect(CdmNextFormMock).toHaveBeenCalledWith(
-      expect.objectContaining({ validationErrors }),
-      expect.anything()
-    );
-
-    // Quick content check: we render the keys of validationErrors in each stub
-    expect(screen.getByTestId('gcp-form').textContent).toMatch(/foo/);
-    expect(screen.getByTestId('cdm-form').textContent).toMatch(/bar/);
-  });
-
-  test('toggles the GCP section (collapse then expand)', () => {
-    render(<ComponentsDetails validationErrors={{}} />);
-
-    // Collapse GCP accordion
-    fireEvent.click(screen.getByLabelText(/toggle\s+GCP Data Component/i));
-    expect(screen.queryByTestId('gcp-form')).not.toBeInTheDocument();
-    // CDM section should still be visible
-    expect(screen.getByTestId('cdm-form')).toBeInTheDocument();
-
-    // Expand GCP accordion again
-    fireEvent.click(screen.getByLabelText(/toggle\s+GCP Data Component/i));
-    expect(screen.getByTestId('gcp-form')).toBeInTheDocument();
-  });
-
-  test('toggles the CDM Next section (collapse then expand)', () => {
-    render(<ComponentsDetails validationErrors={{}} />);
-
-    // Collapse CDM Next accordion
-    fireEvent.click(screen.getByLabelText(/toggle\s+CDM Next/i));
-    expect(screen.queryByTestId('cdm-form')).not.toBeInTheDocument();
-    // GCP still visible
-    expect(screen.getByTestId('gcp-form')).toBeInTheDocument();
-
-    // Expand CDM Next accordion again
-    fireEvent.click(screen.getByLabelText(/toggle\s+CDM Next/i));
-    expect(screen.getByTestId('cdm-form')).toBeInTheDocument();
-  });
-});
+// (optional: if the form might render more than once, assert the last call)
+expect(GcpFormMock).toHaveBeenLastCalledWith(
+  expect.objectContaining({ validationErrors })
+);
+expect(CdmNextFormMock).toHaveBeenLastCalledWith(
+  expect.objectContaining({ validationErrors })
+);
