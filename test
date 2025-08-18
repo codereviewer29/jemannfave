@@ -1,146 +1,149 @@
-type Env = 'SIT' | 'UAT' | 'Sandbox';
-
-const environments: Env[] = ['UAT', 'SIT', 'Sandbox'];
-
-const [selectedEnvironments, setSelectedEnvironments] = useState<Env[]>([]);
-const [venafiStatus, setVenafiStatus] = useState<
-  Record<Env, 'idle' | 'pending' | 'success' | 'error'>
->({
-  SIT: 'idle',
-  UAT: 'idle',
-  Sandbox: 'idle',
-});
-
-const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const file = event.target.files;
-  if (!file) return;
-
-  // mark selected envs as pending (UX)
-  setVenafiStatus((s) => {
-    const next = { ...s };
-    selectedEnvironments.forEach((e) => (next[e] = 'pending'));
-    return next;
-  });
-
-  const venafiData = new FormData();
-  Array.from(file).forEach((f) => venafiData.append('certificate_file', f));
-
-  // NOTE: your makeRequest type expects "endpoints" (plural)
-  const httpRequest = {
-    method: 'POST' as const,
-    endpoints: '/upload-venafi-certificate/', // <-- plural key to match your type
-    responseType: 'json' as const,
-    // DO NOT set Content-Type for FormData; the browser adds the boundary
-    body: venafiData,
-  };
-
-  try {
-    const response = (await makeRequest(httpRequest)) as { data: any };
-
-    if (response.data.status === 'Success') {
-      // save files into your existing formData shape
-      setFormData((prev) => ({
-        ...prev,
-        cdmNextDetails: {
-          ...prev.cdmNextDetails,
-          sandboxvenafiFileName: response?.data.sandboxfilename || '',
-          sandboxvenafiFileContent: response?.data.sandboxfilecontent || '',
-          sitvenafiFileName: response?.data.sitfilename || '',
-          sitvenafiFileContent: response?.data.sitfilecontent || '',
-          uatvenafiFileName: response?.data.uatfilename || '',
-          uatvenafiFileContent: response?.data.uatfilecontent || '',
-          venafiEnvironments: selectedEnvironments,
-        },
-      }));
-
-      // per-env success only if that env actually returned a filename
-      setVenafiStatus((s) => ({
-        ...s,
-        Sandbox: response?.data.sandboxfilename ? 'success' : s.Sandbox,
-        SIT: response?.data.sitfilename ? 'success' : s.SIT,
-        UAT: response?.data.uatfilename ? 'success' : s.UAT,
-      }));
-    } else {
-      // API failure
-      setVenafiStatus((s) => {
-        const next = { ...s };
-        selectedEnvironments.forEach((e) => (next[e] = 'error'));
-        return next;
-      });
-    }
-  } catch (err) {
-    // network/exception
-    setVenafiStatus((s) => {
-      const next = { ...s };
-      selectedEnvironments.forEach((e) => (next[e] = 'error'));
-      return next;
-    });
-  } finally {
-    // allow reselecting the same file name
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-};
-
-const handleRemoveFile = (env: Env) => {
-  setFormData((prev) => {
-    const next = { ...prev };
-    if (env === 'SIT') {
-      next.cdmNextDetails.sitvenafiFileName = '';
-      next.cdmNextDetails.sitvenafiFileContent = '';
-    } else if (env === 'UAT') {
-      next.cdmNextDetails.uatvenafiFileName = '';
-      next.cdmNextDetails.uatvenafiFileContent = '';
-    } else {
-      next.cdmNextDetails.sandboxvenafiFileName = '';
-      next.cdmNextDetails.sandboxvenafiFileContent = '';
-    }
-    return next;
-  });
-  setVenafiStatus((s) => ({ ...s, [env]: 'idle' }));
-  if (fileInputRef.current) fileInputRef.current.value = '';
-};
-
 {/* SIT */}
 {formData.cdmNextDetails.sitvenafiFileName && (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-    <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800, ml: '10px' }}>
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      mt: 1,
+    }}
+  >
+    <Typography
+      variant="body2"
+      sx={{
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        textOverflow: 'ellipsis',
+        overflow: 'hidden',
+        maxWidth: 400,
+      }}
+    >
       {formData.cdmNextDetails.sitvenafiFileName}
     </Typography>
-    <IconButton size="small" onClick={() => handleRemoveFile('SIT')} aria-label="Remove file" sx={{ color: 'error.main' }}>
+
+    <IconButton
+      size="small"
+      onClick={() => handleRemoveFile('SIT')}
+      aria-label="Remove file"
+      sx={{ color: 'error.main' }}
+    >
       <DeleteIcon fontSize="small" />
     </IconButton>
-    {venafiStatus.SIT === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
-    {venafiStatus.SIT === 'success' && <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>Uploaded successfully</Typography>}
-    {venafiStatus.SIT === 'error' && <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>}
+
+    {venafiStatus.SIT === 'pending' && (
+      <Typography variant="caption" sx={{ fontWeight: 500 }}>
+        Uploading…
+      </Typography>
+    )}
+    {venafiStatus.SIT === 'success' && (
+      <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>
+        Files uploaded and mapped successfully
+      </Typography>
+    )}
+    {venafiStatus.SIT === 'error' && (
+      <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>
+        Upload failed
+      </Typography>
+    )}
   </Box>
 )}
 
 {/* UAT */}
 {formData.cdmNextDetails.uatvenafiFileName && (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-    <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800, ml: '10px' }}>
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      mt: 1,
+    }}
+  >
+    <Typography
+      variant="body2"
+      sx={{
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        textOverflow: 'ellipsis',
+        overflow: 'hidden',
+        maxWidth: 400,
+      }}
+    >
       {formData.cdmNextDetails.uatvenafiFileName}
     </Typography>
-    <IconButton size="small" onClick={() => handleRemoveFile('UAT')} aria-label="Remove file" sx={{ color: 'error.main' }}>
+
+    <IconButton
+      size="small"
+      onClick={() => handleRemoveFile('UAT')}
+      aria-label="Remove file"
+      sx={{ color: 'error.main' }}
+    >
       <DeleteIcon fontSize="small" />
     </IconButton>
-    {venafiStatus.UAT === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
-    {venafiStatus.UAT === 'success' && <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>Uploaded successfully</Typography>}
-    {venafiStatus.UAT === 'error' && <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>}
+
+    {venafiStatus.UAT === 'pending' && (
+      <Typography variant="caption" sx={{ fontWeight: 500 }}>
+        Uploading…
+      </Typography>
+    )}
+    {venafiStatus.UAT === 'success' && (
+      <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>
+        Files uploaded and mapped successfully
+      </Typography>
+    )}
+    {venafiStatus.UAT === 'error' && (
+      <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>
+        Upload failed
+      </Typography>
+    )}
   </Box>
 )}
 
 {/* Sandbox */}
 {formData.cdmNextDetails.sandboxvenafiFileName && (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-    <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800, ml: '10px' }}>
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      mt: 1,
+    }}
+  >
+    <Typography
+      variant="body2"
+      sx={{
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        textOverflow: 'ellipsis',
+        overflow: 'hidden',
+        maxWidth: 400,
+      }}
+    >
       {formData.cdmNextDetails.sandboxvenafiFileName}
     </Typography>
-    <IconButton size="small" onClick={() => handleRemoveFile('Sandbox')} aria-label="Remove file" sx={{ color: 'error.main' }}>
+
+    <IconButton
+      size="small"
+      onClick={() => handleRemoveFile('Sandbox')}
+      aria-label="Remove file"
+      sx={{ color: 'error.main' }}
+    >
       <DeleteIcon fontSize="small" />
     </IconButton>
-    {venafiStatus.Sandbox === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
-    {venafiStatus.Sandbox === 'success' && <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>Uploaded successfully</Typography>}
-    {venafiStatus.Sandbox === 'error' && <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>}
+
+    {venafiStatus.Sandbox === 'pending' && (
+      <Typography variant="caption" sx={{ fontWeight: 500 }}>
+        Uploading…
+      </Typography>
+    )}
+    {venafiStatus.Sandbox === 'success' && (
+      <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>
+        Files uploaded and mapped successfully
+      </Typography>
+    )}
+    {venafiStatus.Sandbox === 'error' && (
+      <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>
+        Upload failed
+      </Typography>
+    )}
   </Box>
 )}
