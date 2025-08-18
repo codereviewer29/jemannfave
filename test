@@ -1,145 +1,26 @@
-{/* ===== ART Request Details ===== */}
-<Grid container spacing={3}>
-  <Grid item xs={12} sm={12} md={12}>
-    <Typography variant="body2" sx={{ mb: 2 }}>
-      Please provide the ART request number if it has already been raised for the Vault Service Account, Persona AD Groups, etc.
-    </Typography>
+const handleInputChange = (
+  category: keyof Categorized,
+  index: number,
+  value: string
+) => {
+  const updatedDetails: Categorized = { ...categorizedArtRequestDetails };
 
-    {/* Render one accordion per environment/category */}
-    {Object.entries(categorizedArtRequestDetails).map(([category, details]) => (
-      <Accordion key={category} className="art-request-details">
-        <AccordionSummary expandIcon={<ExpandMoreIcon />} className="accordion-style">
-          <Typography variant="h6">{category} ART Request Details</Typography>
-        </AccordionSummary>
+  // update correct item
+  updatedDetails[category][index].value = value;
 
-        <AccordionDetails>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            {details.map((item, index) => (
-              <Grid
-                item
-                xs={12}
-                sm={6}
-                md={3}
-                key={item.id ?? `${category}-${item.label}-${index}`}
-              >
-                <div
-                  className="add-remove-icon"
-                  style={{ display: 'flex', alignItems: 'center' }}
-                >
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label={item.label}
-                    value={item.value ?? ''}
-                    onChange={(e) => handleInputChange(category as any, index, e.target.value)}
-                    helperText={item.helperText ?? ''}
-                    inputProps={{ 'data-testid': `${category}-${item.label}-input` }}
-                  />
+  // sync local state
+  setCategorizedArtRequestDetails(updatedDetails);
 
-                  {/* Remove icon only for custom "Others n" fields */}
-                  {item.isCustom && (
-                    <IconButton
-                      aria-label="remove-others"
-                      onClick={() => handleRemoveOthersField(category as any, index)}
-                      color="error"
-                      sx={{ ml: 1, bgcolor: 'none', '&:hover': { bgcolor: 'none' } }}
-                    >
-                      <RemoveCircleIcon />
-                    </IconButton>
-                  )}
-                </div>
-              </Grid>
-            ))}
+  // flatten for backend
+  const flattenedDetails: ArtDetail[] = Object.values(updatedDetails).flat();
+  setAdditionalDetails(flattenedDetails);
 
-            {/* Add Others button row */}
-            <Grid item xs={12}>
-              <div
-                className="add-remove-icon"
-                style={{ display: 'flex', alignItems: 'center', paddingTop: 8 }}
-              >
-                <IconButton
-                  aria-label="add-others"
-                  onClick={() => handleAddOthersField(category as any)}
-                  sx={{ ml: 1, bgcolor: 'none', '&:hover': { bgcolor: 'none' } }}
-                >
-                  <AddCircleIcon />
-                </IconButton>
-                <Typography variant="body2" sx={{ ml: 1 }}>
-                  Add Other Field
-                </Typography>
-              </div>
-            </Grid>
-          </Grid>
-        </AccordionDetails>
-      </Accordion>
-    ))}
-  </Grid>
-</Grid>
-
-const handleAddOthersField = (category: 'Sandbox' | 'Nonprod' | 'Prod') => {
-  const updated = { ...categorizedArtRequestDetails };
-
-  const count = updated[category].filter(
-    i => (i.label || '').toLowerCase().startsWith('others')
-  ).length;
-
-  const newItem: ArtDetail = {
-    id: `${category}-others-${count + 1}`,
-    env: category.toLowerCase() as ArtDetail['env'],
-    label: `Others ${count + 1}`,
-    value: '',
-    helperText: 'Enter additional information',
-    isCustom: true,
-  };
-
-  updated[category] = [...updated[category], newItem];
-  setCategorizedArtRequestDetails(updated);
-
-  // keep flattened list in formData so backend persists it
-  const flattened = Object.values(updated).flat();
-  setFormData(prev => ({
-    ...prev,
+  // sync formData for backend save
+  setFormData({
+    ...formData,
     applicationDetails: {
-      ...prev?.applicationDetails,
-      artRequestDetails: flattened,
+      ...formData.applicationDetails,
+      artRequestDetails: flattenedDetails,
     },
-  }));
-};
-
-const [categorizedArtRequestDetails, setCategorizedArtRequestDetails] = useState<{
-  Sandbox: ArtDetail[];
-  Nonprod: ArtDetail[];
-  Prod: ArtDetail[];
-}>({ Sandbox: [], Nonprod: [], Prod: [] });
-
-// HYDRATE from saved data when formData is loaded; seed only if nothing saved
-useEffect(() => {
-  const saved = formData?.applicationDetails?.artRequestDetails as ArtDetail[] | undefined;
-
-  const byEnv = (list: ArtDetail[]) => ({
-    Sandbox: list.filter(i => i.env?.toLowerCase() === 'sandbox'),
-    Nonprod: list.filter(i => i.env?.toLowerCase() === 'nonprod'),
-    Prod:    list.filter(i => i.env?.toLowerCase() === 'prod'),
   });
-
-  if (saved && saved.length) {
-    setCategorizedArtRequestDetails(byEnv(saved));
-  } else if (
-    !categorizedArtRequestDetails.Sandbox.length &&
-    !categorizedArtRequestDetails.Nonprod.length &&
-    !categorizedArtRequestDetails.Prod.length
-  ) {
-    // first render fallback
-    setCategorizedArtRequestDetails(byEnv(artRequestDetailsList as ArtDetail[]));
-  }
-}, [formData?.applicationDetails?.artRequestDetails]);
-
-
-type ArtDetail = {
-  env: 'sandbox' | 'nonprod' | 'prod';
-  label: string;
-  value: string;
-  helperText?: string;
-  isCustom?: boolean;
-  id?: string;
 };
