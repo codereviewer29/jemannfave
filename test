@@ -1,26 +1,112 @@
-const handleInputChange = (
-  category: keyof Categorized,
-  index: number,
-  value: string
-) => {
-  const updatedDetails: Categorized = { ...categorizedArtRequestDetails };
+type Env = 'sandbox' | 'nonprod' | 'prod';
 
-  // update correct item
-  updatedDetails[category][index].value = value;
-
-  // sync local state
-  setCategorizedArtRequestDetails(updatedDetails);
-
-  // flatten for backend
-  const flattenedDetails: ArtDetail[] = Object.values(updatedDetails).flat();
-  setAdditionalDetails(flattenedDetails);
-
-  // sync formData for backend save
-  setFormData({
-    ...formData,
-    applicationDetails: {
-      ...formData.applicationDetails,
-      artRequestDetails: flattenedDetails,
-    },
-  });
+type ArtDetail = {
+  env: Env;
+  label: string;
+  value: string;
+  helperText?: string;
+  isCustom?: boolean;
+  id?: string;
 };
+
+type Categorized = {
+  Sandbox: ArtDetail[];
+  Nonprod: ArtDetail[];
+  Prod: ArtDetail[];
+};
+
+const handleAddOthersField = (category: keyof Categorized) => {
+  const updated: Categorized = { ...categorizedArtRequestDetails };
+
+  const count = updated[category].filter(
+    i => (i.label || '').toLowerCase().startsWith('others')
+  ).length;
+
+  const newItem: ArtDetail = {
+    id: `${category}-others-${count + 1}`,
+    env: category.toLowerCase() as Env,
+    label: `Others ${count + 1}`,
+    value: '',
+    helperText: 'Enter additional information',
+    isCustom: true,
+  };
+
+  updated[category] = [...updated[category], newItem];
+  setCategorizedArtRequestDetails(updated);
+
+  const flattened: ArtDetail[] = Object.values(updated).flat();
+  setAdditionalDetails(flattened);
+  setFormData(prev => ({
+    ...prev,
+    applicationDetails: {
+      ...prev?.applicationDetails,
+      artRequestDetails: flattened,
+    },
+  }));
+};
+
+const handleRemoveOthersField = (category: keyof Categorized, index: number) => {
+  const updated: Categorized = { ...categorizedArtRequestDetails };
+  updated[category] = updated[category].filter((_, i) => i !== index);
+
+  setCategorizedArtRequestDetails(updated);
+
+  const flattened: ArtDetail[] = Object.values(updated).flat();
+  setAdditionalDetails(flattened);
+  setFormData(prev => ({
+    ...prev,
+    applicationDetails: {
+      ...prev?.applicationDetails,
+      artRequestDetails: flattened,
+    },
+  }));
+};
+{(Object.keys(categorizedArtRequestDetails) as Array<keyof Categorized>).map(category => {
+  const details = categorizedArtRequestDetails[category];
+  return (
+    <Accordion key={category}>
+      <AccordionSummary>…</AccordionSummary>
+      <AccordionDetails>
+        <Grid container spacing={2}>
+          {details.map((item, index) => (
+            <Grid item xs={12} sm={6} md={3}
+                  key={item.id ?? `${category}-${item.label}-${index}`}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <TextField
+                  fullWidth size="small"
+                  label={item.label}
+                  value={item.value ?? ''}
+                  onChange={(e) => handleInputChange(category, index, e.target.value)}
+                  helperText={item.helperText ?? ''}
+                />
+                {item.isCustom && (
+                  <IconButton
+                    aria-label="remove-others"
+                    onClick={() => handleRemoveOthersField(category, index)}
+                    color="error"
+                    sx={{ ml: 1, bgcolor: 'none', '&:hover': { bgcolor: 'none' } }}
+                  >
+                    <RemoveCircleIcon />
+                  </IconButton>
+                )}
+              </div>
+            </Grid>
+          ))}
+
+          <Grid item xs={12}>
+            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 8 }}>
+              <IconButton
+                aria-label="add-others"
+                onClick={() => handleAddOthersField(category)}
+                sx={{ ml: 1, bgcolor: 'none', '&:hover': { bgcolor: 'none' } }}
+              >
+                <AddCircleIcon />
+              </IconButton>
+              <Typography variant="body2" sx={{ ml: 1 }}>Add Other Field</Typography>
+            </div>
+          </Grid>
+        </Grid>
+      </AccordionDetails>
+    </Accordion>
+  );
+})}
