@@ -1,80 +1,195 @@
-/* ---------------------- Mock FormContext hook ---------------------- */
-// The component uses useFormContext(). We supply our own Provider + value.
-// Also keep the real initialFormData to avoid changing the shape used by the app.
-jest.mock('./FormContext', () => {
-  // make the require typed so generics are allowed
-  const React: typeof import('react') = require('react');
+type Env = 'SIT' | 'UAT' | 'Sandbox';
 
-  // pull the real module so we can re-export its initialFormData
-  const actual = jest.requireActual('./FormContext');
-
-  let ctxValueRef: any = null;
-
-  // either of these is fine:
-  // const FormContext = React.createContext<any>(null);
-  const FormContext = (React as any).createContext(null) as React.Context<any>;
-
-  return {
-    __esModule: true,
-    FormContext,
-    useFormContext: () => {
-      const v = React.useContext(FormContext);
-      if (!v) throw new Error('useFormContext used outside Provider in test');
-      ctxValueRef = v;
-      return v;
-    },
-    initialFormData: actual.initialFormData, // real data, no recursion
-  };
+const [venafiStatus, setVenafiStatus] = useState<
+  Record<Env, 'idle' | 'pending' | 'success' | 'error'>
+>({
+  SIT: 'idle',
+  UAT: 'idle',
+  Sandbox: 'idle',
 });
 
-// Helper to wrap the SUT with our mocked context
-function withForm(overrides: Partial<any> = {}) {
-  const React = require('react');
-  const { FormContext } = jest.requireMock('./FormContext');
+const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files;
+  if (!file) return;
 
-  // minimal base state that matches what ApplicationDetails reads/writes
-  const baseFormData = {
-    ...(jest.requireActual('./FormContext').initialFormData as any),
-    applicationDetails: {
-      ...((jest.requireActual('./FormContext').initialFormData as any).applicationDetails ?? {}),
-      applicationID: '',
-      applicationName: '',
-      summary: '',
-      purposeAndBenefit: '',
-      environmentsNeeded: [],
-      requesterName: '',
-      requesterEmail: '',
-      techContact: '',
-      applicationOwnerApprover: '',
-      primaryTechManager: '',
-      auNumber: '',
-      dataSource: 'External',       // valid initial to silence MUI warning
-      dataFormat: [],
-      timelineSandbox: null,
-      timelineNonProd: null,
-      timelineProd: null,
-    },
-    actDetails: {},
-  };
-
-  const setFormData = jest.fn((updater: any) => {
-    if (typeof updater === 'function') {
-      Object.assign(baseFormData, updater(baseFormData));
-    } else {
-      Object.assign(baseFormData, updater);
-    }
+  // mark selected envs as pending while uploading (nice UX)
+  setVenafiStatus((s) => {
+    const next = { ...s };
+    selectedEnvironments.forEach((e: Env) => (next[e] = 'pending'));
+    return next;
   });
 
-  const value = {
-    formData: { ...baseFormData, ...(overrides || {}) },
-    setFormData,
-    requiredFields: [],
-    resetFormData: jest.fn(),
+  const venafiData = new FormData();
+  Array.from(file).forEach((data) => venafiData.append('certificate_file', data));
+
+  const httpRequest = {
+    method: 'POST' as const,
+    endpoint: '/upload-venafi-certificate/',
+    responseType: 'json' as const,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    body: venafiData,
   };
 
-  const Provider = ({ children }: { children: React.ReactNode }) => (
-    <FormContext.Provider value={value}>{children}</FormContext.Provider>
-  );
+  try {
+    const response = (await makeRequest(httpRequest)) as { data: any };
 
-  return { Provider, setFormData };
-}
+    setFileUploadStatus(response.data.status);
+
+    if (response.data.status === 'Success') {
+      setFileUploadError('');
+
+      // save filenames/contents like you already do
+      setFormData((prevData) => ({
+        ...prevData,
+        cdmNextDetails: {
+          ...prevData.cdmNextDetails,
+          sandboxvenafiFileName: response?.data.sandboxfilename,
+          sandboxvenafiFileContent: response?.data.sandboxfilecontent,
+          sitvenafiFileName: response?.data.sitfilename,
+          sitvenafiFileContent: response?.data.sitfilecontent,
+          uatvenafiFileName: response?.data.uatfilename,
+          uatvenafiFileContent: response?.data.uatfilecontent,
+          venafiEnvironments: selectedEnvironments,
+        },
+      }));
+
+      // turn on success per env only if that env actually returned a file
+      setVenafiStatus((s) => ({
+        ...s,
+        Sandbox: response?.data.sandboxfilename ? 'success' : s.Sandbox,
+        SIT: response?.data.sitfilename ? 'success' : s.SIT,
+        UAT: response?.data.uatfilename ? 'success' : s.UAT,
+      }));
+    } else {
+      // API returned failure
+      setFileUploadError(response.data.message);
+      setVenafiStatus((s) => {
+        const next = { ...s };
+        selectedEnvironments.forEach((e: Env) => (next[e] = 'error'));
+        return next;
+      });
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    setFileUploadError('Upload failed');
+    setVenafiStatus((s) => {
+      const next = { ...s };
+      selectedEnvironments.forEach((e: Env) => (next[e] = 'error'));
+      return next;
+    });
+  } finally {
+    // optional: clear input so the same file can be reselected
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+};
+
+
+const handleRemoveFile = (env: Env) => {
+  setFormData((prevData) => {
+    const updateData = { ...prevData };
+
+    if (env === 'SIT') {
+      updateData.cdmNextDetails.sitvenafiFileName = '';
+      updateData.cdmNextDetails.sitvenafiFileContent = '';
+    } else if (env === 'UAT') {
+      updateData.cdmNextDetails.uatvenafiFileName = '';
+      updateData.cdmNextDetails.uatvenafiFileContent = '';
+    } else if (env === 'Sandbox') {
+      updateData.cdmNextDetails.sandboxvenafiFileName = '';
+      updateData.cdmNextDetails.sandboxvenafiFileContent = '';
+    }
+
+    return updateData;
+  });
+
+  // reset status chip for that env
+  setVenafiStatus((s) => ({ ...s, [env]: 'idle' }));
+
+  if (fileInputRef.current) fileInputRef.current.value = '';
+};
+
+{/* SIT */}
+{formData.cdmNextDetails.sitvenafiFileName && (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+    <Typography
+      variant="body2"
+      sx={{
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        textOverflow: 'ellipsis',
+        overflow: 'hidden',
+        maxWidth: 800,
+        ml: '10px',
+      }}
+    >
+      {formData.cdmNextDetails.sitvenafiFileName}
+    </Typography>
+
+    <IconButton
+      size="small"
+      onClick={() => handleRemoveFile('SIT')}
+      aria-label="Remove file"
+      sx={{ color: 'error.main' }}
+    >
+      <DeleteIcon fontSize="small" />
+    </IconButton>
+
+    {venafiStatus.SIT === 'success' && (
+      <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>
+        Uploaded successfully
+      </Typography>
+    )}
+    {venafiStatus.SIT === 'error' && (
+      <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>
+        Upload failed
+      </Typography>
+    )}
+    {venafiStatus.SIT === 'pending' && (
+      <Typography variant="caption" sx={{ fontWeight: 500 }}>
+        Uploading…
+      </Typography>
+    )}
+  </Box>
+)}
+
+{/* UAT */}
+{formData.cdmNextDetails.uatvenafiFileName && (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+    <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800, ml: '10px' }}>
+      {formData.cdmNextDetails.uatvenafiFileName}
+    </Typography>
+    <IconButton size="small" onClick={() => handleRemoveFile('UAT')} aria-label="Remove file" sx={{ color: 'error.main' }}>
+      <DeleteIcon fontSize="small" />
+    </IconButton>
+    {venafiStatus.UAT === 'success' && (
+      <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>Uploaded successfully</Typography>
+    )}
+    {venafiStatus.UAT === 'error' && (
+      <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>
+    )}
+    {venafiStatus.UAT === 'pending' && (
+      <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>
+    )}
+  </Box>
+)}
+
+{/* Sandbox */}
+{formData.cdmNextDetails.sandboxvenafiFileName && (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+    <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800, ml: '10px' }}>
+      {formData.cdmNextDetails.sandboxvenafiFileName}
+    </Typography>
+    <IconButton size="small" onClick={() => handleRemoveFile('Sandbox')} aria-label="Remove file" sx={{ color: 'error.main' }}>
+      <DeleteIcon fontSize="small" />
+    </IconButton>
+    {venafiStatus.Sandbox === 'success' && (
+      <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 500 }}>Uploaded successfully</Typography>
+    )}
+    {venafiStatus.Sandbox === 'error' && (
+      <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>
+    )}
+    {venafiStatus.Sandbox === 'pending' && (
+      <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>
+    )}
+  </Box>
+)}
