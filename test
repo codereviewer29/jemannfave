@@ -1,78 +1,35 @@
-return (
-  <CustomNavigation>
-    {/* Top red header */}
-    <Box sx={{ bgcolor: '#C62828', color: '#fff', py: 1.25, px: 2, position: 'relative' }}>
-      <Typography
-        variant="subtitle1"
-        sx={{
-          fontWeight: 600,
-          fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
-        }}
-      >
-        Google Cloud Platform
-      </Typography>
-      <Box sx={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, bgcolor: '#FFC107' }} />
-    </Box>
+{/* Grey welcome ribbon */}
+<Box
+  sx={{
+    mt: 2,
+    px: 2,
+    py: 1.25,
+    textAlign: 'center',
+    color: '#C62828',
+    fontWeight: 700,
+    fontSize: { xs: 14, md: 16 },
+    background: 'linear-gradient(180deg, #EEEEEE 0%, #E3E3E3 100%)',
+    fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
+    whiteSpace: { xs: 'normal', md: 'nowrap' },   // keep one line on md+
+  }}
+>
+  {/* use non-breaking spaces to keep the phrase together */}
+  Welcome to the GCP Tenant Environment Provisioning homepage. We are excited to guide you on your{' '}
+  {'Google\u00A0Cloud\u00A0Platform'} (GCP) migration journey.
+</Box>
 
-    {/* Grey welcome ribbon */}
-    <Box
-      sx={{
-        mt: 2,
-        px: 2,
-        py: 1.25,
-        textAlign: 'center',
-        color: '#C62828',
-        fontWeight: 700,
-        fontSize: { xs: 14, md: 16 },
-        background: 'linear-gradient(180deg, #EEEEEE 0%, #E3E3E3 100%)',
-        fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
-      }}
-    >
-      Welcome to the GCP Tenant Environment Provisioning homepage. We are excited to guide you on your
-      Google Cloud Platform (GCP) migration journey.
-    </Box>
+<Typography sx={{ color: '#333', lineHeight: 1.7, fontSize: 16 }}>
+  <Box component="span" sx={{ fontWeight: 700, color: '#222' }}>
+    Environment Provisioning
+  </Box>{' '}
+  is a key step in migrating data to Google Cloud Platform (GCP). It involves automating the setup of GCP
+  projects and services by collecting prerequisites from Application &amp; Tenant teams which then submit
+  automated requests to sub-teams to provision the necessary GCP resources required for the application
+  migration. Once submitted, teams will receive updates (tickets) as provisioning progresses. The
+  environmental provisioning will take approximately three (3) weeks to complete.
+</Typography>
 
-    {/* Content */}
-    <Grid container spacing={2} sx={{ mt: 3, px: 2 }}>
-      <Grid item xs={12} md={4}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-          <Box
-            component="img"
-            src="/images/presenter.png"
-            alt="Presenter pointing to content"
-            sx={{ maxHeight: 300, width: 'auto' }}
-          />
-        </Box>
-      </Grid>
-
-      <Grid item xs={12} md={8}>
-        <Typography
-          variant="h6"
-          gutterBottom
-          sx={{
-            fontWeight: 600,
-            color: '#222',
-            fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
-          }}
-        >
-          Environment Provisioning
-        </Typography>
-
-        <Typography paragraph sx={{ color: '#333', lineHeight: 1.7 }}>
-          Environment Provisioning is a key step in migrating data to Google Cloud Platform (GCP). It involves
-          automating the setup of GCP projects and services by collecting prerequisites from Application &amp; Tenant
-          teams which then submit automated requests to sub-teams to provision the necessary GCP resources required
-          for the application migration. Once submitted, teams will receive updates (tickets) as provisioning
-          progresses. The environmental provisioning will take approximately three (3) weeks to complete.
-        </Typography>
-
-        <Typography paragraph sx={{ color: '#333', lineHeight: 1.7 }}>
-          The Enablement team then provides documentation or a runbook to guide the use of the newly provisioned GCP
-          resources.
-        </Typography>
-      </Grid>
-    </Grid>
-
-    {/* Your cards grid remains below */}
-  </CustomNavigation>
-);
+<Typography sx={{ color: '#333', lineHeight: 1.7, mt: 1 }}>
+  The Enablement team then provides documentation or a runbook to guide the use of the newly provisioned GCP
+  resources.
+</Typography>
