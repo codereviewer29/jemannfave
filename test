@@ -1,114 +1,32 @@
-{/* === Sandbox === */}
-<Grid item xs={10}>
-  {Array.isArray((formData?.cdnNextDetails as any)?.sandboxVenafiFiles) &&
-  (formData!.cdnNextDetails as any).sandboxVenafiFiles.length > 0 ? (
-    (formData!.cdnNextDetails as any).sandboxVenafiFiles.map(
-      (f: { name: string; content: string }, idx: number) => {
-        const st = venafiStatusMap['Sandbox:' + f.name] || 'success';
-        return (
-          <Box key={`Sandbox-${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-            <Typography
-              variant="body2"
-              sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
-              title={f.name}
-            >
-              {f.name}
-            </Typography>
+<Grid item xs={12}>
+  {/* === Upload Button + Uploaded Files display goes here === */}
 
-            <IconButton
-              size="small"
-              onClick={() => handleRemoveFileAt('Sandbox', idx)}
-              aria-label="Remove Sandbox file"
-              sx={{ color: 'error.main' }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
+  {/* Disclaimer box */}
+  <Box
+    sx={{
+      mt: 2,
+      p: 1.5,
+      border: '1px dashed #e0e0e0',
+      borderRadius: 1,
+      backgroundColor: '#fffbea',
+    }}
+  >
+    <Typography variant="body2" sx={{ color: 'text.primary' }}>
+      ⚠️ <strong>Upload Guideline:</strong> File must follow the naming convention:
+      <br />
+      <code>nonprod_[application]_[team]_gcp_[environment]_cert.pem</code>
+    </Typography>
+  </Box>
 
-            {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
-            {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
-            {st === 'error'   && <Typography variant="caption" sx={{ color: 'error.main',   fontWeight: 500 }}>Upload failed</Typography>}
-          </Box>
-        );
-      }
-    )
-  ) : (
-    <Typography variant="caption" sx={{ opacity: 0.75 }}>No files uploaded for Sandbox</Typography>
-  )}
-</Grid>
-
-
-{/* === UAT === */}
-<Grid item xs={10}>
-  {Array.isArray((formData?.cdnNextDetails as any)?.uatVenafiFiles) &&
-  (formData!.cdnNextDetails as any).uatVenafiFiles.length > 0 ? (
-    (formData!.cdnNextDetails as any).uatVenafiFiles.map(
-      (f: { name: string; content: string }, idx: number) => {
-        const st = venafiStatusMap['UAT:' + f.name] || 'success';
-        return (
-          <Box key={`UAT-${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-            <Typography
-              variant="body2"
-              sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
-              title={f.name}
-            >
-              {f.name}
-            </Typography>
-
-            <IconButton
-              size="small"
-              onClick={() => handleRemoveFileAt('UAT', idx)}
-              aria-label="Remove UAT file"
-              sx={{ color: 'error.main' }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-
-            {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
-            {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
-            {st === 'error'   && <Typography variant="caption" sx={{ color: 'error.main',   fontWeight: 500 }}>Upload failed</Typography>}
-          </Box>
-        );
-      }
-    )
-  ) : (
-    <Typography variant="caption" sx={{ opacity: 0.75 }}>No files uploaded for UAT</Typography>
-  )}
-</Grid>
-
-{/* === SIT === */}
-<Grid item xs={10}>
-  {Array.isArray((formData?.cdnNextDetails as any)?.sitVenafiFiles) &&
-  (formData!.cdnNextDetails as any).sitVenafiFiles.length > 0 ? (
-    (formData!.cdnNextDetails as any).sitVenafiFiles.map(
-      (f: { name: string; content: string }, idx: number) => {
-        const st = venafiStatusMap['SIT:' + f.name] || 'success';
-        return (
-          <Box key={`SIT-${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-            <Typography
-              variant="body2"
-              sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
-              title={f.name}
-            >
-              {f.name}
-            </Typography>
-
-            <IconButton
-              size="small"
-              onClick={() => handleRemoveFileAt('SIT', idx)}
-              aria-label="Remove SIT file"
-              sx={{ color: 'error.main' }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-
-            {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
-            {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
-            {st === 'error'   && <Typography variant="caption" sx={{ color: 'error.main',   fontWeight: 500 }}>Upload failed</Typography>}
-          </Box>
-        );
-      }
-    )
-  ) : (
-    <Typography variant="caption" sx={{ opacity: 0.75 }}>No files uploaded for SIT</Typography>
-  )}
+  {/* Existing note you already had */}
+  <Typography sx={{ mt: 2 }}>
+    Note: If you don't have a certificate, follow the steps to generate one at the:{' '}
+    <Link
+      href="https://confluence.wellsfargo.net/spaces/GCDAT/pages/3563641153/Venafi+Certificate+Creation"
+      target="_blank"
+      rel="noopener"
+    >
+      Confluence Link
+    </Link>
+  </Typography>
 </Grid>
