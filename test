@@ -1,138 +1,12 @@
-// === PASTE: helpers & types ===
-type Env = 'UAT' | 'SIT' | 'Sandbox';
-
-type VenafiFile = { name: string; content: string };
-
-// array keys per env (new fields we’ll store in cdnNextDetails)
-const getEnvArrayKey = (env: Env) => {
-  switch (env) {
-    case 'SIT':     return 'sitVenafiFiles' as const;
-    case 'UAT':     return 'uatVenafiFiles' as const;
-    case 'Sandbox': return 'sandboxVenafiFiles' as const;
-  }
-};
-
-// per-file status map key
-const statusKey = (env: Env, name: string) => `${env}:${name}`;
-
-// === PASTE: new status map (per-file) ===
-const [venafiStatusMap, setVenafiStatusMap] =
-  useState<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
-
-// === PASTE: ensure arrays exist after you read formData (e.g., in effect or right in initial state) ===
-useEffect(() => {
-  setFormData(prev => {
-    const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
-    next.cdnNextDetails.sitVenafiFiles = next.cdnNextDetails.sitVenafiFiles || [];
-    next.cdnNextDetails.uatVenafiFiles = next.cdnNextDetails.uatVenafiFiles || [];
-    next.cdnNextDetails.sandboxVenafiFiles = next.cdnNextDetails.sandboxVenafiFiles || [];
-    return next;
-  });
-  // run once
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-
-// === PASTE: replace your handleUploadChange entirely ===
-const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const files = event.target.files;
-  const file = files && files[0];
-  if (!file) return;
-
-  // choose ONE env to receive this file: the first selected
-  const target = (selectedEnvironments as Env[])[0];
-  if (!target) {
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    return;
-  }
-
-  // mark this specific file as pending for this env
-  setVenafiStatusMap(s => ({ ...s, [statusKey(target, file.name)]: 'pending' }));
-
-  // Build multipart body
-  const venafiData = new FormData();
-  venafiData.append('certificate_file', file);
-
-  const httpRequest = {
-    method: 'POST' as const,
-    endpoints: '/upload-venafi-certificate/',
-    responseType: 'json' as const,
-    headers: {},           // IMPORTANT: leave empty; browser sets boundary
-    body: venafiData,
-  };
-
-  try {
-    const response = (await makeRequest(httpRequest)) as any;
-
-    // Prefer server fields if present; fall back to picked file
-    const serverName =
-      response?.data?.sitfilename ||
-      response?.data?.uatfilename ||
-      response?.data?.sandboxfilename ||
-      file.name;
-
-    const serverContent =
-      response?.data?.sitfilecontent ||
-      response?.data?.uatfilecontent ||
-      response?.data?.sandboxfilecontent ||
-      '';
-
-    if (response?.data?.status === 'Success') {
-      // append to env array
-      setFormData(prev => {
-        const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
-        const key = getEnvArrayKey(target);
-        const arr: VenafiFile[] = (next.cdnNextDetails[key] || []) as VenafiFile[];
-
-        // optional: avoid duplicates by filename
-        if (!arr.some(f => f.name === serverName)) {
-          next.cdnNextDetails[key] = [...arr, { name: serverName, content: serverContent }];
-        }
-        return next;
-      });
-
-      setVenafiStatusMap(s => ({ ...s, [statusKey(target, serverName)]: 'success' }));
-    } else {
-      setVenafiStatusMap(s => ({ ...s, [statusKey(target, serverName)]: 'error' }));
-    }
-  } catch {
-    setVenafiStatusMap(s => ({ ...s, [statusKey(target, file.name)]: 'error' }));
-  } finally {
-    // allow re-selecting the same filename on next click
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-};
-// === PASTE: new remove by index ===
-const handleRemoveFileAt = (env: Env, index: number) => {
-  setFormData(prev => {
-    const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
-    const key = getEnvArrayKey(env);
-    const arr: VenafiFile[] = (next.cdnNextDetails[key] || []) as VenafiFile[];
-    const removed = arr[index];
-    next.cdnNextDetails[key] = arr.filter((_, i) => i !== index);
-
-    // clear per-file status
-    if (removed) {
-      setVenafiStatusMap(s => {
-        const copy = { ...s };
-        delete copy[statusKey(env, removed.name)];
-        return copy;
-      });
-    }
-    return next;
-  });
-};
-{/* === PASTE: Sandbox files list (do similar for SIT/UAT) === */}
-{(() => {
-  const env: Env = 'Sandbox';
-  const files: VenafiFile[] =
-    ((formData?.cdnNextDetails as any)?.[getEnvArrayKey(env)] as VenafiFile[]) || [];
-
-  return (
-    <>
-      {files.map((f, idx) => {
-        const st = venafiStatusMap[statusKey(env, f.name)] || 'success';
+{/* === Sandbox === */}
+<Grid item xs={10}>
+  {Array.isArray((formData?.cdnNextDetails as any)?.sandboxVenafiFiles) &&
+  (formData!.cdnNextDetails as any).sandboxVenafiFiles.length > 0 ? (
+    (formData!.cdnNextDetails as any).sandboxVenafiFiles.map(
+      (f: { name: string; content: string }, idx: number) => {
+        const st = venafiStatusMap['Sandbox:' + f.name] || 'success';
         return (
-          <Box key={`${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+          <Box key={`Sandbox-${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
             <Typography
               variant="body2"
               sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
@@ -141,16 +15,100 @@ const handleRemoveFileAt = (env: Env, index: number) => {
               {f.name}
             </Typography>
 
-            <IconButton size="small" onClick={() => handleRemoveFileAt(env, idx)} aria-label="Remove file" sx={{ color: 'error.main' }}>
+            <IconButton
+              size="small"
+              onClick={() => handleRemoveFileAt('Sandbox', idx)}
+              aria-label="Remove Sandbox file"
+              sx={{ color: 'error.main' }}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
 
             {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
             {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
-            {st === 'error' && <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>}
+            {st === 'error'   && <Typography variant="caption" sx={{ color: 'error.main',   fontWeight: 500 }}>Upload failed</Typography>}
           </Box>
         );
-      })}
-    </>
-  );
-})()}
+      }
+    )
+  ) : (
+    <Typography variant="caption" sx={{ opacity: 0.75 }}>No files uploaded for Sandbox</Typography>
+  )}
+</Grid>
+
+
+{/* === UAT === */}
+<Grid item xs={10}>
+  {Array.isArray((formData?.cdnNextDetails as any)?.uatVenafiFiles) &&
+  (formData!.cdnNextDetails as any).uatVenafiFiles.length > 0 ? (
+    (formData!.cdnNextDetails as any).uatVenafiFiles.map(
+      (f: { name: string; content: string }, idx: number) => {
+        const st = venafiStatusMap['UAT:' + f.name] || 'success';
+        return (
+          <Box key={`UAT-${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
+              title={f.name}
+            >
+              {f.name}
+            </Typography>
+
+            <IconButton
+              size="small"
+              onClick={() => handleRemoveFileAt('UAT', idx)}
+              aria-label="Remove UAT file"
+              sx={{ color: 'error.main' }}
+            >
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+
+            {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
+            {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
+            {st === 'error'   && <Typography variant="caption" sx={{ color: 'error.main',   fontWeight: 500 }}>Upload failed</Typography>}
+          </Box>
+        );
+      }
+    )
+  ) : (
+    <Typography variant="caption" sx={{ opacity: 0.75 }}>No files uploaded for UAT</Typography>
+  )}
+</Grid>
+
+{/* === SIT === */}
+<Grid item xs={10}>
+  {Array.isArray((formData?.cdnNextDetails as any)?.sitVenafiFiles) &&
+  (formData!.cdnNextDetails as any).sitVenafiFiles.length > 0 ? (
+    (formData!.cdnNextDetails as any).sitVenafiFiles.map(
+      (f: { name: string; content: string }, idx: number) => {
+        const st = venafiStatusMap['SIT:' + f.name] || 'success';
+        return (
+          <Box key={`SIT-${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
+              title={f.name}
+            >
+              {f.name}
+            </Typography>
+
+            <IconButton
+              size="small"
+              onClick={() => handleRemoveFileAt('SIT', idx)}
+              aria-label="Remove SIT file"
+              sx={{ color: 'error.main' }}
+            >
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+
+            {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
+            {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
+            {st === 'error'   && <Typography variant="caption" sx={{ color: 'error.main',   fontWeight: 500 }}>Upload failed</Typography>}
+          </Box>
+        );
+      }
+    )
+  ) : (
+    <Typography variant="caption" sx={{ opacity: 0.75 }}>No files uploaded for SIT</Typography>
+  )}
+</Grid>
