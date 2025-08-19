@@ -1,10 +1,22 @@
 <Grid item xs={12}>
-  {/* Upload section here... */}
+  {/* === Upload Button + Uploaded Files display goes here === */}
 
-  {/* Simple Disclaimer */}
-  <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
-    Please mention the environment name (e.g., <b>Sandbox</b> / <b>SIT</b> / <b>UAT</b>) in the filename.
-  </Typography>
+  {/* Disclaimer box */}
+  <Box
+    sx={{
+      mt: 2,
+      p: 1.5,
+      border: '1px dashed #e0e0e0',
+      borderRadius: 1,
+      backgroundColor: '#fffbea',
+    }}
+  >
+    <Typography variant="body2" sx={{ color: 'text.primary' }}>
+      ⚠️ <strong>Upload Guideline:</strong> File must follow the naming convention:
+      <br />
+      <code>nonprod_[application]_[team]_gcp_[environment]_cert.pem</code>
+    </Typography>
+  </Box>
 
   {/* Existing note you already had */}
   <Typography sx={{ mt: 2 }}>
