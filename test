@@ -1,112 +1,103 @@
-type Env = 'sandbox' | 'nonprod' | 'prod';
+type Env = 'UAT' | 'SIT' | 'Sandbox';
 
-type ArtDetail = {
-  env: Env;
-  label: string;
-  value: string;
-  helperText?: string;
-  isCustom?: boolean;
-  id?: string;
+const getEnvKeys = (env: Env) => {
+  switch (env) {
+    case 'SIT':     return { nameKey: 'sitvenafiFileName',     contentKey: 'sitvenafiFileContent' };
+    case 'UAT':     return { nameKey: 'uatvenafiFileName',     contentKey: 'uatvenafiFileContent' };
+    case 'Sandbox': return { nameKey: 'sandboxvenafiFileName', contentKey: 'sandboxvenafiFileContent' };
+  }
 };
 
-type Categorized = {
-  Sandbox: ArtDetail[];
-  Nonprod: ArtDetail[];
-  Prod: ArtDetail[];
+const hasFileForEnv = (env: Env) => {
+  const { nameKey } = getEnvKeys(env);
+  return Boolean((formData?.cdnNextDetails as any)?.[nameKey]);
 };
 
-const handleAddOthersField = (category: keyof Categorized) => {
-  const updated: Categorized = { ...categorizedArtRequestDetails };
+const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const files = event.target.files;
+  const file = files && files[0];
+  if (!file) return;
 
-  const count = updated[category].filter(
-    i => (i.label || '').toLowerCase().startsWith('others')
-  ).length;
+  // only upload to envs that do NOT already have a file
+  const targets: Env[] = selectedEnvironments.filter((env) => !hasFileForEnv(env)) as Env[];
 
-  const newItem: ArtDetail = {
-    id: `${category}-others-${count + 1}`,
-    env: category.toLowerCase() as Env,
-    label: `Others ${count + 1}`,
-    value: '',
-    helperText: 'Enter additional information',
-    isCustom: true,
+  // Nothing to do because all selected envs already have files
+  if (targets.length === 0) {
+    // optional: surface a small message/toast if you want
+    // enqueueSnackbar('A file is already uploaded for these environments. Delete it to replace.', { variant: 'info' });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    return;
+  }
+
+  // UX: mark only target envs as pending
+  setVenafiStatus((s) => {
+    const next = { ...s };
+    targets.forEach((env) => (next[env] = 'pending'));
+    return next;
+  });
+
+  // Prepare form-data (your backend expects a single file)
+  const venafiData = new FormData();
+  venafiData.append('certificate_file', file);
+
+  const httpRequest = {
+    method: 'POST' as const,
+    endpoints: '/upload-venafi-certificate/', // keep plural to match your service type
+    responseType: 'json' as const,
+    // IMPORTANT: DON'T set Content-Type for FormData. Browser will set boundary.
+    body: venafiData,
   };
 
-  updated[category] = [...updated[category], newItem];
-  setCategorizedArtRequestDetails(updated);
+  try {
+    const response = (await makeRequest(httpRequest)) as any;
 
-  const flattened: ArtDetail[] = Object.values(updated).flat();
-  setAdditionalDetails(flattened);
-  setFormData(prev => ({
-    ...prev,
-    applicationDetails: {
-      ...prev?.applicationDetails,
-      artRequestDetails: flattened,
-    },
-  }));
+    if (response?.data?.status === 'Success') {
+      const fileName =
+        response?.data?.sitfilename ||
+        response?.data?.uatfilename ||
+        response?.data?.sandboxfilename ||
+        file.name;
+
+      const fileContent =
+        response?.data?.sitfilecontent ||
+        response?.data?.uatfilecontent ||
+        response?.data?.sandboxfilecontent ||
+        '';
+
+      // merge only for targets
+      setFormData((prev) => {
+        const next = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } } as any;
+        targets.forEach((env) => {
+          const { nameKey, contentKey } = getEnvKeys(env);
+          next.cdnNextDetails[nameKey] = fileName || '';
+          next.cdnNextDetails[contentKey] = fileContent || '';
+        });
+        return next;
+      });
+
+      // mark success for targets (leave others unchanged)
+      setVenafiStatus((s) => {
+        const next = { ...s };
+        targets.forEach((env) => (next[env] = 'success'));
+        return next;
+      });
+    } else {
+      // API returned a failure
+      setVenafiStatus((s) => {
+        const next = { ...s };
+        targets.forEach((env) => (next[env] = 'error'));
+        return next;
+      });
+    }
+  } catch (err) {
+    // Network/exception
+    setVenafiStatus((s) => {
+      const next = { ...s };
+      targets.forEach((env) => (next[env] = 'error'));
+      return next;
+    });
+  } finally {
+    // allow picking the same filename on next click
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 };
-
-const handleRemoveOthersField = (category: keyof Categorized, index: number) => {
-  const updated: Categorized = { ...categorizedArtRequestDetails };
-  updated[category] = updated[category].filter((_, i) => i !== index);
-
-  setCategorizedArtRequestDetails(updated);
-
-  const flattened: ArtDetail[] = Object.values(updated).flat();
-  setAdditionalDetails(flattened);
-  setFormData(prev => ({
-    ...prev,
-    applicationDetails: {
-      ...prev?.applicationDetails,
-      artRequestDetails: flattened,
-    },
-  }));
-};
-{(Object.keys(categorizedArtRequestDetails) as Array<keyof Categorized>).map(category => {
-  const details = categorizedArtRequestDetails[category];
-  return (
-    <Accordion key={category}>
-      <AccordionSummary>…</AccordionSummary>
-      <AccordionDetails>
-        <Grid container spacing={2}>
-          {details.map((item, index) => (
-            <Grid item xs={12} sm={6} md={3}
-                  key={item.id ?? `${category}-${item.label}-${index}`}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <TextField
-                  fullWidth size="small"
-                  label={item.label}
-                  value={item.value ?? ''}
-                  onChange={(e) => handleInputChange(category, index, e.target.value)}
-                  helperText={item.helperText ?? ''}
-                />
-                {item.isCustom && (
-                  <IconButton
-                    aria-label="remove-others"
-                    onClick={() => handleRemoveOthersField(category, index)}
-                    color="error"
-                    sx={{ ml: 1, bgcolor: 'none', '&:hover': { bgcolor: 'none' } }}
-                  >
-                    <RemoveCircleIcon />
-                  </IconButton>
-                )}
-              </div>
-            </Grid>
-          ))}
-
-          <Grid item xs={12}>
-            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 8 }}>
-              <IconButton
-                aria-label="add-others"
-                onClick={() => handleAddOthersField(category)}
-                sx={{ ml: 1, bgcolor: 'none', '&:hover': { bgcolor: 'none' } }}
-              >
-                <AddCircleIcon />
-              </IconButton>
-              <Typography variant="body2" sx={{ ml: 1 }}>Add Other Field</Typography>
-            </div>
-          </Grid>
-        </Grid>
-      </AccordionDetails>
-    </Accordion>
-  );
-})}
