@@ -1,37 +1,35 @@
-// helper stays the same
-type Env = 'UAT' | 'SIT' | 'Sandbox';
-const getEnvKeys = (env: Env) => {
-  switch (env) {
-    case 'SIT':     return { nameKey: 'sitvenafiFileName',     contentKey: 'sitvenafiFileContent' };
-    case 'UAT':     return { nameKey: 'uatvenafiFileName',     contentKey: 'uatvenafiFileContent' };
-    case 'Sandbox': return { nameKey: 'sandboxvenafiFileName', contentKey: 'sandboxvenafiFileContent' };
-  }
-};
-const hasFileForEnv = (env: Env) => {
-  const { nameKey } = getEnvKeys(env);
-  return Boolean((formData?.cdnNextDetails as any)?.[nameKey]);
-};
-
-// ONLY ONE ENV PER CLICK
 const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  type Env = 'UAT' | 'SIT' | 'Sandbox';
+
+  // tiny helpers kept local so you can paste this as-is
+  const getEnvKeys = (env: Env) => {
+    switch (env) {
+      case 'SIT':     return { nameKey: 'sitvenafiFileName',     contentKey: 'sitvenafiFileContent' };
+      case 'UAT':     return { nameKey: 'uatvenafiFileName',     contentKey: 'uatvenafiFileContent' };
+      case 'Sandbox': return { nameKey: 'sandboxvenafiFileName', contentKey: 'sandboxvenafiFileContent' };
+    }
+  };
+  const hasFileForEnv = (env: Env) => {
+    const { nameKey } = getEnvKeys(env);
+    return Boolean((formData?.cdnNextDetails as any)?.[nameKey]);
+  };
+
   const files = event.target.files;
   const file = files && files[0];
   if (!file) return;
 
-  // pick the first selected env that doesn't already have a file
-  const target = selectedEnvironments.find((env) => !hasFileForEnv(env)) as Env | undefined;
-
-  // nothing to do (all selected envs already have files)
+  // choose ONE target: the first selected env without a file
+  const target = (selectedEnvironments as Env[]).find((env) => !hasFileForEnv(env));
   if (!target) {
-    // optional: toast "A file is already uploaded for all selected environments. Delete first to replace."
+    // optional: toast/info "File already uploaded for all selected environments. Delete to replace."
     if (fileInputRef.current) fileInputRef.current.value = '';
     return;
   }
 
-  // set only the target env to pending
+  // mark only that env as pending
   setVenafiStatus((s) => ({ ...s, [target]: 'pending' }));
 
-  // build FormData and call your API (no Content-Type header!)
+  // build multipart form body (do NOT set Content-Type)
   const venafiData = new FormData();
   venafiData.append('certificate_file', file);
 
@@ -39,7 +37,7 @@ const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) =>
     method: 'POST' as const,
     endpoints: '/upload-venafi-certificate/',
     responseType: 'json' as const,
-    headers: {},               // <- leave empty; fetch will set multipart boundary
+    headers: {},          // leave empty so browser sets multipart boundary
     body: venafiData,
   };
 
@@ -47,7 +45,7 @@ const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) =>
     const response = (await makeRequest(httpRequest)) as any;
 
     if (response?.data?.status === 'Success') {
-      // use backend filename if provided, otherwise fall back to picked name
+      // backend may return per-env fields; otherwise fall back to picked file name/content
       const serverName =
         response?.data?.sitfilename ||
         response?.data?.uatfilename ||
@@ -60,12 +58,12 @@ const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) =>
         response?.data?.sandboxfilecontent ||
         '';
 
-      // write only to the ONE target env
+      // persist only for the ONE target env
       setFormData((prev) => {
         const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
         const { nameKey, contentKey } = getEnvKeys(target);
-        next.cdnNextDetails[nameKey] = serverName;
-        next.cdnNextDetails[contentKey] = serverContent;
+        next.cdnNextDetails[nameKey] = serverName || '';
+        next.cdnNextDetails[contentKey] = serverContent || '';
         return next;
       });
 
@@ -73,9 +71,10 @@ const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) =>
     } else {
       setVenafiStatus((s) => ({ ...s, [target]: 'error' }));
     }
-  } catch (_) {
+  } catch {
     setVenafiStatus((s) => ({ ...s, [target]: 'error' }));
   } finally {
+    // allow re-selecting the same filename on the next click
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 };
