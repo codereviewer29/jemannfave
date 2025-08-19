@@ -1,5 +1,5 @@
+// helper stays the same
 type Env = 'UAT' | 'SIT' | 'Sandbox';
-
 const getEnvKeys = (env: Env) => {
   switch (env) {
     case 'SIT':     return { nameKey: 'sitvenafiFileName',     contentKey: 'sitvenafiFileContent' };
@@ -7,44 +7,39 @@ const getEnvKeys = (env: Env) => {
     case 'Sandbox': return { nameKey: 'sandboxvenafiFileName', contentKey: 'sandboxvenafiFileContent' };
   }
 };
-
 const hasFileForEnv = (env: Env) => {
   const { nameKey } = getEnvKeys(env);
   return Boolean((formData?.cdnNextDetails as any)?.[nameKey]);
 };
 
+// ONLY ONE ENV PER CLICK
 const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
   const files = event.target.files;
   const file = files && files[0];
   if (!file) return;
 
-  // only upload to envs that do NOT already have a file
-  const targets: Env[] = selectedEnvironments.filter((env) => !hasFileForEnv(env)) as Env[];
+  // pick the first selected env that doesn't already have a file
+  const target = selectedEnvironments.find((env) => !hasFileForEnv(env)) as Env | undefined;
 
-  // Nothing to do because all selected envs already have files
-  if (targets.length === 0) {
-    // optional: surface a small message/toast if you want
-    // enqueueSnackbar('A file is already uploaded for these environments. Delete it to replace.', { variant: 'info' });
+  // nothing to do (all selected envs already have files)
+  if (!target) {
+    // optional: toast "A file is already uploaded for all selected environments. Delete first to replace."
     if (fileInputRef.current) fileInputRef.current.value = '';
     return;
   }
 
-  // UX: mark only target envs as pending
-  setVenafiStatus((s) => {
-    const next = { ...s };
-    targets.forEach((env) => (next[env] = 'pending'));
-    return next;
-  });
+  // set only the target env to pending
+  setVenafiStatus((s) => ({ ...s, [target]: 'pending' }));
 
-  // Prepare form-data (your backend expects a single file)
+  // build FormData and call your API (no Content-Type header!)
   const venafiData = new FormData();
   venafiData.append('certificate_file', file);
 
   const httpRequest = {
     method: 'POST' as const,
-    endpoints: '/upload-venafi-certificate/', // keep plural to match your service type
+    endpoints: '/upload-venafi-certificate/',
     responseType: 'json' as const,
-    // IMPORTANT: DON'T set Content-Type for FormData. Browser will set boundary.
+    headers: {},               // <- leave empty; fetch will set multipart boundary
     body: venafiData,
   };
 
@@ -52,52 +47,35 @@ const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) =>
     const response = (await makeRequest(httpRequest)) as any;
 
     if (response?.data?.status === 'Success') {
-      const fileName =
+      // use backend filename if provided, otherwise fall back to picked name
+      const serverName =
         response?.data?.sitfilename ||
         response?.data?.uatfilename ||
         response?.data?.sandboxfilename ||
         file.name;
 
-      const fileContent =
+      const serverContent =
         response?.data?.sitfilecontent ||
         response?.data?.uatfilecontent ||
         response?.data?.sandboxfilecontent ||
         '';
 
-      // merge only for targets
+      // write only to the ONE target env
       setFormData((prev) => {
-        const next = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } } as any;
-        targets.forEach((env) => {
-          const { nameKey, contentKey } = getEnvKeys(env);
-          next.cdnNextDetails[nameKey] = fileName || '';
-          next.cdnNextDetails[contentKey] = fileContent || '';
-        });
+        const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
+        const { nameKey, contentKey } = getEnvKeys(target);
+        next.cdnNextDetails[nameKey] = serverName;
+        next.cdnNextDetails[contentKey] = serverContent;
         return next;
       });
 
-      // mark success for targets (leave others unchanged)
-      setVenafiStatus((s) => {
-        const next = { ...s };
-        targets.forEach((env) => (next[env] = 'success'));
-        return next;
-      });
+      setVenafiStatus((s) => ({ ...s, [target]: 'success' }));
     } else {
-      // API returned a failure
-      setVenafiStatus((s) => {
-        const next = { ...s };
-        targets.forEach((env) => (next[env] = 'error'));
-        return next;
-      });
+      setVenafiStatus((s) => ({ ...s, [target]: 'error' }));
     }
-  } catch (err) {
-    // Network/exception
-    setVenafiStatus((s) => {
-      const next = { ...s };
-      targets.forEach((env) => (next[env] = 'error'));
-      return next;
-    });
+  } catch (_) {
+    setVenafiStatus((s) => ({ ...s, [target]: 'error' }));
   } finally {
-    // allow picking the same filename on next click
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 };
