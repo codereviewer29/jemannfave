@@ -1,22 +1,36 @@
-{/* Grey welcome ribbon EXACTLY like ref */}
+{/* Environment Provisioning paragraph aligned with ribbon */}
 <Box
   sx={{
     mt: 2,
     px: 2,
-    py: 1.25,
-    textAlign: 'center',
-    color: '#B21B2D',                   // ribbon text color (deep red)
-    fontWeight: 700,
-    fontSize: { xs: 14, md: 16 },
-    background: 'linear-gradient(180deg, #EEEEEE 0%, #E3E3E3 100%)',
+    fontSize: 16,
+    lineHeight: 1.7,
+    color: '#333',
     fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
+    textAlign: 'left',   // ✅ aligns with ribbon text
   }}
 >
-  {/* Drop-cap W in darker shade */}
-  <Box component="span" sx={{ color: '#8A1538', fontWeight: 800 }}>
-    W
-  </Box>
-  elcome to the GCP Tenant Environment Provisioning homepage.&nbsp;&nbsp;We are excited to guide you on your&nbsp;
-  {/* force break AFTER “Google”, then keep the rest unbreakable */}
-  Google<wbr />{' '}{'Cloud\u00A0Platform\u00A0(GCP)'} migration journey.
+  <Box component="span" sx={{ fontWeight: 700, color: '#222' }}>
+    Environment Provisioning
+  </Box>{' '}
+  is a key step in migrating data to Google Cloud Platform (GCP). It involves automating the setup of GCP
+  projects and services by collecting prerequisites from Application &amp; Tenant teams which then submit
+  automated requests to sub-teams to provision the necessary GCP resources required for the application
+  migration. Once submitted, teams will receive updates (tickets) as provisioning progresses. The environmental
+  provisioning will take approximately three (3) weeks to complete.
+</Box>
+
+<Box
+  sx={{
+    mt: 2,
+    px: 2,
+    fontSize: 16,
+    lineHeight: 1.7,
+    color: '#333',
+    fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
+    textAlign: 'left',   // ✅ same alignment
+  }}
+>
+  The Enablement team then provides documentation or a runbook to guide the use of the newly provisioned GCP
+  resources.
 </Box>
