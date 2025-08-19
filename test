@@ -1,35 +1,54 @@
+// === PASTE: helpers & types ===
+type Env = 'UAT' | 'SIT' | 'Sandbox';
+
+type VenafiFile = { name: string; content: string };
+
+// array keys per env (new fields we’ll store in cdnNextDetails)
+const getEnvArrayKey = (env: Env) => {
+  switch (env) {
+    case 'SIT':     return 'sitVenafiFiles' as const;
+    case 'UAT':     return 'uatVenafiFiles' as const;
+    case 'Sandbox': return 'sandboxVenafiFiles' as const;
+  }
+};
+
+// per-file status map key
+const statusKey = (env: Env, name: string) => `${env}:${name}`;
+
+// === PASTE: new status map (per-file) ===
+const [venafiStatusMap, setVenafiStatusMap] =
+  useState<Record<string, 'idle' | 'pending' | 'success' | 'error'>>({});
+
+// === PASTE: ensure arrays exist after you read formData (e.g., in effect or right in initial state) ===
+useEffect(() => {
+  setFormData(prev => {
+    const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
+    next.cdnNextDetails.sitVenafiFiles = next.cdnNextDetails.sitVenafiFiles || [];
+    next.cdnNextDetails.uatVenafiFiles = next.cdnNextDetails.uatVenafiFiles || [];
+    next.cdnNextDetails.sandboxVenafiFiles = next.cdnNextDetails.sandboxVenafiFiles || [];
+    return next;
+  });
+  // run once
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+// === PASTE: replace your handleUploadChange entirely ===
 const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  type Env = 'UAT' | 'SIT' | 'Sandbox';
-
-  // tiny helpers kept local so you can paste this as-is
-  const getEnvKeys = (env: Env) => {
-    switch (env) {
-      case 'SIT':     return { nameKey: 'sitvenafiFileName',     contentKey: 'sitvenafiFileContent' };
-      case 'UAT':     return { nameKey: 'uatvenafiFileName',     contentKey: 'uatvenafiFileContent' };
-      case 'Sandbox': return { nameKey: 'sandboxvenafiFileName', contentKey: 'sandboxvenafiFileContent' };
-    }
-  };
-  const hasFileForEnv = (env: Env) => {
-    const { nameKey } = getEnvKeys(env);
-    return Boolean((formData?.cdnNextDetails as any)?.[nameKey]);
-  };
-
   const files = event.target.files;
   const file = files && files[0];
   if (!file) return;
 
-  // choose ONE target: the first selected env without a file
-  const target = (selectedEnvironments as Env[]).find((env) => !hasFileForEnv(env));
+  // choose ONE env to receive this file: the first selected
+  const target = (selectedEnvironments as Env[])[0];
   if (!target) {
-    // optional: toast/info "File already uploaded for all selected environments. Delete to replace."
     if (fileInputRef.current) fileInputRef.current.value = '';
     return;
   }
 
-  // mark only that env as pending
-  setVenafiStatus((s) => ({ ...s, [target]: 'pending' }));
+  // mark this specific file as pending for this env
+  setVenafiStatusMap(s => ({ ...s, [statusKey(target, file.name)]: 'pending' }));
 
-  // build multipart form body (do NOT set Content-Type)
+  // Build multipart body
   const venafiData = new FormData();
   venafiData.append('certificate_file', file);
 
@@ -37,44 +56,101 @@ const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) =>
     method: 'POST' as const,
     endpoints: '/upload-venafi-certificate/',
     responseType: 'json' as const,
-    headers: {},          // leave empty so browser sets multipart boundary
+    headers: {},           // IMPORTANT: leave empty; browser sets boundary
     body: venafiData,
   };
 
   try {
     const response = (await makeRequest(httpRequest)) as any;
 
+    // Prefer server fields if present; fall back to picked file
+    const serverName =
+      response?.data?.sitfilename ||
+      response?.data?.uatfilename ||
+      response?.data?.sandboxfilename ||
+      file.name;
+
+    const serverContent =
+      response?.data?.sitfilecontent ||
+      response?.data?.uatfilecontent ||
+      response?.data?.sandboxfilecontent ||
+      '';
+
     if (response?.data?.status === 'Success') {
-      // backend may return per-env fields; otherwise fall back to picked file name/content
-      const serverName =
-        response?.data?.sitfilename ||
-        response?.data?.uatfilename ||
-        response?.data?.sandboxfilename ||
-        file.name;
-
-      const serverContent =
-        response?.data?.sitfilecontent ||
-        response?.data?.uatfilecontent ||
-        response?.data?.sandboxfilecontent ||
-        '';
-
-      // persist only for the ONE target env
-      setFormData((prev) => {
+      // append to env array
+      setFormData(prev => {
         const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
-        const { nameKey, contentKey } = getEnvKeys(target);
-        next.cdnNextDetails[nameKey] = serverName || '';
-        next.cdnNextDetails[contentKey] = serverContent || '';
+        const key = getEnvArrayKey(target);
+        const arr: VenafiFile[] = (next.cdnNextDetails[key] || []) as VenafiFile[];
+
+        // optional: avoid duplicates by filename
+        if (!arr.some(f => f.name === serverName)) {
+          next.cdnNextDetails[key] = [...arr, { name: serverName, content: serverContent }];
+        }
         return next;
       });
 
-      setVenafiStatus((s) => ({ ...s, [target]: 'success' }));
+      setVenafiStatusMap(s => ({ ...s, [statusKey(target, serverName)]: 'success' }));
     } else {
-      setVenafiStatus((s) => ({ ...s, [target]: 'error' }));
+      setVenafiStatusMap(s => ({ ...s, [statusKey(target, serverName)]: 'error' }));
     }
   } catch {
-    setVenafiStatus((s) => ({ ...s, [target]: 'error' }));
+    setVenafiStatusMap(s => ({ ...s, [statusKey(target, file.name)]: 'error' }));
   } finally {
-    // allow re-selecting the same filename on the next click
+    // allow re-selecting the same filename on next click
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 };
+// === PASTE: new remove by index ===
+const handleRemoveFileAt = (env: Env, index: number) => {
+  setFormData(prev => {
+    const next: any = { ...prev, cdnNextDetails: { ...prev.cdnNextDetails } };
+    const key = getEnvArrayKey(env);
+    const arr: VenafiFile[] = (next.cdnNextDetails[key] || []) as VenafiFile[];
+    const removed = arr[index];
+    next.cdnNextDetails[key] = arr.filter((_, i) => i !== index);
+
+    // clear per-file status
+    if (removed) {
+      setVenafiStatusMap(s => {
+        const copy = { ...s };
+        delete copy[statusKey(env, removed.name)];
+        return copy;
+      });
+    }
+    return next;
+  });
+};
+{/* === PASTE: Sandbox files list (do similar for SIT/UAT) === */}
+{(() => {
+  const env: Env = 'Sandbox';
+  const files: VenafiFile[] =
+    ((formData?.cdnNextDetails as any)?.[getEnvArrayKey(env)] as VenafiFile[]) || [];
+
+  return (
+    <>
+      {files.map((f, idx) => {
+        const st = venafiStatusMap[statusKey(env, f.name)] || 'success';
+        return (
+          <Box key={`${f.name}-${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 800 }}
+              title={f.name}
+            >
+              {f.name}
+            </Typography>
+
+            <IconButton size="small" onClick={() => handleRemoveFileAt(env, idx)} aria-label="Remove file" sx={{ color: 'error.main' }}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+
+            {st === 'pending' && <Typography variant="caption" sx={{ fontWeight: 500 }}>Uploading…</Typography>}
+            {st === 'success' && <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>Files uploaded successfully</Typography>}
+            {st === 'error' && <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>Upload failed</Typography>}
+          </Box>
+        );
+      })}
+    </>
+  );
+})()}
