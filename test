@@ -1,70 +1,196 @@
-<CustomNavigation>
-  {/* Top brand bar */}
-  <Box sx={{ bgcolor: '#C62828', color: '#fff', py: 1.25, px: 2, position: 'relative' }}>
-    <Typography
-      variant="subtitle1"
-      sx={{ fontWeight: 600, fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif' }}
-    >
-      Google Cloud Platform
-    </Typography>
-    <Box sx={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, bgcolor: '#FFC107' }} />
-  </Box>
+/**
+ * @file SafeRoomIntakeForm tests
+ * Target: src/sideNavbar/boarding/intake-components/safeRoomIntakeForm.tsx
+ */
 
-  {/* Welcome ribbon (exact alignment base) */}
-  <Box
-    sx={{
-      mt: 2,
-      px: 2,              // 👈 base horizontal alignment
-      py: 1.25,
-      textAlign: 'center',
-      color: '#B21B2D',
-      fontWeight: 700,
-      fontSize: { xs: 14, md: 16 },
-      background: 'linear-gradient(180deg, #EEEEEE 0%, #E3E3E3 100%)',
-      fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
-      whiteSpace: 'normal',
-      lineHeight: 1.6,
-    }}
-  >
-    <Box component="span" sx={{ color: '#8A1538', fontWeight: 800 }}>W</Box>
-    elcome to the GCP Tenant Environment Provisioning homepage.&nbsp;&nbsp;We are excited to guide you on your&nbsp;
-    Google<br />Cloud&nbsp;Platform&nbsp;(GCP) migration journey.
-  </Box>
+import React from 'react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
-  {/* Body copy (kept OUT of Grid so padding matches ribbon) */}
-  <Box
-    sx={{
-      mt: 2,
-      px: 2,              // 👈 identical padding to ribbon = perfect left edge
-      fontSize: 16,
-      lineHeight: 1.7,
-      color: '#333',
-      fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
-      textAlign: 'left',
-    }}
-  >
-    <Box component="span" sx={{ fontWeight: 700, color: '#222' }}>Environment Provisioning</Box>{' '}
-    is a key step in migrating data to Google Cloud Platform (GCP). It involves automating the setup of GCP projects
-    and services by collecting prerequisites from Application &amp; Tenant teams which then submit automated requests
-    to sub-teams to provision the necessary GCP resources required for the application migration. Once submitted, teams
-    will receive updates (tickets) as provisioning progresses. The environmental provisioning will take approximately
-    three (3) weeks to complete.
-  </Box>
+/* ------------------- Mock MUI Date Picker (not used here, just std pattern) ------------------- */
+/* nothing required for this component */
 
-  <Box
-    sx={{
-      mt: 2,
-      px: 2,              // 👈 same alignment
-      fontSize: 16,
-      lineHeight: 1.7,
-      color: '#333',
-      fontFamily: '"Segoe UI", Calibri, Roboto, "Helvetica Neue", Arial, sans-serif',
-      textAlign: 'left',
-    }}
-  >
-    The Enablement team then provides documentation or a runbook to guide the use of the newly provisioned GCP
-    resources.
-  </Box>
+/* --------------------------- Mock FormContext hook + context --------------------------- */
+/**
+ * The component calls useFormContext() from './FormContext'.
+ * We mock that module to export both the hook and a Context we can provide in tests.
+ */
+jest.mock('./FormContext', () => {
+  const React = require('react');
+  const Context = React.createContext<any>(null);
+  return {
+    __esModule: true,
+    FormContext: Context,
+    useFormContext: () => {
+      const v = React.useContext(Context);
+      if (!v) throw new Error('useFormContext used outside Provider in test');
+      return v;
+    },
+  };
+});
 
-  {/* …your cards grid can start below; keep it outside or wrap it in Grid as needed */}
-</CustomNavigation>
+import { FormContext } from './FormContext';
+import SafeRoomIntakeForm from './saferoomIntakeForm';
+
+/* ------------------------------- Helpers ------------------------------ */
+
+// Accept Testing Library's TextMatch (string | RegExp | function)
+type TextMatch = Parameters<typeof screen.getByLabelText>[0];
+
+/** Open a MUI Select by label – Testing Library’s mouseDown on the input works reliably */
+const openSelectByLabel = (label: TextMatch) => {
+  const input = screen.getByLabelText(label, { selector: 'input' });
+  fireEvent.mouseDown(input);
+};
+
+/** Build a Provider with minimal, safe form shape the component reads/writes */
+function withForm(overrides?: Partial<any>) {
+  // minimal, correct shape the component expects
+  const baseFormData = {
+    cdpDetails: {
+      versionCDPRequired: '', // used inside useEffect, keep key present
+    },
+    safeRoomDetails: {
+      dataLoadRequired: '', // bound to the Select
+    },
+    ...(overrides || {}),
+  };
+
+  // updater that supports both object and functional setState shapes
+  const setFormData = jest.fn((updater: any) => {
+    if (typeof updater === 'function') {
+      const next = updater(baseFormData);
+      Object.assign(baseFormData, next);
+    } else {
+      Object.assign(baseFormData, updater);
+    }
+  });
+
+  const value = {
+    formData: baseFormData,
+    setFormData,
+    requiredFields: [],
+    resetFormData: jest.fn(),
+  };
+
+  const Provider = ({ children }: { children: React.ReactNode }) => (
+    // our mock module exports FormContext
+    <FormContext.Provider value={value}>{children}</FormContext.Provider>
+  );
+
+  return { Provider, setFormData, baseFormData };
+}
+
+/* --------------------------------- Tests -------------------------------- */
+
+describe('SafeRoomIntakeForm', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('renders overview text and the Select with label', () => {
+    const { Provider } = withForm();
+
+    render(
+      <Provider>
+        <SafeRoomIntakeForm validationErrors={{} as any} />
+      </Provider>
+    );
+
+    // Headline / overview text smoke checks
+    expect(screen.getByText(/Saferoom Overview/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Saferoom ensures security, privacy, and data management compliance/i)
+    ).toBeInTheDocument();
+
+    // The Select is associated with this label text in your TSX
+    expect(
+      screen.getByLabelText(/Select the Saferoom Data Load Capability/i)
+    ).toBeInTheDocument();
+  });
+
+  test('changing data load capability updates form via setFormData', () => {
+    const { Provider, setFormData } = withForm({
+      safeRoomDetails: { dataLoadRequired: '' },
+    });
+
+    render(
+      <Provider>
+        <SafeRoomIntakeForm validationErrors={{} as any} />
+      </Provider>
+    );
+
+    // Open the Select and choose "Cloud Storage"
+    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
+    fireEvent.click(screen.getByText('Cloud Storage'));
+
+    expect(setFormData).toHaveBeenCalled();
+    // Optional: ensure the update contains nested field
+    const last = setFormData.mock.calls.at(-1)?.[0];
+    if (typeof last === 'object') {
+      expect(last).toEqual(
+        expect.objectContaining({
+          safeRoomDetails: expect.objectContaining({
+            dataLoadRequired: 'Cloud Storage',
+          }),
+        })
+      );
+    }
+  });
+
+  test('changing to "Big Query" also triggers setFormData', () => {
+    const { Provider, setFormData } = withForm({
+      safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
+    });
+
+    render(
+      <Provider>
+        <SafeRoomIntakeForm validationErrors={{} as any} />
+      </Provider>
+    );
+
+    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
+    fireEvent.click(screen.getByText('Big Query'));
+
+    expect(setFormData).toHaveBeenCalled();
+  });
+
+  test('shows invalid state when validationErrors for dataLoadRequired exists', () => {
+    const { Provider } = withForm({
+      safeRoomDetails: { dataLoadRequired: '' },
+    });
+
+    render(
+      <Provider>
+        <SafeRoomIntakeForm
+          // component checks nested path: validationErrors?.safeRoomDetails?.dataLoadRequired
+          validationErrors={{ safeRoomDetails: { dataLoadRequired: 'Required' } } as any}
+        />
+      </Provider>
+    );
+
+    // Select input should have aria-invalid set by MUI when error prop is true
+    const selectInput = screen.getByLabelText(
+      /Select the Saferoom Data Load Capability/i,
+      { selector: 'input' }
+    );
+    expect(selectInput).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  test('mounts without crashing when cdpDetails.versionCDPRequired is set (useEffect path)', () => {
+    const { Provider } = withForm({
+      cdpDetails: { versionCDPRequired: 'Cloud Storage' },
+      safeRoomDetails: { dataLoadRequired: '' },
+    });
+
+    render(
+      <Provider>
+        <SafeRoomIntakeForm validationErrors={{} as any} />
+      </Provider>
+    );
+
+    // Still present and interactive
+    expect(
+      screen.getByLabelText(/Select the Saferoom Data Load Capability/i)
+    ).toBeInTheDocument();
+  });
+});
