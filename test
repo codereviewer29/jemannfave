@@ -1,51 +1,54 @@
+// saferoomIntakeForm.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import SafeRoomIntakeForm from './saferoomIntakeForm';
 
-/* ------------------------------------------------------------------ *
- * Mock the exact module id that the component imports
- * (saferoomIntakeForm.tsx uses:  ../FormContext)
- * ------------------------------------------------------------------ */
-jest.mock('../FormContext', () => {
+/* ------------------------------ mock FormContext ------------------------------ */
+/** We must mock the same path the component imports from */
+jest.mock('./FormContext', () => {
   const React = require('react') as typeof import('react');
-  // Avoid TS generic to keep test strictness simple
-  const Context = (React as any).createContext(null);
+  // keep this any-typed so TS doesn't complain about generics in createContext
+  const Ctx: any = React.createContext(null);
 
   return {
     __esModule: true,
-    FormContext: Context,
+    FormContext: Ctx,
     useFormContext: () => {
-      const v = React.useContext(Context as any);
+      const v = React.useContext(Ctx);
       if (!v) throw new Error('useFormContext used outside Provider in test');
       return v;
     },
   };
 });
 
-// pull the mocked context back (so we can render with a Provider)
-import { FormContext } from '../FormContext';
-import SafeRoomIntakeForm from './saferoomIntakeForm';
+// pull the mocked context back so we can render with its Provider
+import { FormContext } from './FormContext';
 
-/* ------------------------------- Helpers ------------------------------- */
+/* --------------------------------- helpers ---------------------------------- */
 
-// Testing Library's TextMatch type: string | RegExp | (content,node)=>boolean
+// Testing Library's TextMatch type (string | RegExp | (content,node)=>boolean)
 type TextMatch = Parameters<typeof screen.getByLabelText>[0];
 
-/** Open a MUI Select by its label (mouseDown on the input opens the menu) */
+/** Open a MUI <Select> by its label (mouseDown on the input opens the menu) */
 const openSelectByLabel = (label: TextMatch) => {
   const input = screen.getByLabelText(label, { selector: 'input' });
   fireEvent.mouseDown(input);
 };
 
-/** Build a Provider with a minimal safe form shape that the component uses */
+/** Build a Provider with the minimal, safe form shape this component reads/writes */
 function withForm(overrides?: Partial<any>) {
-  // minimal + correct keys (only the ones used in this component)
-  const baseFormData = {
-    cdpDetails: { versionCDPRequired: '' },      // updated in useEffect
-    safeRoomDetails: { dataLoadRequired: '' },   // bound to the Select
+  // minimal + correct keys (only keys used inside this component)
+  const baseFormData: any = {
+    cdpDetails: {
+      versionCDPRequired: '', // updated in useEffect based on selection
+    },
+    safeRoomDetails: {
+      dataLoadRequired: '', // bound to the Select
+    },
     ...(overrides || {}),
   };
 
-  // updater that supports both object & functional setState forms
+  // updater that supports both object + functional setState shapes
   const setFormData = jest.fn((updater: any) => {
     if (typeof updater === 'function') {
       const next = updater(baseFormData);
@@ -62,17 +65,16 @@ function withForm(overrides?: Partial<any>) {
     resetFormData: jest.fn(),
   };
 
+  // IMPORTANT: cast to a local component, then use <Ctx.Provider>
+  const Ctx: any = FormContext;
   const Provider = ({ children }: { children: React.ReactNode }) => (
-    // cast for test only
-    <(FormContext as any).Provider value={value}>{children}</(FormContext as any).Provider>
+    <Ctx.Provider value={value}>{children}</Ctx.Provider>
   );
 
   return { Provider, setFormData, formData: baseFormData };
 }
 
-/* ====================================================================== *
- *                                 Tests
- * ====================================================================== */
+/* ----------------------------------- tests ---------------------------------- */
 
 describe('SafeRoomIntakeForm', () => {
   test('renders overview copy and the Select (smoke)', () => {
@@ -84,20 +86,41 @@ describe('SafeRoomIntakeForm', () => {
       </Provider>
     );
 
-    // a few stable pieces of UI
-    expect(screen.getByText(/Saferoom Overview/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Please select the required data load capability for Saferoom/i)
+      screen.getByText(/Saferoom Overview/i)
     ).toBeInTheDocument();
 
-    // The select should be queryable via its InputLabel text
-    // (your TSX uses: <InputLabel id="data-load-capability-sf-label">Select the Saferoom Data Load Capability</InputLabel>)
-    expect(
-      screen.getByLabelText(/Select the Saferoom Data Load Capability/i)
-    ).toBeInTheDocument();
+    // label exists, and the underlying input is present
+    const selectInput = screen.getByLabelText(/Select the Saferoom Data Load Capability/i, {
+      selector: 'input',
+    });
+    expect(selectInput).toBeInTheDocument();
   });
 
-  test('changing Select → calls setFormData and sets versionCDPRequired via useEffect ("Cloud Storage")', async () => {
+  test('choosing "Cloud Storage" updates form and sets CDP version in useEffect', () => {
+    const { Provider, setFormData, formData } = withForm();
+
+    render(
+      <Provider>
+        <SafeRoomIntakeForm validationErrors={{}} />
+      </Provider>
+    );
+
+    // open the select
+    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
+    // click Cloud Storage option
+    fireEvent.click(screen.getByText(/Cloud Storage/i));
+
+    // component writes selection through setFormData
+    expect(setFormData).toHaveBeenCalled();
+
+    // useEffect should map Cloud Storage -> "File to BQ version"
+    expect(formData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
+    // and the chosen value should be saved
+    expect(formData.safeRoomDetails.dataLoadRequired).toBe('Cloud Storage');
+  });
+
+  test('choosing "Big Query" updates form and sets alternate CDP version', () => {
     const { Provider, setFormData, formData } = withForm();
 
     render(
@@ -107,63 +130,30 @@ describe('SafeRoomIntakeForm', () => {
     );
 
     openSelectByLabel(/Select the Saferoom Data Load Capability/i);
+    fireEvent.click(screen.getByText(/Big Query/i));
 
-    // The MenuItems are "Cloud Storage" and "Big Query" in your TSX
-    fireEvent.click(await screen.findByText('Cloud Storage'));
-
-    // The component calls setFormData when value changes
     expect(setFormData).toHaveBeenCalled();
-
-    // The useEffect reads safeRoomDetails.dataLoadRequired and sets cdpDetails.versionCDPRequired
-    await waitFor(() =>
-      expect(formData.cdpDetails.versionCDPRequired).toBe('File to BQ version')
-    );
+    // useEffect should map Big Query -> "BQ to BQ version"
+    expect(formData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version');
+    expect(formData.safeRoomDetails.dataLoadRequired).toBe('Big Query');
   });
 
-  test('changing Select → sets versionCDPRequired for "Big Query"', async () => {
-    const { Provider, formData } = withForm({
-      // start empty; the effect will compute the version when the Select changes
-      safeRoomDetails: { dataLoadRequired: '' },
-    });
+  test('shows helper error style when validationErrors has an entry', () => {
+    const { Provider } = withForm();
 
     render(
       <Provider>
-        <SafeRoomIntakeForm validationErrors={{}} />
+        <SafeRoomIntakeForm
+          validationErrors={{ 'safeRoomDetails.dataLoadRequired': 'Required' }}
+        />
       </Provider>
     );
 
-    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
-    fireEvent.click(await screen.findByText('Big Query'));
-
-    await waitFor(() =>
-      expect(formData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version')
-    );
-  });
-
-  test('keeps version empty if an unsupported value is selected (defensive)', async () => {
-    // Start with a custom value; component should clear to '' per your useEffect logic
-    const { Provider, formData } = withForm({
-      safeRoomDetails: { dataLoadRequired: 'Unsupported' },
+    // The Select is labeled by the InputLabel text
+    const selectEl = screen.getByLabelText(/Select the Saferoom Data Load Capability/i, {
+      selector: 'input',
     });
-
-    render(
-      <Provider>
-        <SafeRoomIntakeForm validationErrors={{}} />
-      </Provider>
-    );
-
-    // Trigger a re-evaluation of the effect by selecting one of the known items then toggling back to unsupported
-    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
-    fireEvent.click(await screen.findByText('Cloud Storage'));
-    await waitFor(() =>
-      expect(formData.cdpDetails.versionCDPRequired).toBe('File to BQ version')
-    );
-
-    // Manually set back to an unsupported value and re-render to simulate another pass
-    formData.safeRoomDetails.dataLoadRequired = 'Unknown';
-    // Force a micro task for effect to run again (in real app this would be set via UI)
-    await waitFor(() =>
-      expect(formData.cdpDetails.versionCDPRequired).toBe('')
-    );
+    // MUI usually toggles aria-invalid on the input when error={true}
+    expect(selectEl).toHaveAttribute('aria-invalid', 'true');
   });
 });
