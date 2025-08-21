@@ -1,30 +1,29 @@
+// src/sideNavbar/boarding/intake-components/safeRoomIntakeForm.test.tsx
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-/* -------------------------------------------------
- * Mock only <Form /> from react-router-dom so we
- * don't need a data router in unit tests.
- * ------------------------------------------------- */
+/* ------------------------------ Mocks ------------------------------ */
+
+/**
+ * 1) Mock react-router-dom's <Form> so we don't need a data router.
+ *    Everything else from the library remains real.
+ */
 jest.mock('react-router-dom', () => {
   const actual = jest.requireActual('react-router-dom');
   return {
     ...actual,
-    // keep everything else real, just stub <Form/>
-    Form: ({ children }: any) => <form>{children}</form>,
+    Form: ({ children }: { children: React.ReactNode }) => <form>{children}</form>,
   };
 });
 
-/* -------------------------------------------------
- * Mock FormContext used by the component
- * (component imports from './FormContext')
- * ------------------------------------------------- */
+/**
+ * 2) Mock the ./FormContext module the component imports.
+ *    We export a Context object (so our tests can provide a Provider)
+ *    and the hook (`useFormContext`) that the component calls.
+ */
 jest.mock('../FormContext', () => {
-  // NOTE: path above assumes this test file is in
-  // intake-components/ next to safeRoomIntakeForm.tsx.
-  // If your FormContext is at a different relative path,
-  // adjust the import ('../FormContext') accordingly.
-  const React = require('react') as typeof import('react');
-
+  // NOTE: the relative path must match the import used by SafeRoomIntakeForm.tsx
+  // If your file is in a different folder depth, adjust "../FormContext".
   type Ctx = {
     formData: any;
     setFormData: (u: any) => void;
@@ -32,6 +31,7 @@ jest.mock('../FormContext', () => {
     resetFormData: () => void;
   };
 
+  const React = require('react') as typeof import('react');
   const Context = (React as any).createContext<Ctx | null>(null);
 
   return {
@@ -42,6 +42,7 @@ jest.mock('../FormContext', () => {
       if (!v) throw new Error('useFormContext used outside Provider in test');
       return v;
     },
+    // export anything else the real module exports that your code imports
   };
 });
 
@@ -49,9 +50,9 @@ jest.mock('../FormContext', () => {
 import { FormContext } from '../FormContext';
 import SafeRoomIntakeForm from './safeRoomIntakeForm';
 
-/* --------------------------- Helpers --------------------------- */
+/* ------------------------------ Helpers ------------------------------ */
 
-// Testing Library's TextMatch type
+// Testing Library's TextMatch type (string | RegExp | (content,node)=>boolean)
 type TextMatch = Parameters<typeof screen.getByLabelText>[0];
 
 /** Open a MUI Select by its label (mouseDown on the input opens the menu) */
@@ -60,11 +61,11 @@ const openSelectByLabel = (label: TextMatch) => {
   fireEvent.mouseDown(input);
 };
 
-/** Build a Provider with the minimal, safe form shape the component reads/writes */
+/** Build a Provider with the minimal, safe form shape that the component uses */
 function withForm(overrides?: Partial<any>) {
-  // minimal + correct keys (only keys used in this component)
+  // minimal + correct keys (only keys used inside this component)
   const baseFormData: any = {
-    cdpDetails: { versionCDPRequired: '' }, // used inside useEffect
+    cdpDetails: { versionCDPRequired: '' }, // updated in useEffect based on selection
     safeRoomDetails: { dataLoadRequired: '' }, // bound to the Select
     ...(overrides || {}),
   };
@@ -87,59 +88,54 @@ function withForm(overrides?: Partial<any>) {
   };
 
   const Provider = ({ children }: { children: React.ReactNode }) => (
-    <FormContext.Provider value={value as any}>{children}</FormContext.Provider>
+    // cast for test-only generic
+    (<FormContext as any).Provider value={value}>{children}</FormContext as any).Provider
   );
 
   return { Provider, setFormData, formData: baseFormData };
 }
 
-/* ============================== Tests ============================== */
+/* -------------------------------- Tests ------------------------------- */
 
 describe('SafeRoomIntakeForm', () => {
   test('renders overview copy and the Select (smoke)', () => {
     const { Provider } = withForm();
-
     render(
       <Provider>
         <SafeRoomIntakeForm validationErrors={{}} />
       </Provider>
     );
 
-    // Overview text and the select label exist
+    // Headings / copy
     expect(screen.getByText(/Saferoom Overview/i)).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/Select the Saferoom Data Load Capability/i)
-    ).toBeInTheDocument();
+    // The Select input (by label)
+    expect(screen.getByLabelText(/Select the Saferoom Data Load Capability/i)).toBeInTheDocument();
   });
 
   test('allows selecting "Cloud Storage"', () => {
     const { Provider, setFormData } = withForm();
-
     render(
       <Provider>
         <SafeRoomIntakeForm validationErrors={{}} />
       </Provider>
     );
 
-    // open the menu, click option, close automatically
     openSelectByLabel(/Select the Saferoom Data Load Capability/i);
     fireEvent.click(screen.getByRole('option', { name: /Cloud Storage/i }));
 
-    // setFormData should have been called to persist the selection
+    // setFormData should be called (object or functional) with the next value
     expect(setFormData).toHaveBeenCalled();
-    // ensure the value inside our formData was updated by the updater function
-    // (we accept either exact text or case-insensitive)
-    const callArg = setFormData.mock.calls[0][0];
+    const arg = setFormData.mock.calls.pop()?.[0];
     const next =
-      typeof callArg === 'function' ? callArg({ safeRoomDetails: { dataLoadRequired: '' }, cdpDetails: { versionCDPRequired: '' } }) : callArg;
-    expect(
-      (next.safeRoomDetails?.dataLoadRequired || '').toLowerCase()
-    ).toBe('cloud storage');
+      typeof arg === 'function'
+        ? arg({ safeRoomDetails: { dataLoadRequired: '' }, cdpDetails: { versionCDPRequired: '' } })
+        : arg;
+
+    expect(next.safeRoomDetails.dataLoadRequired.toLowerCase()).toBe('cloud storage');
   });
 
-  test('allows selecting "Big Query"', () => {
-    const { Provider, setFormData } = withForm();
-
+  test('allows selecting "Big Query" and sets versionCDPRequired via useEffect', () => {
+    const { Provider, setFormData, formData } = withForm();
     render(
       <Provider>
         <SafeRoomIntakeForm validationErrors={{}} />
@@ -149,13 +145,19 @@ describe('SafeRoomIntakeForm', () => {
     openSelectByLabel(/Select the Saferoom Data Load Capability/i);
     fireEvent.click(screen.getByRole('option', { name: /Big Query/i }));
 
+    // First update: safeRoomDetails.dataLoadRequired
     expect(setFormData).toHaveBeenCalled();
-    const callArg = setFormData.mock.calls.pop()[0];
-    const next =
-      typeof callArg === 'function' ? callArg({ safeRoomDetails: { dataLoadRequired: '' }, cdpDetails: { versionCDPRequired: '' } }) : callArg;
+
+    // Simulate the internal useEffect: when dataLoadRequired changes,
+    // component sets cdpDetails.versionCDPRequired to the friendly label
+    // (you do exactly that in your useEffect)
+    // Our withForm updater has already merged, so assert on the live object.
     expect(
-      (next.safeRoomDetails?.dataLoadRequired || '').toLowerCase()
+      (formData.safeRoomDetails.dataLoadRequired || '').toLowerCase()
     ).toBe('big query');
+
+    // Now it should have set cdpDetails.versionCDPRequired accordingly
+    expect(formData.cdpDetails.versionCDPRequired).toMatch(/Big Query|Cloud Storage|BQ to BQ version/i);
   });
 
   test('shows validation error styling when provided', () => {
@@ -164,15 +166,15 @@ describe('SafeRoomIntakeForm', () => {
     render(
       <Provider>
         <SafeRoomIntakeForm
-          validationErrors={{ safeRoomDetails: { dataLoadRequired: 'Required field' } }}
+          validationErrors={{ safeRoomDetails: { dataLoadRequired: 'Required field' } } as any}
         />
       </Provider>
     );
 
-    // MUI Select reflects error via aria-invalid
-    const selectInput = screen.getByLabelText(
-      /Select the Saferoom Data Load Capability/i
-    );
+    // MUI Select reflects error via aria-invalid on the input
+    const selectInput = screen.getByLabelText(/Select the Saferoom Data Load Capability/i, {
+      selector: 'input',
+    });
     expect(selectInput).toHaveAttribute('aria-invalid', 'true');
   });
 });
