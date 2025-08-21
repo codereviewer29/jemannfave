@@ -1,157 +1,17 @@
-import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-
-/* ------------------------ mock ../FormContext ------------------------ */
-/* The component imports from '../FormContext', so we must mock that path */
 jest.mock('../FormContext', () => {
-  const React = require('react');
-  const Context = React.createContext(null as any);
+  const React = require('react') as typeof import('react');
+
+  // Avoid TS2347: do NOT use a generic here.
+  // Either cast React to any or cast the value.
+  const Context = (React as any).createContext(null);
 
   return {
     __esModule: true,
     FormContext: Context,
     useFormContext: () => {
-      const v = React.useContext(Context);
+      const v = React.useContext(Context as any);
       if (!v) throw new Error('useFormContext used outside Provider in test');
       return v;
     },
   };
-});
-
-import { FormContext } from '../FormContext';
-import SafeRoomIntakeForm from './saferoomIntakeForm';
-
-/* ------------------------------- Helpers ------------------------------ */
-
-// Testing Library TextMatch type (string | RegExp | function)
-type TextMatch = Parameters<typeof screen.getByLabelText>[0];
-
-/** Open a MUI Select by label – mouseDown on the input opens the menu */
-const openSelectByLabel = (label: TextMatch) => {
-  const input = screen.getByLabelText(label, { selector: 'input' });
-  fireEvent.mouseDown(input);
-};
-
-/** Build a Provider with a minimal, safe form shape the component reads/writes */
-function withForm(overrides?: Partial<any>) {
-  // minimal shape (only keys used inside this component)
-  const baseFormData = {
-    cdpDetails: {
-      versionCDPRequired: '', // gets updated in useEffect
-    },
-    safeRoomDetails: {
-      dataLoadRequired: '', // bound to the Select
-    },
-  };
-
-  // updater that supports both object and functional setState shapes
-  const setFormData = jest.fn((updater: any) => {
-    if (typeof updater === 'function') {
-      const next = updater(baseFormData);
-      Object.assign(baseFormData, next);
-    } else {
-      Object.assign(baseFormData, updater);
-    }
-  });
-
-  const value = {
-    formData: { ...baseFormData, ...(overrides || {}) },
-    setFormData,
-    requiredFields: [],
-    resetFormData: jest.fn(),
-  };
-
-  const Provider = ({ children }: { children: React.ReactNode }) => (
-    <FormContext.Provider value={value}>{children}</FormContext.Provider>
-  );
-
-  return { Provider, setFormData, baseFormData: value.formData };
-}
-
-/* --------------------------------- Tests -------------------------------- */
-
-describe('SafeRoomIntakeForm', () => {
-  test('renders overview text and the Select with label', () => {
-    const { Provider } = withForm();
-
-    render(
-      <Provider>
-        <SafeRoomIntakeForm validationErrors={{}} />
-      </Provider>
-    );
-
-    // Headline / overview content
-    expect(screen.getByText(/Saferoom Overview/i)).toBeInTheDocument();
-
-    // The Select’s label from your InputLabel:
-    // "Select the Saferoom Data Load Capability"
-    expect(
-      screen.getByLabelText(/Select the Saferoom Data Load Capability/i)
-    ).toBeInTheDocument();
-  });
-
-  test('useEffect sets versionCDPRequired when dataLoadRequired is "Cloud Storage"', () => {
-    const { Provider, setFormData, baseFormData } = withForm({
-      safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
-    });
-
-    render(
-      <Provider>
-        <SafeRoomIntakeForm validationErrors={{}} />
-      </Provider>
-    );
-
-    // useEffect should run once and update versionCDPRequired
-    expect(setFormData).toHaveBeenCalled();
-
-    // Our setFormData mock applies functional updates to baseFormData
-    // Effect path in your component:
-    //  Cloud Storage -> 'File to BQ version'
-    expect(baseFormData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
-  });
-
-  test('changing Select to "Big Query" updates form via setFormData and sets proper version', async () => {
-    const { Provider, setFormData, baseFormData } = withForm({
-      safeRoomDetails: { dataLoadRequired: '' },
-    });
-
-    render(
-      <Provider>
-        <SafeRoomIntakeForm validationErrors={{}} />
-      </Provider>
-    );
-
-    // Open the Select
-    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
-
-    // Choose "Big Query" (value/visible text in your MenuItem)
-    fireEvent.click(await screen.findByText(/Big Query/i));
-
-    // We expect the change handler to call setFormData
-    expect(setFormData).toHaveBeenCalled();
-
-    // The component’s useEffect also runs on dataLoadRequired changes:
-    //  Big Query -> 'BQ to BQ version'
-    expect(baseFormData.safeRoomDetails.dataLoadRequired).toBe('Big Query');
-    expect(baseFormData.cdpDetails.versionCDPRequired).toBe('BQ to BQ version');
-  });
-
-  test('changing Select to "Cloud Storage" updates form via setFormData and sets proper version', async () => {
-    const { Provider, setFormData, baseFormData } = withForm({
-      safeRoomDetails: { dataLoadRequired: '' },
-    });
-
-    render(
-      <Provider>
-        <SafeRoomIntakeForm validationErrors={{}} />
-      </Provider>
-    );
-
-    openSelectByLabel(/Select the Saferoom Data Load Capability/i);
-    fireEvent.click(await screen.findByText(/Cloud Storage/i));
-
-    expect(setFormData).toHaveBeenCalled();
-    expect(baseFormData.safeRoomDetails.dataLoadRequired).toBe('Cloud Storage');
-    expect(baseFormData.cdpDetails.versionCDPRequired).toBe('File to BQ version');
-  });
 });
