@@ -1,213 +1,93 @@
-// src/sideNavBar/boarding/applicationDetails.test.tsx
+// src/services/useApiService.test.tsx
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import ApplicationDetails from './applicationDetails';
+import { renderHook, act } from '@testing-library/react';
+import useApiService from './useApiService';
 
-/* -------------------- Mock the hook (simple & robust) -------------------- */
-const useFormContextMock = jest.fn();
-// NOTE: path must match the component’s import
-jest.mock('./FormContext', () => ({
+// ---- Mocks ----
+const processHttpRequestMock = jest.fn();
+jest.mock('./processHttp', () => ({
   __esModule: true,
-  useFormContext: () => useFormContextMock(),
+  default: (...args: any[]) => processHttpRequestMock(...args),
+  // if you export named too, also: processHttpRequest: (...args) => processHttpRequestMock(...args),
 }));
 
-/* -------------------- Mock MUI X date pickers (minimal) -------------------- */
-jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
+const useAppGlobalStateMock = jest.fn();
+const useConfigMock = jest.fn();
+
+jest.mock('@wf/react-library', () => ({
   __esModule: true,
-  default: function AdapterDayjs() { return null; },
+  useAppGlobalState: () => useAppGlobalStateMock(),
+  useConfig: () => useConfigMock(),
 }));
 
-jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
-  __esModule: true,
-  LocalizationProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
-jest.mock('@mui/x-date-pickers/DatePicker', () => ({
-  __esModule: true,
-  // Keep the API similar: call onChange(value) when the input changes
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  DatePicker: ({ label, value, onChange }: any) => (
-    <input
-      aria-label={label}
-      value={value ?? ''}
-      onChange={(e) => onChange?.((e.target as HTMLInputElement).value)}
-    />
-  ),
-}));
-
-/* -------------------- Mock API used by the component -------------------- */
-// Adjust if your real path differs
-const makeRequestMock = jest.fn();
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest: makeRequestMock }),
-}));
-
-/* -------------------- Test helpers -------------------- */
-
-// Safe base form data. Add fields your component *reads on render*.
-function makeBaseFormData() {
-  return {
-    actDetails: {},
-    applicationDetails: {
-      applicationID: '',
-      applicationName: '',
-      summary: '',
-      description: '',
-      purposeAndBenefit: '',
-      lobDomain: '',
-      requesterName: '',
-      requesterEmail: '',
-      businessExecutiveSponsor: '',
-      applicationBusinessOwner: '',
-      applicationPortfolioOwner: '',
-      techExecutiveSponsor: '',
-      primaryTechManager: '',
-      cloudAccountableExecutive: '',
-      applicationArchitect: '',
-      auNumber: '',
-      techContact: '',
-      dmiCloudContact: '',
-      serviceNowSupportGroup: '',
-      developersList: '',
-      applicationOwnerApprover: '',
-      isNewApp: '',
-      appLinkInBAM: '',
-      beamsStatus: '',
-      dataSource: 'External',
-      dataFormat: [],
-      environmentsNeeded: [],
-      dataSLATime: '',
-      dataClassification: '',
-      panCardDataInScope: '',
-      panCardDetails: '',
-      sarUarData: '',
-      internationalUsers: '',
-      externalIngress: '',
-      externalIngressDetails: '',
-      serviceNowCI: '',
-      technicalConstraints: '',
-      timelineSandbox: null,
-      timelineNonProd: null,
-      timelineProd: null,
-      // CRITICAL: the component maps Object.entries(...) over this
-      artRequestDetails: {}, // keep this an object (can be empty)
-    },
-  };
-}
-
-type RenderOpts = {
-  formData?: ReturnType<typeof makeBaseFormData>;
-  setFormData?: jest.Mock;
-  validation?: Record<string, unknown>;
+type HttpRequest = {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  endpoint: string;
+  body?: unknown;
+  headers?: Record<string, string>;
 };
 
-async function setup(opts: RenderOpts = {}) {
-  const user = userEvent.setup();
-  const formData = opts.formData ?? makeBaseFormData();
-  const setFormData = opts.setFormData ?? jest.fn();
+describe('useApiService', () => {
+  const BASE = 'https://api.example.test';
+  const TOKEN = { access_token: 'abc123' };
 
-  // what the hook should return to the component
-  useFormContextMock.mockReturnValue({ formData, setFormData });
-
-  const validationErrors =
-    (opts.validation as Record<string, unknown>) ?? { applicationDetails: {} };
-  const setValidationErrors = jest.fn();
-
-  render(
-    <ApplicationDetails
-      validationErrors={validationErrors}
-      setValidationErrors={setValidationErrors}
-    />
-  );
-
-  return { user, formData, setFormData, setValidationErrors };
-}
-
-/* -------------------- Tests -------------------- */
-
-describe('ApplicationDetails (hook-mocked)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    useConfigMock.mockReturnValue({ API_BASE_ENDPOINT: BASE });
   });
 
-  test('renders key fields and headings', async () => {
-    await setup();
+  test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
+    useAppGlobalStateMock.mockReturnValue(TOKEN);
+    processHttpRequestMock.mockResolvedValue({ ok: true });
 
-    expect(screen.getByText(/overview/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/application id/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/application name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/requester name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/requester email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/timeline for production/i)).toBeInTheDocument();
-  });
+    const { result } = renderHook(() => useApiService());
+    const req: HttpRequest = { method: 'GET', endpoint: '/things' };
 
-  test('shows email validation message for invalid email', async () => {
-    const { user, setValidationErrors } = await setup();
-
-    const email = screen.getByLabelText(/requester email/i);
-    await user.clear(email);
-    await user.type(email, 'not-an-email');
-
-    // Assert your setValidationErrors updater writes the error message
-    expect(setValidationErrors).toHaveBeenCalled();
-    const updater = setValidationErrors.mock.lastCall[0] as (prev: any) => any;
-    const next = updater({ applicationDetails: {} });
-    expect(next.applicationDetails.requesterEmail).toMatch(/invalid email/i);
-  });
-
-  test('clicking search icon in Application ID triggers BAM fetch', async () => {
-    makeRequestMock.mockResolvedValueOnce({
-      data: {
-        applicationID: 'APP-123',
-        applicationName: 'Payments',
-        lobDomain: 'CTO',
-        applicationBusinessOwner: 'BO',
-        applicationPortfolioOwner: 'PO',
-        primaryTechManager: 'TM',
-      },
+    await act(async () => {
+      await result.current.makeRequest(req);
     });
 
-    const { user } = await setup();
-
-    const appId = screen.getByLabelText(/application id/i);
-    await user.clear(appId);
-    await user.type(appId, 'APP-123');
-
-    // IconButton is rendered inside the field container
-    const field = appId.closest('div')!;
-    await user.click(within(field).getByRole('button'));
-
-    expect(makeRequestMock).toHaveBeenCalled();
-    const req = makeRequestMock.mock.calls[0][0] || {};
-    expect(String(req.endpoints || req.endpoint)).toMatch(/application-details\/bam/i);
+    expect(processHttpRequestMock).toHaveBeenCalledTimes(1);
+    expect(processHttpRequestMock).toHaveBeenCalledWith(req, TOKEN.access_token, BASE);
   });
 
-  test('multi-select "Environments Needed" displays selected values via renderValue', async () => {
-    const fd = makeBaseFormData();
-    fd.applicationDetails.environmentsNeeded = ['DEV1', 'SIT'];
+  test('passes undefined token when global state does not have one', async () => {
+    useAppGlobalStateMock.mockReturnValue(undefined);
+    processHttpRequestMock.mockResolvedValue({ ok: true });
 
-    await setup({ formData: fd });
+    const { result } = renderHook(() => useApiService());
+    const req: HttpRequest = { method: 'POST', endpoint: '/items', body: { a: 1 } };
 
-    // The Select joins values with ", "
-    expect(screen.getByText(/DEV1,\s*SIT/i)).toBeInTheDocument();
+    await act(async () => {
+      await result.current.makeRequest(req);
+    });
+
+    expect(processHttpRequestMock).toHaveBeenCalledWith(req, undefined, BASE);
   });
 
-  test('picks dates via DatePicker and stores stringy values', async () => {
-    const setFormDataSpy = jest.fn();
-    await setup({ setFormData: setFormDataSpy });
+  test('returns the resolved value from processHttpRequest', async () => {
+    useAppGlobalStateMock.mockReturnValue(TOKEN);
+    const payload = { id: 7, name: 'thing' };
+    processHttpRequestMock.mockResolvedValue(payload);
 
-    const prod = screen.getByLabelText(/timeline for production/i);
-    await userEvent.clear(prod);
-    await userEvent.type(prod, '2025-01-12');
+    const { result } = renderHook(() => useApiService());
+    const req: HttpRequest = { method: 'GET', endpoint: '/thing/7' };
 
-    expect(setFormDataSpy).toHaveBeenCalled();
-    const last = setFormDataSpy.mock.calls.pop()![0];
-    // We only assert "stringy" – exact ISO formatting can vary with plugins/timezone
-    expect(
-      // @ts-expect-error test-only shape
-      (last.applicationDetails?.timelineProd ?? '') as string
-    ).toEqual(expect.any(String));
+    const out = await act(async () => result.current.makeRequest(req));
+
+    // act() returns whatever the callback returns; for clarity, re‑await directly:
+    const value = await result.current.makeRequest(req);
+    expect(value).toBe(payload);
+  });
+
+  test('propagates errors from processHttpRequest', async () => {
+    useAppGlobalStateMock.mockReturnValue(TOKEN);
+    const err = new Error('network down');
+    processHttpRequestMock.mockRejectedValue(err);
+
+    const { result } = renderHook(() => useApiService());
+    const req: HttpRequest = { method: 'GET', endpoint: '/oops' };
+
+    await expect(result.current.makeRequest(req)).rejects.toThrow('network down');
   });
 });
