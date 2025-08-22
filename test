@@ -4,14 +4,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// ---- EnvContext mock (component calls useContext(EnvContext)) ----
-jest.mock('../../envContext', () => {
-  const React = require('react');
-  return {
-    __esModule: true,
-    default: React.createContext({}),
-  };
-});
+// IMPORTANT: Do NOT mock envContext here. The project already has src/envContext.ts
+// and this component doesn't require a special value for tests.
 
 // ---- FormContext mock ----
 const setFormData = jest.fn();
@@ -20,7 +14,7 @@ jest.mock('../FormContext', () => ({
   useFormContext: () => useFormContextMock(),
 }));
 
-// ---- MUI stubs (include FormLabel or React will crash) ----
+// ---- MUI stubs (include FormLabel to avoid React element errors) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
@@ -75,7 +69,6 @@ jest.mock('@mui/material', () => {
     </div>
   );
 
-  // simple <select> (component barely uses this)
   const Select = ({ label, id, name, value, children, disabled }: any) => {
     const options = React.Children.toArray(children).map((n: any, i: number) => (
       <option key={i} value={n?.props?.value}>{n?.props?.children}</option>
@@ -130,17 +123,15 @@ const baseFormData = {
     pythonVersion: '',
     directoryStructure: '',
     ucdAgent: '',
-    isOnboardedAutosys: 'Yes', // start with Yes
+    isOnboardedAutosys: 'Yes',
   },
 };
 
 function setup(formData = baseFormData) {
   jest.clearAllMocks();
   useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
-
   const user = userEvent.setup();
   renderWithDataRouter(<CDMPIntakeForm validationErrors={{}} />);
-
   return {
     user,
     getVm: () => screen.getByLabelText(/vm name/i),
@@ -155,7 +146,6 @@ function setup(formData = baseFormData) {
 describe('CDMPIntakeForm', () => {
   test('renders overview copy, fields, tooltips and icon', () => {
     setup();
-
     expect(screen.getByRole('heading', { name: /cdmp overview/i })).toBeInTheDocument();
     expect(screen.getByText(/controlled data movement platform/i)).toBeInTheDocument();
 
@@ -171,7 +161,6 @@ describe('CDMPIntakeForm', () => {
 
   test('updates vmName and serviceAccount', async () => {
     const { user, getVm, getSvc } = setup();
-
     await user.type(getVm(), 'DEV-VM');
     expect(setFormData).toHaveBeenLastCalledWith({
       ...baseFormData,
@@ -218,11 +207,8 @@ describe('CDMPIntakeForm', () => {
 
   test('file input change shows the "File:" indicator', async () => {
     setup();
-    const fileInput = screen.getByRole('textbox', { hidden: true }) || screen.getByLabelText(/upload venafi certificate/i, { selector: 'input[type="file"]' as any });
-    // More robust: query by input[type=file]
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['dummy'], 'venafi.pem', { type: 'application/x-pem-file' });
-
     await userEvent.upload(input, file);
     expect(screen.getByText(/^File:/i)).toBeInTheDocument();
   });
