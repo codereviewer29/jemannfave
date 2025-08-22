@@ -1,166 +1,100 @@
-// src/sideNavbar/boarding/intake-components/gcpComponentIntakeForm.test.tsx
+// src/sideNavbar/boarding/intake-components/confirmationOnboarding.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// ---- FormContext mock
-const setFormData = jest.fn();
-const useFormContextMock = jest.fn();
-jest.mock('../FormContext', () => ({
-  useFormContext: () => useFormContextMock(),
-}));
-
-// ---- MUI stubs
+// ---- Minimal MUI stubs (Dialog shows children only when open) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
-  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
-  const Alert = ({ children, severity }: any) => (
-    <div role="alert" data-severity={severity}>
-      {children}
-    </div>
+
+  const Dialog = ({ open, onClose, children }: any) => (
+    <div data-testid="dialog">{open ? <div>{children}<button
+      aria-label="close-dialog"
+      onClick={() => onClose?.({}, 'backdropClick')}
+    /></div> : null}</div>
   );
-  const Tooltip = ({ title, children }: any) => (
-    <div>
-      <div data-testid="tooltip-title">{title}</div>
-      {children}
-    </div>
+  const DialogTitle = ({ children }: any) => <h2>{children}</h2>;
+  const DialogContent = ({ children }: any) => <div>{children}</div>;
+  const DialogContentText = ({ children }: any) => <p>{children}</p>;
+  const DialogActions = ({ children }: any) => <div>{children}</div>;
+  const Button = ({ children, onClick, ...rest }: any) => (
+    <button onClick={onClick} {...rest}>{children}</button>
   );
-  const Typography = ({ children }: any) => <div>{children}</div>;
-  const Divider = Pass;
+
   return {
     __esModule: true,
-    Box: Pass,
-    Grid: Pass,
-    Alert,
-    Tooltip,
-    Typography,
-    Divider,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
+    Button,
   };
 });
 
-// IMPORTANT: TextField comes from a *separate* path
-jest.mock('@mui/material/TextField', () => {
-  const React = require('react');
-  return {
-    __esModule: true,
-    default: ({ label, name, value, onChange, disabled, placeholder }: any) => (
-      <label>
-        {label}
-        <input
-          aria-label={label}
-          name={name}
-          // use uncontrolled input so userEvent composes full value
-          defaultValue={value ?? ''}
-          placeholder={placeholder}
-          disabled={disabled}
-          onChange={(e) =>
-            onChange?.({ target: { name, value: e.currentTarget.value } })
-          }
-        />
-      </label>
-    ),
-  };
-});
+// ---- SUT ----
+import ConfirmationOnboarding from './confirmationOnboarding';
 
-jest.mock('@mui/icons-material/ErrorOutline', () => ({
-  __esModule: true,
-  default: (props: any) => <span data-testid="error-outline-icon" {...props} />,
-}));
+describe('ConfirmationOnboarding', () => {
+  test('renders title, message and tracking id when open', () => {
+    const onConfirm = jest.fn();
+    render(
+      <ConfirmationOnboarding
+        intakeFormTrackingId={12345}
+        openConfirmSubmitDialog={true}
+        handleConfirmSubmit={onConfirm}
+      />
+    );
 
-// ---- SUT AFTER mocks
-import GCPComponentIntakeForm from './gcpComponentIntakeForm';
-
-// ---- Helpers
-function renderWithDataRouter(ui: React.ReactElement) {
-  const router = createMemoryRouter([{ path: '/', element: ui }], {
-    initialEntries: ['/'],
-  });
-  return render(<RouterProvider router={router} />);
-}
-
-const baseFormData = {
-  gcpComponentDetails: {
-    bucketName: '',
-    bqDatasetName: '',
-  },
-};
-
-function setup() {
-  jest.clearAllMocks();
-  useFormContextMock.mockReturnValue({
-    formData: baseFormData,
-    setFormData,
-    isReadOnly: false,
-  });
-
-  const user = userEvent.setup();
-  renderWithDataRouter(<GCPComponentIntakeForm validationErrors={{}} />);
-
-  const bucket = screen.getByPlaceholderText(/bucket/i);
-  const dataset = screen.getByPlaceholderText(/discriminator/i);
-  return { user, bucket, dataset };
-}
-
-// flexible textContent matcher (handles split/nested nodes)
-const textMatches = (re: RegExp) => (_: string, node: Element | null) =>
-  !!node?.textContent && re.test(node.textContent.replace(/\s+/g, ' ').trim());
-
-// ---- Tests
-describe('GCPComponentIntakeForm', () => {
-  test('renders static intro text and list items', () => {
-    setup();
-
+    expect(screen.getByRole('heading', { name: /information/i })).toBeInTheDocument();
     expect(
-      screen.getByText(
-        textMatches(
-          /the application data project and cdm next project are key gcp components/i
-        )
-      )
+      screen.getByText(/gcp provisioning form is submitted succesfully/i)
     ).toBeInTheDocument();
-
-    expect(screen.getByText(textMatches(/gcs\(google cloud storage\)\s*buckets/i))).toBeInTheDocument();
-    expect(screen.getByText(textMatches(/cloud\s*scheduler/i))).toBeInTheDocument();
-    expect(screen.getByText(textMatches(/big\s*query/i))).toBeInTheDocument();
-    expect(screen.getByText(textMatches(/kms\s*keys/i))).toBeInTheDocument();
-
-    expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
-    expect(screen.getAllByTestId('error-outline-icon').length).toBeGreaterThan(0);
+    expect(screen.getByText(/12345/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ok/i })).toBeInTheDocument();
   });
 
-  test('renders both inputs with placeholders', () => {
-    const { bucket, dataset } = setup();
+  test('does not render dialog content when closed', () => {
+    const onConfirm = jest.fn();
+    render(
+      <ConfirmationOnboarding
+        intakeFormTrackingId={1}
+        openConfirmSubmitDialog={false}
+        handleConfirmSubmit={onConfirm}
+      />
+    );
 
-    expect(bucket).toBeInTheDocument();
-    expect(bucket).toHaveAttribute('placeholder', expect.stringMatching(/bucket/i));
-
-    expect(dataset).toBeInTheDocument();
-    expect(dataset).toHaveAttribute('placeholder', expect.stringMatching(/discriminator/i));
+    expect(screen.queryByRole('heading', { name: /information/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('dialog')).toBeInTheDocument(); // container exists from stub
   });
 
-  test('updates formData.gcpComponentDetails.bucketName when typing', async () => {
-    const { user, bucket } = setup();
+  test('clicking Ok calls handleConfirmSubmit', async () => {
+    const onConfirm = jest.fn();
+    const user = userEvent.setup();
+    render(
+      <ConfirmationOnboarding
+        intakeFormTrackingId={7}
+        openConfirmSubmitDialog={true}
+        handleConfirmSubmit={onConfirm}
+      />
+    );
 
-    await user.type(bucket, 'bucket_1');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      gcpComponentDetails: {
-        ...baseFormData.gcpComponentDetails,
-        bucketName: 'bucket_1',
-      },
-    });
+    await user.click(screen.getByRole('button', { name: /ok/i }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  test('updates formData.gcpComponentDetails.bqDatasetName when typing', async () => {
-    const { user, dataset } = setup();
+  test('closing the dialog triggers handleConfirmSubmit (onClose)', async () => {
+    const onConfirm = jest.fn();
+    const user = userEvent.setup();
+    render(
+      <ConfirmationOnboarding
+        intakeFormTrackingId={99}
+        openConfirmSubmitDialog={true}
+        handleConfirmSubmit={onConfirm}
+      />
+    );
 
-    await user.type(dataset, 'disc_123_appid');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      gcpComponentDetails: {
-        ...baseFormData.gcpComponentDetails,
-        bqDatasetName: 'disc_123_appid',
-      },
-    });
+    await user.click(screen.getByRole('button', { name: /close-dialog/i }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
