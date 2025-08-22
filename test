@@ -9,39 +9,39 @@ jest.mock('@wf/react-library', () => ({
   useConfig: jest.fn(),
 }));
 
-// mock the **named** export, not default
+// mock the **named** export from ./processHttp
 jest.mock('./processHttp', () => ({
   __esModule: true,
   processHttpRequest: jest.fn(),
 }));
 
-/* ---------- typed handles to mocks ---------- */
+/* ---------- typed handles to the mocks ---------- */
 import * as reactlib from '@wf/react-library';
 import { processHttpRequest } from './processHttp';
 
 const useAppGlobalStateMock = reactlib.useAppGlobalState as jest.Mock;
 const useConfigMock = reactlib.useConfig as jest.Mock;
-// cast so we can call .mockResolvedValue, .mockRejectedValue, etc.
 const processHttpRequestMock = processHttpRequest as unknown as jest.Mock;
 
 /* ---------- helpers ---------- */
 const BASE = 'https://api.example.com';
 
-// Build a request that satisfies your HttpRequest type.
-// If your HttpRequest requires more fields, add them here.
-const makeReq = (endpoint: string): HttpRequest => ({
-  method: 'GET',
-  endpoint,
-  responseType: 'json',
-});
+// If your HttpRequest type requires more fields, add them here.
+const makeReq = (endpoint: string): HttpRequest =>
+  ({
+    method: 'GET',
+    endpoint,
+    // include any other required keys your project's HttpRequest expects
+    responseType: 'json',
+  } as unknown as HttpRequest);
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // ensure env.API_BASE_ENDPOINT exists for the hook
-  useConfigMock.mockReturnValue({ API_BASE_ENDPOINT: BASE });
+
+  // IMPORTANT: useConfig() returns an object with an "env" key in your hook
+  useConfigMock.mockReturnValue({ env: { API_BASE_ENDPOINT: BASE } });
 });
 
-/* ---------- tests ---------- */
 describe('useApiService', () => {
   test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
     useAppGlobalStateMock.mockReturnValue({ token: { access_token: 'TOK' } });
