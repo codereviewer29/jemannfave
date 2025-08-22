@@ -4,6 +4,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
+// ---- EnvContext mock (component calls useContext(EnvContext)) ----
+jest.mock('../../envContext', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    default: React.createContext({}),
+  };
+});
+
 // ---- FormContext mock ----
 const setFormData = jest.fn();
 const useFormContextMock = jest.fn();
@@ -11,16 +20,17 @@ jest.mock('../FormContext', () => ({
   useFormContext: () => useFormContextMock(),
 }));
 
-// ---- MUI stubs (keep tiny/fast) ----
+// ---- MUI stubs (include FormLabel or React will crash) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+
   const Box = Pass;
   const Grid = Pass;
   const FormControl = Pass;
+  const FormLabel = ({ children }: any) => <label>{children}</label>;
   const InputLabel = ({ children }: any) => <label>{children}</label>;
   const MenuItem = ({ children }: any) => <>{children}</>;
-  const Select = ({ children }: any) => <select>{children}</select>;
   const Tooltip = ({ title, children }: any) => (
     <div>
       <div data-testid="tooltip-title">{title}</div>
@@ -29,12 +39,9 @@ jest.mock('@mui/material', () => {
   );
   const Typography = ({ children }: any) => <div>{children}</div>;
   const Button = ({ children, onClick, ...rest }: any) => (
-    <button onClick={onClick} {...rest}>
-      {children}
-    </button>
+    <button onClick={onClick} {...rest}>{children}</button>
   );
 
-  // Inputs
   const TextField = ({ label, name, value, onChange, disabled, helperText }: any) => (
     <label>
       {label}
@@ -49,7 +56,6 @@ jest.mock('@mui/material', () => {
     </label>
   );
 
-  // Radios
   const Radio = (props: any) => <input type="radio" {...props} />;
   const FormControlLabel = ({ value, label, control, ...rest }: any) => (
     <label>
@@ -57,23 +63,39 @@ jest.mock('@mui/material', () => {
       {label}
     </label>
   );
-  const RadioGroup = ({ name, value, onChange, row, children, ...rest }: any) => (
-    <div role="radiogroup" aria-label={name} {...rest}>
+  const RadioGroup = ({ name, value, onChange, children }: any) => (
+    <div role="radiogroup" aria-label={name}>
       {React.Children.map(children, (child: any) =>
         React.cloneElement(child, {
           name,
           checked: child.props.value === value,
-          onChange: (e: any) => onChange?.({ target: { name, value: child.props.value } }),
+          onChange: () => onChange?.({ target: { name, value: child.props.value } }),
         })
       )}
     </div>
   );
+
+  // simple <select> (component barely uses this)
+  const Select = ({ label, id, name, value, children, disabled }: any) => {
+    const options = React.Children.toArray(children).map((n: any, i: number) => (
+      <option key={i} value={n?.props?.value}>{n?.props?.children}</option>
+    ));
+    return (
+      <label htmlFor={id}>
+        {label}
+        <select id={id} name={name} aria-label={label} value={value ?? ''} disabled={disabled} onChange={() => {}}>
+          {options}
+        </select>
+      </label>
+    );
+  };
 
   return {
     __esModule: true,
     Box,
     Grid,
     FormControl,
+    FormLabel,
     InputLabel,
     MenuItem,
     Select,
@@ -92,10 +114,10 @@ jest.mock('@mui/icons-material/Info', () => ({
   default: () => <span data-testid="info-icon" />,
 }));
 
-// ---- SUT after mocks ----
+// ---- SUT AFTER mocks ----
 import CDMPIntakeForm from './cdmpIntakeForm';
 
-// ---- Helpers ----
+// ---- helpers ----
 function renderWithDataRouter(ui: React.ReactElement) {
   const router = createMemoryRouter([{ path: '/', element: ui }], { initialEntries: ['/'] });
   return render(<RouterProvider router={router} />);
@@ -108,7 +130,7 @@ const baseFormData = {
     pythonVersion: '',
     directoryStructure: '',
     ucdAgent: '',
-    isOnboardedAutosys: '', // 'Yes' | 'No'
+    isOnboardedAutosys: 'Yes', // start with Yes
   },
 };
 
@@ -121,66 +143,87 @@ function setup(formData = baseFormData) {
 
   return {
     user,
-    getVmName: () => screen.getByLabelText(/vm name/i),
-    getServiceAccount: () => screen.getByLabelText(/service account/i),
+    getVm: () => screen.getByLabelText(/vm name/i),
+    getSvc: () => screen.getByLabelText(/service account/i),
+    getPy: () => screen.getByLabelText(/python 3\.x/i),
+    getDir: () => screen.getByLabelText(/directory structure/i),
+    getUcd: () => screen.getByLabelText(/provide ucd agent/i),
   };
 }
 
-// ---- Tests ----
+// ---- tests ----
 describe('CDMPIntakeForm', () => {
   test('renders overview copy, fields, tooltips and icon', () => {
     setup();
 
     expect(screen.getByRole('heading', { name: /cdmp overview/i })).toBeInTheDocument();
-    expect(
-      screen.getByText(/controlled data movement platform/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/controlled data movement platform/i)).toBeInTheDocument();
 
-    // Key fields present
     expect(screen.getByLabelText(/vm name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/service account/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/python 3\.x/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/directory structure/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/provide ucd agent details/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/provide ucd agent/i)).toBeInTheDocument();
 
-    // Tooltips and info icon exist
     expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
     expect(screen.getByTestId('info-icon')).toBeInTheDocument();
   });
 
-  test('typing updates nested cdmpDetails.vmName', async () => {
-    const { user, getVmName } = setup();
-    await user.type(getVmName(), 'DEV-VM');
+  test('updates vmName and serviceAccount', async () => {
+    const { user, getVm, getSvc } = setup();
+
+    await user.type(getVm(), 'DEV-VM');
     expect(setFormData).toHaveBeenLastCalledWith({
       ...baseFormData,
       cdmpDetails: { ...baseFormData.cdmpDetails, vmName: 'DEV-VM' },
     });
-  });
 
-  test('typing updates nested cdmpDetails.serviceAccount', async () => {
-    const { user, getServiceAccount } = setup();
-    await user.type(getServiceAccount(), 'svc-cdmp');
+    await user.type(getSvc(), 'svc-cdmp');
     expect(setFormData).toHaveBeenLastCalledWith({
       ...baseFormData,
       cdmpDetails: { ...baseFormData.cdmpDetails, serviceAccount: 'svc-cdmp' },
     });
   });
 
-  test('radio "isOnboardedAutosys" toggles conditional help text', async () => {
-    // Start with "Yes" to show create-jobs link
-    setup({
-      cdmpDetails: { ...baseFormData.cdmpDetails, isOnboardedAutosys: 'Yes' },
+  test('updates pythonVersion, directoryStructure and ucdAgent', async () => {
+    const { user, getPy, getDir, getUcd } = setup();
+
+    await user.type(getPy(), '3.11');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      cdmpDetails: { ...baseFormData.cdmpDetails, pythonVersion: '3.11' },
     });
 
-    expect(
-      screen.getByText(/please follow this link to create cdmp jobs/i)
-    ).toBeInTheDocument();
+    await user.type(getDir(), '/apps/cdmp');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      cdmpDetails: { ...baseFormData.cdmpDetails, directoryStructure: '/apps/cdmp' },
+    });
 
-    // Switch to "No" and verify alternate text appears
+    await user.type(getUcd(), 'agent-01');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      cdmpDetails: { ...baseFormData.cdmpDetails, ucdAgent: 'agent-01' },
+    });
+  });
+
+  test('radio toggles Autosys help text Yes/No', () => {
+    setup({ cdmpDetails: { ...baseFormData.cdmpDetails, isOnboardedAutosys: 'Yes' } });
+    expect(screen.getByText(/create cdmp jobs/i)).toBeInTheDocument();
+
     const noRadio = screen.getByLabelText(/^No$/i) as HTMLInputElement;
     fireEvent.change(noRadio, { target: { checked: true } });
-    expect(
-      screen.getByText(/please follow this link to onboard application to autosys/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/onboard application to autosys/i)).toBeInTheDocument();
+  });
+
+  test('file input change shows the "File:" indicator', async () => {
+    setup();
+    const fileInput = screen.getByRole('textbox', { hidden: true }) || screen.getByLabelText(/upload venafi certificate/i, { selector: 'input[type="file"]' as any });
+    // More robust: query by input[type=file]
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['dummy'], 'venafi.pem', { type: 'application/x-pem-file' });
+
+    await userEvent.upload(input, file);
+    expect(screen.getByText(/^File:/i)).toBeInTheDocument();
   });
 });
