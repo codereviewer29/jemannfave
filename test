@@ -1,127 +1,186 @@
-// src/sideNavbar/boarding/intake-components/cancelOnboarding.test.tsx
+// src/sideNavbar/boarding/intake-components/cdmpIntakeForm.test.tsx
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// ---- Minimal MUI stubs (why: keep tests fast & deterministic) ----
+// ---- FormContext mock ----
+const setFormData = jest.fn();
+const useFormContextMock = jest.fn();
+jest.mock('../FormContext', () => ({
+  useFormContext: () => useFormContextMock(),
+}));
+
+// ---- MUI stubs (keep tiny/fast) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
-
-  const Dialog = ({ open, onClose, children }: any) => (
-    <div data-testid="dialog">{open ? (
-      <div>
-        {children}
-        {/* expose close control to trigger onClose from tests */}
-        <button aria-label="close-dialog" onClick={() => onClose?.({}, 'backdropClick')} />
-      </div>
-    ) : null}</div>
+  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+  const Box = Pass;
+  const Grid = Pass;
+  const FormControl = Pass;
+  const InputLabel = ({ children }: any) => <label>{children}</label>;
+  const MenuItem = ({ children }: any) => <>{children}</>;
+  const Select = ({ children }: any) => <select>{children}</select>;
+  const Tooltip = ({ title, children }: any) => (
+    <div>
+      <div data-testid="tooltip-title">{title}</div>
+      {children}
+    </div>
   );
-  const DialogTitle = ({ children }: any) => <h2>{children}</h2>;
-  const DialogContent = ({ children }: any) => <div>{children}</div>;
-  const DialogContentText = ({ children }: any) => <p>{children}</p>;
-  const DialogActions = ({ children }: any) => <div>{children}</div>;
+  const Typography = ({ children }: any) => <div>{children}</div>;
   const Button = ({ children, onClick, ...rest }: any) => (
-    <button onClick={onClick} {...rest}>{children}</button>
+    <button onClick={onClick} {...rest}>
+      {children}
+    </button>
+  );
+
+  // Inputs
+  const TextField = ({ label, name, value, onChange, disabled, helperText }: any) => (
+    <label>
+      {label}
+      <input
+        aria-label={label}
+        name={name}
+        defaultValue={value ?? ''}
+        disabled={disabled}
+        onChange={(e) => onChange?.({ target: { name, value: e.currentTarget.value } })}
+      />
+      {helperText ? <small>{helperText}</small> : null}
+    </label>
+  );
+
+  // Radios
+  const Radio = (props: any) => <input type="radio" {...props} />;
+  const FormControlLabel = ({ value, label, control, ...rest }: any) => (
+    <label>
+      {React.cloneElement(control, { value, ...rest })}
+      {label}
+    </label>
+  );
+  const RadioGroup = ({ name, value, onChange, row, children, ...rest }: any) => (
+    <div role="radiogroup" aria-label={name} {...rest}>
+      {React.Children.map(children, (child: any) =>
+        React.cloneElement(child, {
+          name,
+          checked: child.props.value === value,
+          onChange: (e: any) => onChange?.({ target: { name, value: child.props.value } }),
+        })
+      )}
+    </div>
   );
 
   return {
     __esModule: true,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogContentText,
-    DialogActions,
+    Box,
+    Grid,
+    FormControl,
+    InputLabel,
+    MenuItem,
+    Select,
+    Tooltip,
+    Typography,
     Button,
+    TextField,
+    Radio,
+    RadioGroup,
+    FormControlLabel,
   };
 });
 
-// ---- SUT ----
-import CancelOnboarding from './cancelOnboarding';
+jest.mock('@mui/icons-material/Info', () => ({
+  __esModule: true,
+  default: () => <span data-testid="info-icon" />,
+}));
 
-describe('CancelOnboarding', () => {
-  test('renders title, message, and action buttons when open', () => {
-    const onClose = jest.fn();
-    const onConfirm = jest.fn();
+// ---- SUT after mocks ----
+import CDMPIntakeForm from './cdmpIntakeForm';
 
-    render(
-      <CancelOnboarding
-        openCancelDialog={true}
-        handleCloseCancelDialog={onClose}
-        handleConfirmCancel={onConfirm}
-      />
-    );
+// ---- Helpers ----
+function renderWithDataRouter(ui: React.ReactElement) {
+  const router = createMemoryRouter([{ path: '/', element: ui }], { initialEntries: ['/'] });
+  return render(<RouterProvider router={router} />);
+}
 
-    expect(screen.getByRole('heading', { name: /confirm cancellation/i })).toBeInTheDocument();
+const baseFormData = {
+  cdmpDetails: {
+    vmName: '',
+    serviceAccount: '',
+    pythonVersion: '',
+    directoryStructure: '',
+    ucdAgent: '',
+    isOnboardedAutosys: '', // 'Yes' | 'No'
+  },
+};
+
+function setup(formData = baseFormData) {
+  jest.clearAllMocks();
+  useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
+
+  const user = userEvent.setup();
+  renderWithDataRouter(<CDMPIntakeForm validationErrors={{}} />);
+
+  return {
+    user,
+    getVmName: () => screen.getByLabelText(/vm name/i),
+    getServiceAccount: () => screen.getByLabelText(/service account/i),
+  };
+}
+
+// ---- Tests ----
+describe('CDMPIntakeForm', () => {
+  test('renders overview copy, fields, tooltips and icon', () => {
+    setup();
+
+    expect(screen.getByRole('heading', { name: /cdmp overview/i })).toBeInTheDocument();
     expect(
-      screen.getByText(/are you sure you want to cancel\? any unsaved changes will be lost\./i)
+      screen.getByText(/controlled data movement platform/i)
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^no$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^yes$/i })).toBeInTheDocument();
+
+    // Key fields present
+    expect(screen.getByLabelText(/vm name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/service account/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/python 3\.x/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/directory structure/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/provide ucd agent details/i)).toBeInTheDocument();
+
+    // Tooltips and info icon exist
+    expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('info-icon')).toBeInTheDocument();
   });
 
-  test('clicking "No" calls handleCloseCancelDialog', async () => {
-    const onClose = jest.fn();
-    const onConfirm = jest.fn();
-    const user = userEvent.setup();
-
-    render(
-      <CancelOnboarding
-        openCancelDialog={true}
-        handleCloseCancelDialog={onClose}
-        handleConfirmCancel={onConfirm}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: /^no$/i }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onConfirm).not.toHaveBeenCalled();
+  test('typing updates nested cdmpDetails.vmName', async () => {
+    const { user, getVmName } = setup();
+    await user.type(getVmName(), 'DEV-VM');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      cdmpDetails: { ...baseFormData.cdmpDetails, vmName: 'DEV-VM' },
+    });
   });
 
-  test('clicking "Yes" calls handleConfirmCancel', async () => {
-    const onClose = jest.fn();
-    const onConfirm = jest.fn();
-    const user = userEvent.setup();
-
-    render(
-      <CancelOnboarding
-        openCancelDialog={true}
-        handleCloseCancelDialog={onClose}
-        handleConfirmCancel={onConfirm}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: /^yes$/i }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+  test('typing updates nested cdmpDetails.serviceAccount', async () => {
+    const { user, getServiceAccount } = setup();
+    await user.type(getServiceAccount(), 'svc-cdmp');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      cdmpDetails: { ...baseFormData.cdmpDetails, serviceAccount: 'svc-cdmp' },
+    });
   });
 
-  test('does not render content when closed', () => {
-    const onClose = jest.fn();
-    const onConfirm = jest.fn();
+  test('radio "isOnboardedAutosys" toggles conditional help text', async () => {
+    // Start with "Yes" to show create-jobs link
+    setup({
+      cdmpDetails: { ...baseFormData.cdmpDetails, isOnboardedAutosys: 'Yes' },
+    });
 
-    render(
-      <CancelOnboarding
-        openCancelDialog={false}
-        handleCloseCancelDialog={onClose}
-        handleConfirmCancel={onConfirm}
-      />
-    );
+    expect(
+      screen.getByText(/please follow this link to create cdmp jobs/i)
+    ).toBeInTheDocument();
 
-    expect(screen.queryByRole('heading', { name: /confirm cancellation/i })).not.toBeInTheDocument();
-  });
-
-  test('closing via dialog onClose triggers handleCloseCancelDialog', async () => {
-    const onClose = jest.fn();
-    const user = userEvent.setup();
-
-    render(
-      <CancelOnboarding
-        openCancelDialog={true}
-        handleCloseCancelDialog={onClose}
-        handleConfirmCancel={jest.fn()}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: /close-dialog/i }));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Switch to "No" and verify alternate text appears
+    const noRadio = screen.getByLabelText(/^No$/i) as HTMLInputElement;
+    fireEvent.change(noRadio, { target: { checked: true } });
+    expect(
+      screen.getByText(/please follow this link to onboard application to autosys/i)
+    ).toBeInTheDocument();
   });
 });
