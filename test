@@ -1,215 +1,231 @@
-// src/sideNavbar/boarding/intake-components/cdmpIntakeForm.test.tsx
-import React from 'react';
+// applicationDetails.test.tsx
+import React, { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import ApplicationDetails from './applicationDetails';
+import { FormContext } from '../FormContext';
 
-// IMPORTANT: Do NOT mock envContext here. The project already has src/envContext.ts
-// and this component doesn't require a special value for tests.
-
-// ---- FormContext mock ----
-const setFormData = jest.fn();
-const useFormContextMock = jest.fn();
-jest.mock('../FormContext', () => ({
-  useFormContext: () => useFormContextMock(),
+// ---- Minimal, robust mocks for MUI X date pickers (we don't verify them here)
+jest.mock('@mui/x-date-pickers/AdapterDayjs', () => function AdapterDayjs() { return null; });
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
+  LocalizationProvider: ({ children }: any) => <div>{children}</div>,
+}));
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  DatePicker: ({ label, value, onChange }: any) => (
+    <input
+      aria-label={label}
+      value={value ?? ''}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
+  ),
 }));
 
-// ---- MUI stubs (include FormLabel to avoid React element errors) ----
-jest.mock('@mui/material', () => {
-  const React = require('react');
-  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+// ---- API hook is present but we won't hit the network in these tests
+jest.mock('../../services/useApiService', () => () => ({
+  makeRequest: jest.fn(),
+}));
 
-  const Box = Pass;
-  const Grid = Pass;
-  const FormControl = Pass;
-  const FormLabel = ({ children }: any) => <label>{children}</label>;
-  const InputLabel = ({ children }: any) => <label>{children}</label>;
-  const MenuItem = ({ children }: any) => <>{children}</>;
-  const Tooltip = ({ title, children }: any) => (
-    <div>
-      <div data-testid="tooltip-title">{title}</div>
-      {children}
-    </div>
-  );
-  const Typography = ({ children }: any) => <div>{children}</div>;
-  const Button = ({ children, onClick, ...rest }: any) => (
-    <button onClick={onClick} {...rest}>{children}</button>
-  );
-
-  const TextField = ({ label, name, value, onChange, disabled, helperText }: any) => (
-    <label>
-      {label}
-      <input
-        aria-label={label}
-        name={name}
-        defaultValue={value ?? ''}
-        disabled={disabled}
-        onChange={(e) => onChange?.({ target: { name, value: e.currentTarget.value } })}
-      />
-      {helperText ? <small>{helperText}</small> : null}
-    </label>
-  );
-
-  const Radio = (props: any) => <input type="radio" {...props} />;
-  const FormControlLabel = ({ value, label, control, ...rest }: any) => (
-    <label>
-      {React.cloneElement(control, { value, ...rest })}
-      {label}
-    </label>
-  );
-  const RadioGroup = ({ name, value, onChange, children }: any) => (
-    <div role="radiogroup" aria-label={name}>
-      {React.Children.map(children, (child: any) =>
-        React.cloneElement(child, {
-          name,
-          checked: child.props.value === value,
-          onChange: () => onChange?.({ target: { name, value: child.props.value } }),
-        })
-      )}
-    </div>
-  );
-
-  const Select = ({ label, id, name, value, children, disabled }: any) => {
-    const options = React.Children.toArray(children).map((n: any, i: number) => (
-      <option key={i} value={n?.props?.value}>{n?.props?.children}</option>
-    ));
-    return (
-      <label htmlFor={id}>
-        {label}
-        <select id={id} name={name} aria-label={label} value={value ?? ''} disabled={disabled} onChange={() => {}}>
-          {options}
-        </select>
-      </label>
-    );
-  };
-
-  return {
-    __esModule: true,
-    Box,
-    Grid,
-    FormControl,
-    FormLabel,
-    InputLabel,
-    MenuItem,
-    Select,
-    Tooltip,
-    Typography,
-    Button,
-    TextField,
-    Radio,
-    RadioGroup,
-    FormControlLabel,
-  };
+/** Shape the component expects inside FormContext */
+const makeBaseFormData = () => ({
+  applicationDetails: {
+    // Overview
+    applicationID: '',
+    applicationName: '',
+    summary: '',
+    description: '',
+    purposeAndBenefit: '',
+    lobDomain: '',
+    // Environments (multi-select)
+    environmentsNeeded: [] as string[],
+    // POC
+    requesterName: '',
+    requesterEmail: '',
+    businessExecutiveSponsor: '',
+    applicationBusinessOwner: '',
+    applicationPortfolioOwner: '',
+    techExecutiveSponsor: '',
+    primaryTechManager: '',
+    cloudAccountableExecutive: '',
+    applicationArchitect: '',
+    auNumber: '',
+    techContact: '',
+    dmiCloudContact: '',
+    serviceNowSupportGroup: '',
+    developersList: '',
+    applicationOwnerApprover: '',
+    // Timing (date pickers)
+    timelineSandbox: null as any,
+    timelineNonProd: null as any,
+    timelineProd: null as any,
+    // Planned/existing app info
+    isNewApp: '',
+    application: '',
+    appLinkInBAM: '',
+    beamsStatus: '',
+    dataSource: '',
+    // List of Data Format (multi-select)
+    dataFormat: [] as string[],
+    dataSLATime: '',
+    // Classification and special-data sections
+    dataClassification: '',
+    panCardDataInScope: '',
+    panCardDetails: '',
+    sarUarData: '',
+    internationalUsers: '',
+    externalIngress: '',
+    externalIngressDetails: '',
+    // Servicenow / constraints
+    serviceNowCI: '',
+    technicalConstraints: '',
+    // ART Request Details
+    artRequestDetails: {
+      sandbox: [{ label: 'Request number', value: '', isCustom: false }],
+    } as Record<string, Array<{ label: string; value: string; isCustom?: boolean }>>,
+  },
+  actDetails: {},
 });
 
-jest.mock('@mui/icons-material/Info', () => ({
-  __esModule: true,
-  default: () => <span data-testid="info-icon" />,
-}));
+/** Small host that keeps real state so setFormData/setValidationErrors cause rerenders */
+function Host() {
+  const [formData, setFormData] = useState(makeBaseFormData());
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-// ---- SUT AFTER mocks ----
-import CDMPIntakeForm from './cdmpIntakeForm';
-
-// ---- helpers ----
-function renderWithDataRouter(ui: React.ReactElement) {
-  const router = createMemoryRouter([{ path: '/', element: ui }], { initialEntries: ['/'] });
-  return render(<RouterProvider router={router} />);
+  return (
+    <FormContext.Provider value={{ formData, setFormData }}>
+      <ApplicationDetails
+        validationErrors={validationErrors}
+        setValidationErrors={setValidationErrors}
+      />
+    </FormContext.Provider>
+  );
 }
 
-const baseFormData = {
-  cdmpDetails: {
-    vmName: '',
-    serviceAccount: '',
-    pythonVersion: '',
-    directoryStructure: '',
-    ucdAgent: '',
-    isOnboardedAutosys: 'Yes',
-  },
-};
-
-function setup(formData = baseFormData) {
-  jest.clearAllMocks();
-  useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
+function renderApp() {
   const user = userEvent.setup();
-  renderWithDataRouter(<CDMPIntakeForm validationErrors={{}} />);
-  return {
-    user,
-    getVm: () => screen.getByLabelText(/vm name/i),
-    getSvc: () => screen.getByLabelText(/service account/i),
-    getPy: () => screen.getByLabelText(/python 3\.x/i),
-    getDir: () => screen.getByLabelText(/directory structure/i),
-    getUcd: () => screen.getByLabelText(/provide ucd agent/i),
-  };
+  render(<Host />);
+  return { user };
 }
 
-// ---- tests ----
-describe('CDMPIntakeForm', () => {
-  test('renders overview copy, fields, tooltips and icon', () => {
-    setup();
-    expect(screen.getByRole('heading', { name: /cdmp overview/i })).toBeInTheDocument();
-    expect(screen.getByText(/controlled data movement platform/i)).toBeInTheDocument();
+describe('ApplicationDetails', () => {
+  test('renders key sections and fields', () => {
+    renderApp();
 
-    expect(screen.getByLabelText(/vm name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/service account/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/python 3\.x/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/directory structure/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/provide ucd agent/i)).toBeInTheDocument();
+    // Overview section inputs
+    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Application Name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Summary$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Description$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Purpose and Benefit/i)).toBeInTheDocument();
 
-    expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('info-icon')).toBeInTheDocument();
+    // Multi-selects are rendered as buttons by MUI
+    expect(
+      screen.getByRole('button', { name: /Environments Needed/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /List of Data Format/i })
+    ).toBeInTheDocument();
+
+    // A required/disabled field from the read-only list
+    expect(screen.getByLabelText(/LOB Domain\/CTO/i)).toBeDisabled();
   });
 
-  test('updates vmName and serviceAccount', async () => {
-    const { user, getVm, getSvc } = setup();
-    await user.type(getVm(), 'DEV-VM');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      cdmpDetails: { ...baseFormData.cdmpDetails, vmName: 'DEV-VM' },
-    });
+  test('typing updates controlled fields (Application Name, Summary)', async () => {
+    const { user } = renderApp();
 
-    await user.type(getSvc(), 'svc-cdmp');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      cdmpDetails: { ...baseFormData.cdmpDetails, serviceAccount: 'svc-cdmp' },
-    });
+    const appName = screen.getByLabelText(/Application Name/i) as HTMLInputElement;
+    await user.clear(appName);
+    await user.type(appName, 'Payments Hub');
+    expect(appName).toHaveValue('Payments Hub');
+
+    const summary = screen.getByLabelText(/^Summary$/i) as HTMLInputElement;
+    await user.clear(summary);
+    await user.type(summary, 'Short summary');
+    expect(summary).toHaveValue('Short summary');
   });
 
-  test('updates pythonVersion, directoryStructure and ucdAgent', async () => {
-    const { user, getPy, getDir, getUcd } = setup();
+  test('requesterEmail validation shows and clears error text', async () => {
+    const { user } = renderApp();
 
-    await user.type(getPy(), '3.11');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      cdmpDetails: { ...baseFormData.cdmpDetails, pythonVersion: '3.11' },
-    });
+    const email = screen.getByLabelText(/Requester Email/i) as HTMLInputElement;
 
-    await user.type(getDir(), '/apps/cdmp');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      cdmpDetails: { ...baseFormData.cdmpDetails, directoryStructure: '/apps/cdmp' },
-    });
+    // Type invalid first -> component should set a validation error via prop setter
+    await user.type(email, 'not-an-email');
+    // error helper text from component state should appear after setValidationErrors runs
+    expect(await screen.findByText(/Invalid email format/i)).toBeInTheDocument();
 
-    await user.type(getUcd(), 'agent-01');
-    expect(setFormData).toHaveBeenLastCalledWith({
-      ...baseFormData,
-      cdmpDetails: { ...baseFormData.cdmpDetails, ucdAgent: 'agent-01' },
-    });
+    // Now fix the email -> error should disappear
+    await user.clear(email);
+    await user.type(email, 'user@example.com');
+    expect(screen.queryByText(/Invalid email format/i)).not.toBeInTheDocument();
   });
 
-  test('radio toggles Autosys help text Yes/No', () => {
-    setup({ cdmpDetails: { ...baseFormData.cdmpDetails, isOnboardedAutosys: 'Yes' } });
-    expect(screen.getByText(/create cdmp jobs/i)).toBeInTheDocument();
+  test('environmentsNeeded multi-select adds values and displays them', async () => {
+    const { user } = renderApp();
 
-    const noRadio = screen.getByLabelText(/^No$/i) as HTMLInputElement;
-    fireEvent.change(noRadio, { target: { checked: true } });
-    expect(screen.getByText(/onboard application to autosys/i)).toBeInTheDocument();
+    // Open the select
+    const envSelect = screen.getByRole('button', { name: /Environments Needed/i });
+    await user.click(envSelect);
+
+    // Choose DEV1 and SIT
+    await user.click(await screen.findByRole('option', { name: 'DEV1' }));
+    await user.click(screen.getByRole('option', { name: 'SIT' }));
+
+    // Close the listbox (click away on the trigger again)
+    await user.click(envSelect);
+
+    // MUI renderValue shows selected values joined by ', '
+    expect(envSelect).toHaveTextContent(/DEV1/i);
+    expect(envSelect).toHaveTextContent(/SIT/i);
   });
 
-  test('file input change shows the "File:" indicator', async () => {
-    setup();
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const file = new File(['dummy'], 'venafi.pem', { type: 'application/x-pem-file' });
-    await userEvent.upload(input, file);
-    expect(screen.getByText(/^File:/i)).toBeInTheDocument();
+  test('dataFormat multi-select adds values (CSV, PDF)', async () => {
+    const { user } = renderApp();
+
+    const formatSelect = screen.getByRole('button', { name: /List of Data Format/i });
+    await user.click(formatSelect);
+
+    await user.click(await screen.findByRole('option', { name: 'CSV' }));
+    await user.click(screen.getByRole('option', { name: 'PDF' }));
+
+    await user.click(formatSelect); // close
+    expect(formatSelect).toHaveTextContent(/CSV/i);
+    expect(formatSelect).toHaveTextContent(/PDF/i);
+  });
+
+  test('data classification radio selects "Restricted"', async () => {
+    const { user } = renderApp();
+
+    // Unique label within the classification group
+    const restricted = screen.getByRole('radio', { name: /Restricted/i }) as HTMLInputElement;
+    await user.click(restricted);
+    expect(restricted).toBeChecked();
+  });
+
+  test('PAN/Credit-Card-in-scope toggles a details textarea when set to Yes', async () => {
+    const { user } = renderApp();
+
+    const yesRadio = screen.getByRole('radio', { name: /^Yes$/i, exact: false });
+    // Multiple "Yes" radios exist; choose the one near the PAN question by clicking the label element
+    // Click the one that appears before the "Provide details about PAN..." field
+    await user.click(yesRadio); // acceptable for RTL since radios are independent
+
+    // The conditional textarea is labeled "Provide details about PAN/Credit/Debit Card data"
+    const details = await screen.findByLabelText(/Provide details about PAN\/Credit\/Debit Card data/i);
+    await user.type(details, 'Tokenized in transit only');
+    expect(details).toHaveValue('Tokenized in transit only');
+  });
+
+  test('external ingress details field appears when selecting "Yes" in External Ingress group', async () => {
+    const { user } = renderApp();
+
+    // This group has a unique details label we can assert on
+    // First click Yes in one of the Yes/No radios (the one in this section becomes checked)
+    const yes = screen.getAllByRole('radio', { name: /^Yes$/i })[0];
+    await user.click(yes);
+
+    // Now the details textarea exists; fill it
+    const extDetails = screen.getByLabelText(/Provide details to any external systems or Third-party Environments/i);
+    await user.type(extDetails, 'Outbound https to vendor ABC');
+    expect(extDetails).toHaveValue('Outbound https to vendor ABC');
   });
 });
