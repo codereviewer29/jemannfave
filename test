@@ -1,36 +1,42 @@
 // src/services/useApiService.test.tsx
 import { renderHook, act } from '@testing-library/react';
-import * as reactlib from '@wf/react-library'; // we'll spy on these
-import processHttpRequest from './processHttp'; // we'll mock this default
-import type { HttpRequest } from './types';
+import processHttpRequest from './processHttp';
 import useApiService from './useApiService';
+import type { HttpRequest } from './types';
 
-// --- mock the default export from ./processHttp
+// --- Mock @wf/react-library BEFORE importing its members (avoid loading ESM deps)
+jest.mock('@wf/react-library', () => ({
+  __esModule: true,
+  useAppGlobalState: jest.fn(),
+  useConfig: jest.fn(),
+}));
+
+// Now import the mocked hooks (these are jest.fn())
+import { useAppGlobalState, useConfig } from '@wf/react-library';
+
+// --- Mock the default export from ./processHttp
 jest.mock('./processHttp', () => ({
   __esModule: true,
   default: jest.fn(),
 }));
 
-// typed handles to the spies
-const useAppGlobalStateSpy = jest.spyOn(reactlib, 'useAppGlobalState');
-const useConfigSpy = jest.spyOn(reactlib, 'useConfig');
+const useAppGlobalStateMock = useAppGlobalState as unknown as jest.Mock;
+const useConfigMock = useConfig as unknown as jest.Mock;
+const processHttpRequestMock = processHttpRequest as unknown as jest.Mock;
 
-// handy constants
+// Handy constants
 const BASE = 'https://api.example.com';
 const TOKEN = { access_token: 'tok_123' };
 
-const processHttpRequestMock = processHttpRequest as unknown as jest.Mock;
-
-// convenient helper to make a minimally typed request
+// Minimal helper to satisfy your HttpRequest type without fighting TS here
 const makeReq = (endpoint: string): HttpRequest =>
   ({ method: 'GET', endpoint, responseType: 'json' } as unknown as HttpRequest);
 
 beforeEach(() => {
   jest.clearAllMocks();
-
-  // default environment + token for most tests
-  useConfigSpy.mockReturnValue({ API_BASE_ENDPOINT: BASE } as any);
-  useAppGlobalStateSpy.mockReturnValue({ token: TOKEN } as any);
+  // default mocks used by most tests
+  useConfigMock.mockReturnValue({ API_BASE_ENDPOINT: BASE });
+  useAppGlobalStateMock.mockReturnValue({ token: TOKEN });
 });
 
 describe('useApiService', () => {
@@ -49,7 +55,7 @@ describe('useApiService', () => {
   });
 
   test('passes undefined token when global state has no token', async () => {
-    useAppGlobalStateSpy.mockReturnValue({ token: undefined } as any);
+    useAppGlobalStateMock.mockReturnValue({ token: undefined });
     processHttpRequestMock.mockResolvedValue({ ok: true });
 
     const { result } = renderHook(() => useApiService());
@@ -63,13 +69,12 @@ describe('useApiService', () => {
   });
 
   test('returns the resolved value from processHttpRequest', async () => {
-    const payload = { id: 42, name: 'answer' };
+    const payload = { id: 7, name: 'thing' };
     processHttpRequestMock.mockResolvedValue(payload);
 
     const { result } = renderHook(() => useApiService());
-    const req = makeReq('/thing/42');
+    const req = makeReq('/thing/7');
 
-    // act() returns the callback's return; we re-await the hook call for clarity
     const value = await act(async () => result.current.makeRequest(req));
     expect(value).toBe(payload);
   });
