@@ -4,15 +4,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// ---- FormContext mock ----
+// ---- FormContext mock
 const setFormData = jest.fn();
 const useFormContextMock = jest.fn();
-
 jest.mock('../FormContext', () => ({
   useFormContext: () => useFormContextMock(),
 }));
 
-// ---- MUI stubs ----
+// ---- MUI stubs
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
@@ -40,6 +39,7 @@ jest.mock('@mui/material', () => {
   };
 });
 
+// IMPORTANT: TextField comes from a *separate* path
 jest.mock('@mui/material/TextField', () => {
   const React = require('react');
   return {
@@ -50,7 +50,8 @@ jest.mock('@mui/material/TextField', () => {
         <input
           aria-label={label}
           name={name}
-          value={value ?? ''}
+          // use uncontrolled input so userEvent composes full value
+          defaultValue={value ?? ''}
           placeholder={placeholder}
           disabled={disabled}
           onChange={(e) =>
@@ -67,10 +68,10 @@ jest.mock('@mui/icons-material/ErrorOutline', () => ({
   default: (props: any) => <span data-testid="error-outline-icon" {...props} />,
 }));
 
-// ---- SUT AFTER mocks ----
+// ---- SUT AFTER mocks
 import GCPComponentIntakeForm from './gcpComponentIntakeForm';
 
-// ---- Helpers ----
+// ---- Helpers
 function renderWithDataRouter(ui: React.ReactElement) {
   const router = createMemoryRouter([{ path: '/', element: ui }], {
     initialEntries: ['/'],
@@ -78,16 +79,15 @@ function renderWithDataRouter(ui: React.ReactElement) {
   return render(<RouterProvider router={router} />);
 }
 
+const baseFormData = {
+  gcpComponentDetails: {
+    bucketName: '',
+    bqDatasetName: '',
+  },
+};
+
 function setup() {
-  setFormData.mockClear();
-
-  const baseFormData = {
-    gcpComponentDetails: {
-      bucketName: '',
-      bqDatasetName: '',
-    },
-  };
-
+  jest.clearAllMocks();
   useFormContextMock.mockReturnValue({
     formData: baseFormData,
     setFormData,
@@ -97,26 +97,32 @@ function setup() {
   const user = userEvent.setup();
   renderWithDataRouter(<GCPComponentIntakeForm validationErrors={{}} />);
 
-  // Use placeholders (reliable with our stub and the component)
   const bucket = screen.getByPlaceholderText(/bucket/i);
   const dataset = screen.getByPlaceholderText(/discriminator/i);
-
-  return { user, bucket, dataset, baseFormData };
+  return { user, bucket, dataset };
 }
 
-// ---- Tests ----
+// flexible textContent matcher (handles split/nested nodes)
+const textMatches = (re: RegExp) => (_: string, node: Element | null) =>
+  !!node?.textContent && re.test(node.textContent.replace(/\s+/g, ' ').trim());
+
+// ---- Tests
 describe('GCPComponentIntakeForm', () => {
   test('renders static intro text and list items', () => {
     setup();
 
     expect(
-      screen.getByText(/the application data project and cdm next project are key gcp components/i)
+      screen.getByText(
+        textMatches(
+          /the application data project and cdm next project are key gcp components/i
+        )
+      )
     ).toBeInTheDocument();
 
-    expect(screen.getByText(/gcs\(google cloud storage\) buckets/i)).toBeInTheDocument();
-    expect(screen.getByText(/cloud scheduler/i)).toBeInTheDocument();
-    expect(screen.getByText(/big query/i)).toBeInTheDocument();
-    expect(screen.getByText(/kms keys/i)).toBeInTheDocument();
+    expect(screen.getByText(textMatches(/gcs\(google cloud storage\)\s*buckets/i))).toBeInTheDocument();
+    expect(screen.getByText(textMatches(/cloud\s*scheduler/i))).toBeInTheDocument();
+    expect(screen.getByText(textMatches(/big\s*query/i))).toBeInTheDocument();
+    expect(screen.getByText(textMatches(/kms\s*keys/i))).toBeInTheDocument();
 
     expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('error-outline-icon').length).toBeGreaterThan(0);
@@ -133,7 +139,7 @@ describe('GCPComponentIntakeForm', () => {
   });
 
   test('updates formData.gcpComponentDetails.bucketName when typing', async () => {
-    const { user, bucket, baseFormData } = setup();
+    const { user, bucket } = setup();
 
     await user.type(bucket, 'bucket_1');
     expect(setFormData).toHaveBeenLastCalledWith({
@@ -146,7 +152,7 @@ describe('GCPComponentIntakeForm', () => {
   });
 
   test('updates formData.gcpComponentDetails.bqDatasetName when typing', async () => {
-    const { user, dataset, baseFormData } = setup();
+    const { user, dataset } = setup();
 
     await user.type(dataset, 'disc_123_appid');
     expect(setFormData).toHaveBeenLastCalledWith({
