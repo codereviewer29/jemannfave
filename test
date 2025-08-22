@@ -1,120 +1,127 @@
-// src/sideNavbar/boarding/intake-components/cdpIntakeForm.test.tsx
+// src/sideNavbar/boarding/intake-components/cancelOnboarding.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 
-// ---- FormContext mock ----
-const useFormContextMock = jest.fn();
-jest.mock('../FormContext', () => ({
-  useFormContext: () => useFormContextMock(),
-}));
-
-// ---- MUI stubs ----
+// ---- Minimal MUI stubs (why: keep tests fast & deterministic) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
-  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
-  const Box = Pass;
-  const Grid = Pass;
-  const FormControl = Pass;
-  const InputLabel = ({ htmlFor, children }: any) => (
-    <label htmlFor={htmlFor}>{children}</label>
+
+  const Dialog = ({ open, onClose, children }: any) => (
+    <div data-testid="dialog">{open ? (
+      <div>
+        {children}
+        {/* expose close control to trigger onClose from tests */}
+        <button aria-label="close-dialog" onClick={() => onClose?.({}, 'backdropClick')} />
+      </div>
+    ) : null}</div>
   );
-  const MenuItem = ({ children }: any) => <>{children}</>;
-  const Typography = ({ children }: any) => <div>{children}</div>;
-  const Tooltip = ({ title, children }: any) => (
-    <div>
-      <div data-testid="tooltip-title">{title}</div>
-      {children}
-    </div>
+  const DialogTitle = ({ children }: any) => <h2>{children}</h2>;
+  const DialogContent = ({ children }: any) => <div>{children}</div>;
+  const DialogContentText = ({ children }: any) => <p>{children}</p>;
+  const DialogActions = ({ children }: any) => <div>{children}</div>;
+  const Button = ({ children, onClick, ...rest }: any) => (
+    <button onClick={onClick} {...rest}>{children}</button>
   );
-  const Select = ({ label, id, name, value, disabled, children }: any) => {
-    const options = React.Children.toArray(children).map((n: any, i: number) => (
-      <option key={i} value={n?.props?.value}>
-        {n?.props?.children}
-      </option>
-    ));
-    return (
-      <label htmlFor={id}>
-        {label}
-        <select
-          id={id}
-          name={name}
-          aria-label={label}
-          value={value ?? ''}
-          disabled={disabled}
-          onChange={() => {}}
-        >
-          {options}
-        </select>
-      </label>
-    );
-  };
-  const Alert = ({ severity, children }: any) => (
-    <div role="alert" data-severity={severity}>
-      {children}
-    </div>
-  );
+
   return {
     __esModule: true,
-    Alert,
-    Box,
-    FormControl,
-    Grid,
-    InputLabel,
-    MenuItem,
-    Select,
-    Tooltip,
-    Typography,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
+    Button,
   };
 });
-jest.mock('@mui/icons-material/Info', () => ({
-  __esModule: true,
-  default: () => <span data-testid="info-icon" />,
-}));
 
-// ---- SUT AFTER mocks ----
-import CDPIntakeForm from './cdpIntakeForm';
+// ---- SUT ----
+import CancelOnboarding from './cancelOnboarding';
 
-// ---- helpers ----
-function renderWithDataRouter(ui: React.ReactElement) {
-  const router = createMemoryRouter([{ path: '/', element: ui }], {
-    initialEntries: ['/'],
-  });
-  return render(<RouterProvider router={router} />);
-}
-const makeFormData = (dataLoadRequired: string, version = '') => ({
-  safeRoomDetails: { dataLoadRequired },
-  cdpDetails: { versionCDPRequired: version },
-});
-function setup(formData: any) {
-  const setFormData = jest.fn();
-  useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
-  renderWithDataRouter(<CDPIntakeForm validationErrors={{}} />);
-  const select = screen.getByRole('combobox', { name: /which version of cdp is required/i });
-  return { select, formData };
-}
+describe('CancelOnboarding', () => {
+  test('renders title, message, and action buttons when open', () => {
+    const onClose = jest.fn();
+    const onConfirm = jest.fn();
 
-// ---- tests ----
-describe('CDPIntakeForm', () => {
-  test('renders overview text and disabled select', () => {
-    const { select } = setup(makeFormData('Cloud Storage', 'File to BQ version'));
-    expect(screen.getByRole('heading', { name: /cdp overview/i })).toBeInTheDocument();
+    render(
+      <CancelOnboarding
+        openCancelDialog={true}
+        handleCloseCancelDialog={onClose}
+        handleConfirmCancel={onConfirm}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: /confirm cancellation/i })).toBeInTheDocument();
     expect(
-      screen.getByText(/cdp framework streamlines and accelerates cloud migration/i)
+      screen.getByText(/are you sure you want to cancel\? any unsaved changes will be lost\./i)
     ).toBeInTheDocument();
-    expect(select).toBeDisabled();
-    // tooltips/icons present
-    expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('info-icon')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^no$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^yes$/i })).toBeInTheDocument();
   });
 
-  test('auto-selects "File to BQ version" when SafeRoom is Cloud Storage', () => {
-    const { select } = setup(makeFormData('Cloud Storage', 'File to BQ version'));
-    expect(select).toHaveDisplayValue(/file to bq version/i);
+  test('clicking "No" calls handleCloseCancelDialog', async () => {
+    const onClose = jest.fn();
+    const onConfirm = jest.fn();
+    const user = userEvent.setup();
+
+    render(
+      <CancelOnboarding
+        openCancelDialog={true}
+        handleCloseCancelDialog={onClose}
+        handleConfirmCancel={onConfirm}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /^no$/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  test('auto-selects "BQ to BQ version" when SafeRoom is Big Query', () => {
-    const { select } = setup(makeFormData('Big Query', 'BQ to BQ version'));
-    expect(select).toHaveDisplayValue(/bq to bq version/i);
+  test('clicking "Yes" calls handleConfirmCancel', async () => {
+    const onClose = jest.fn();
+    const onConfirm = jest.fn();
+    const user = userEvent.setup();
+
+    render(
+      <CancelOnboarding
+        openCancelDialog={true}
+        handleCloseCancelDialog={onClose}
+        handleConfirmCancel={onConfirm}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /^yes$/i }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not render content when closed', () => {
+    const onClose = jest.fn();
+    const onConfirm = jest.fn();
+
+    render(
+      <CancelOnboarding
+        openCancelDialog={false}
+        handleCloseCancelDialog={onClose}
+        handleConfirmCancel={onConfirm}
+      />
+    );
+
+    expect(screen.queryByRole('heading', { name: /confirm cancellation/i })).not.toBeInTheDocument();
+  });
+
+  test('closing via dialog onClose triggers handleCloseCancelDialog', async () => {
+    const onClose = jest.fn();
+    const user = userEvent.setup();
+
+    render(
+      <CancelOnboarding
+        openCancelDialog={true}
+        handleCloseCancelDialog={onClose}
+        handleConfirmCancel={jest.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /close-dialog/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
