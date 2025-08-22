@@ -1,95 +1,86 @@
+// src/services/useApiService.test.tsx
 import { renderHook, act } from '@testing-library/react';
-import useApiService from './useApiService';
+import * as reactlib from '@wf/react-library'; // we'll spy on these
+import processHttpRequest from './processHttp'; // we'll mock this default
 import type { HttpRequest } from './types';
+import useApiService from './useApiService';
 
-// ---- Mocks ---------------------------------------------------------------
-jest.mock('@wf/react-library', () => ({
-  __esModule: true,
-  useAppGlobalState: jest.fn(),
-  useConfig: jest.fn(),
-}));
-
+// --- mock the default export from ./processHttp
 jest.mock('./processHttp', () => ({
   __esModule: true,
   default: jest.fn(),
 }));
 
-const useAppGlobalStateMock = require('@wf/react-library')
-  .useAppGlobalState as jest.Mock;
-const useConfigMock = require('@wf/react-library').useConfig as jest.Mock;
-const processHttpRequestMock = require('./processHttp').default as jest.Mock;
+// typed handles to the spies
+const useAppGlobalStateSpy = jest.spyOn(reactlib, 'useAppGlobalState');
+const useConfigSpy = jest.spyOn(reactlib, 'useConfig');
 
-// base endpoint for env mock
+// handy constants
 const BASE = 'https://api.example.com';
-const TOKEN = { access_token: 'abc123' };
+const TOKEN = { access_token: 'tok_123' };
 
-// Helper that matches your HttpRequest type (note: endpoints plural)
-const makeReq = (
-  endpoints: string = '/things',
-  method: HttpRequest['method'] = 'GET'
-): HttpRequest => ({
-  method,
-  endpoints,            // <-- plural
-  responseType: 'json', // include required/expected props to satisfy the type
-});
+const processHttpRequestMock = processHttpRequest as unknown as jest.Mock;
+
+// convenient helper to make a minimally typed request
+const makeReq = (endpoint: string): HttpRequest =>
+  ({ method: 'GET', endpoint, responseType: 'json' } as unknown as HttpRequest);
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Always provide env so env.API_BASE_ENDPOINT is defined
-  useConfigMock.mockReturnValue({ API_BASE_ENDPOINT: BASE });
+
+  // default environment + token for most tests
+  useConfigSpy.mockReturnValue({ API_BASE_ENDPOINT: BASE } as any);
+  useAppGlobalStateSpy.mockReturnValue({ token: TOKEN } as any);
 });
 
-// -------------------------------------------------------------------------
+describe('useApiService', () => {
+  test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
+    processHttpRequestMock.mockResolvedValue({ ok: true });
 
-test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
-  useAppGlobalStateMock.mockReturnValue({ token: TOKEN });
-  processHttpRequestMock.mockResolvedValue({ ok: true });
+    const { result } = renderHook(() => useApiService());
+    const req = makeReq('/things');
 
-  const { result } = renderHook(() => useApiService());
-  const req = makeReq('/things', 'GET');
+    await act(async () => {
+      await result.current.makeRequest(req);
+    });
 
-  await act(async () => {
-    await result.current.makeRequest(req);
+    expect(processHttpRequestMock).toHaveBeenCalledTimes(1);
+    expect(processHttpRequestMock).toHaveBeenCalledWith(req, TOKEN.access_token, BASE);
   });
 
-  expect(processHttpRequestMock).toHaveBeenCalledTimes(1);
-  expect(processHttpRequestMock).toHaveBeenCalledWith(req, TOKEN.access_token, BASE);
-});
+  test('passes undefined token when global state has no token', async () => {
+    useAppGlobalStateSpy.mockReturnValue({ token: undefined } as any);
+    processHttpRequestMock.mockResolvedValue({ ok: true });
 
-test('passes undefined token when global state has no token', async () => {
-  // Return an object with token: undefined so destructuring doesn't throw
-  useAppGlobalStateMock.mockReturnValue({ token: undefined });
-  processHttpRequestMock.mockResolvedValue({ ok: true });
+    const { result } = renderHook(() => useApiService());
+    const req = makeReq('/stuff');
 
-  const { result } = renderHook(() => useApiService());
-  const req = makeReq('/no-token');
+    await act(async () => {
+      await result.current.makeRequest(req);
+    });
 
-  await act(async () => {
-    await result.current.makeRequest(req);
+    expect(processHttpRequestMock).toHaveBeenCalledWith(req, undefined, BASE);
   });
 
-  expect(processHttpRequestMock).toHaveBeenCalledWith(req, undefined, BASE);
-});
+  test('returns the resolved value from processHttpRequest', async () => {
+    const payload = { id: 42, name: 'answer' };
+    processHttpRequestMock.mockResolvedValue(payload);
 
-test('returns the resolved value from processHttpRequest', async () => {
-  useAppGlobalStateMock.mockReturnValue({ token: TOKEN });
-  const payload = { id: 7, name: 'thing' };
-  processHttpRequestMock.mockResolvedValue(payload);
+    const { result } = renderHook(() => useApiService());
+    const req = makeReq('/thing/42');
 
-  const { result } = renderHook(() => useApiService());
-  const req = makeReq('/thing/7');
+    // act() returns the callback's return; we re-await the hook call for clarity
+    const value = await act(async () => result.current.makeRequest(req));
+    expect(value).toBe(payload);
+  });
 
-  const value = await act(async () => result.current.makeRequest(req));
-  expect(value).toBe(payload);
-});
+  test('propagates errors from processHttpRequest', async () => {
+    const err = new Error('network down');
+    processHttpRequestMock.mockRejectedValue(err);
 
-test('propagates errors from processHttpRequest', async () => {
-  useAppGlobalStateMock.mockReturnValue({ token: TOKEN });
-  const err = new Error('network down');
-  processHttpRequestMock.mockRejectedValue(err);
+    const { result } = renderHook(() => useApiService());
+    const req = makeReq('/oops');
 
-  const { result } = renderHook(() => useApiService());
-  const req = makeReq('/oops');
-
-  await expect(result.current.makeRequest(req)).rejects.toThrow('network down');
+    await expect(result.current.makeRequest(req)).rejects.toThrow('network down');
+  });
 });
