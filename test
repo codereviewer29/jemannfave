@@ -1,48 +1,162 @@
-// src/sideNavbar/boarding/intake-components/guidelinesIntakeForm.test.tsx
+// src/sideNavbar/boarding/intake-components/gcpComponentIntakeForm.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// MUI Box stub
+// ---- FormContext mock ----
+const setFormData = jest.fn();
+const useFormContextMock = jest.fn();
+
+jest.mock('../FormContext', () => ({
+  useFormContext: () => useFormContextMock(),
+}));
+
+// ---- MUI stubs ----
+// Note: TextField is imported from '@mui/material/TextField' so we stub that path too.
 jest.mock('@mui/material', () => {
+  const React = require('react');
+  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+  const Alert = ({ children, severity }: any) => (
+    <div role="alert" data-severity={severity}>
+      {children}
+    </div>
+  );
+  const Tooltip = ({ title, children }: any) => (
+    <div>
+      <div data-testid="tooltip-title">{title}</div>
+      {children}
+    </div>
+  );
+  const Typography = ({ children }: any) => <div>{children}</div>;
+  const Divider = Pass;
+  return {
+    __esModule: true,
+    Box: Pass,
+    Grid: Pass,
+    Alert,
+    Tooltip,
+    Typography,
+    Divider,
+  };
+});
+
+jest.mock('@mui/material/TextField', () => {
   const React = require('react');
   return {
     __esModule: true,
-    Box: ({ children, className }: any) => (
-      <div data-testid="mui-box" className={className}>
-        {children}
-      </div>
+    default: ({ label, name, value, onChange, disabled, placeholder }: any) => (
+      <label>
+        {label}
+        <input
+          aria-label={label}
+          name={name}
+          value={value ?? ''}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange?.({ target: { name, value: e.currentTarget.value } })
+          }
+        />
+      </label>
     ),
   };
 });
 
-// SUT
-import GuidelinesIntakeForm from './guidelinesIntakeForm';
+jest.mock('@mui/icons-material/ErrorOutline', () => ({
+  __esModule: true,
+  default: (props: any) => <span data-testid="error-outline-icon" {...props} />,
+}));
 
-describe('GuidelinesIntakeForm', () => {
-  test('renders the guideline container with class', () => {
-    render(<GuidelinesIntakeForm />);
-    const box = screen.getByTestId('mui-box');
-    expect(box).toBeInTheDocument();
-    expect(box).toHaveClass('intakeGuidelineClass');
+// ---- SUT AFTER mocks ----
+import GCPComponentIntakeForm from './gcpComponentIntakeForm';
+
+// ---- Helpers ----
+function renderWithDataRouter(ui: React.ReactElement) {
+  const router = createMemoryRouter([{ path: '/', element: ui }], {
+    initialEntries: ['/'],
+  });
+  return render(<RouterProvider router={router} />);
+}
+
+function setup() {
+  setFormData.mockClear();
+
+  const baseFormData = {
+    gcpComponentDetails: {
+      bucketName: '',
+      bqDatasetName: '',
+    },
+  };
+
+  useFormContextMock.mockReturnValue({
+    formData: baseFormData,
+    setFormData,
+    isReadOnly: false,
   });
 
-  test('renders all 10 guideline points', () => {
-    render(<GuidelinesIntakeForm />);
-    for (let i = 1; i <= 10; i++) {
-      expect(screen.getByText(new RegExp(`^${i}\\.`))).toBeInTheDocument();
-    }
+  const user = userEvent.setup();
+  renderWithDataRouter(<GCPComponentIntakeForm validationErrors={{}} />);
+
+  const bucket = screen.getByLabelText(/provide additional bucket name/i);
+  const dataset = screen.getByLabelText(/provide additional bq dataset name/i);
+
+  return { user, bucket, dataset, baseFormData };
+}
+
+// ---- Tests ----
+describe('GCPComponentIntakeForm', () => {
+  test('renders static intro text and list items', () => {
+    setup();
+
+    expect(
+      screen.getByText(/the application data project and cdm next project are key gcp components/i)
+    ).toBeInTheDocument();
+
+    // key service names from the static list
+    expect(screen.getByText(/gcs \(google cloud storage\) buckets/i)).toBeInTheDocument();
+    expect(screen.getByText(/cloud scheduler/i)).toBeInTheDocument();
+    expect(screen.getByText(/big query/i)).toBeInTheDocument();
+    expect(screen.getByText(/kms keys/i)).toBeInTheDocument();
+
+    // tooltips+icon are present
+    expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('error-outline-icon').length).toBeGreaterThan(0);
   });
 
-  test('contains important keywords', () => {
-    render(<GuidelinesIntakeForm />);
-    expect(screen.getByText(/Cloud Enablement Team/i)).toBeInTheDocument();
-    expect(screen.getByText(/Change Request/i)).toBeInTheDocument();
-    expect(screen.getByText(/Autosys/i)).toBeInTheDocument();
+  test('renders both inputs with placeholders', () => {
+    const { bucket, dataset } = setup();
+
+    expect(bucket).toBeInTheDocument();
+    expect(bucket).toHaveAttribute('placeholder', expect.stringMatching(/bucket/i));
+
+    expect(dataset).toBeInTheDocument();
+    expect(dataset).toHaveAttribute('placeholder', expect.stringMatching(/discriminator/i));
   });
 
-  // Optional: keep if you want snapshot protection for static copy
-  test('matches snapshot', () => {
-    const { container } = render(<GuidelinesIntakeForm />);
-    expect(container).toMatchSnapshot();
+  test('updates formData.gcpComponentDetails.bucketName when typing', async () => {
+    const { user, bucket, baseFormData } = setup();
+
+    await user.type(bucket, 'bucket_1');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      gcpComponentDetails: {
+        ...baseFormData.gcpComponentDetails,
+        bucketName: 'bucket_1',
+      },
+    });
+  });
+
+  test('updates formData.gcpComponentDetails.bqDatasetName when typing', async () => {
+    const { user, dataset, baseFormData } = setup();
+
+    await user.type(dataset, 'disc_123_appid');
+    expect(setFormData).toHaveBeenLastCalledWith({
+      ...baseFormData,
+      gcpComponentDetails: {
+        ...baseFormData.gcpComponentDetails,
+        bqDatasetName: 'disc_123_appid',
+      },
+    });
   });
 });
