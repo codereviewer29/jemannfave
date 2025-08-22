@@ -1,50 +1,119 @@
-// src/sideNavbar/boarding/intake-components/guidelinesIntakeForm.test.tsx
+// src/sideNavbar/boarding/intake-components/gcpSaferoomIntakeForm.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-// ---- Stub MUI Box ----
+// ---- MUI stubs ----
 jest.mock('@mui/material', () => {
   const React = require('react');
+  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+  const TextField = ({ label, value, onChange, required, disabled, ...rest }: any) => (
+    <label>
+      {label}
+      <input
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange?.({ target: { name: rest.name, value: e.target.value } })}
+        required={required}
+        disabled={disabled}
+      />
+    </label>
+  );
+  const Button = ({ children, onClick, disabled, ...rest }: any) => (
+    <button onClick={onClick} disabled={disabled} {...rest}>
+      {children}
+    </button>
+  );
+  const Alert = ({ children, severity }: any) => (
+    <div role="alert" data-severity={severity}>
+      {children}
+    </div>
+  );
+  const Tooltip = ({ children, title }: any) => (
+    <div>
+      <div data-testid="tooltip-title">{title}</div>
+      {children}
+    </div>
+  );
   return {
     __esModule: true,
-    Box: ({ children, className }: any) => (
-      <div data-testid="mui-box" className={className}>
-        {children}
-      </div>
-    ),
+    Box: Pass,
+    Grid: Pass,
+    TextField,
+    Button,
+    Alert,
+    Tooltip,
   };
 });
 
+jest.mock('@mui/icons-material/Info', () => ({
+  __esModule: true,
+  default: () => <span data-testid="info-icon" />,
+}));
+
 // ---- SUT ----
-import GuidelinesIntakeForm from './guidelinesIntakeForm';
+import GCPSaferoomIntakeForm from './gcpSaferoomIntakeForm';
 
-describe('GuidelinesIntakeForm', () => {
-  test('renders the guideline container with class', () => {
-    render(<GuidelinesIntakeForm />);
-    const box = screen.getByTestId('mui-box');
-    expect(box).toBeInTheDocument();
-    expect(box).toHaveClass('intakeGuidelineClass');
+// ---- Helpers ----
+async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText(/request number for sa role binding/i), '123');
+  await user.type(screen.getByLabelText(/request number for ad group role binding/i), '456');
+}
+
+// ---- Tests ----
+describe('GCPSaferoomIntakeForm', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  test('renders all 10 guideline points', () => {
-    render(<GuidelinesIntakeForm />);
-    // Check for numbered points
-    for (let i = 1; i <= 10; i++) {
-      expect(screen.getByText(new RegExp(`^${i}\\.`))).toBeInTheDocument();
-    }
-  });
-
-  test('contains important keywords', () => {
-    render(<GuidelinesIntakeForm />);
+  test('renders inputs and buttons', () => {
+    render(<GCPSaferoomIntakeForm intakeFormTrackingId={1} />);
     expect(
-      screen.getByText(/Cloud Enablement Team/i)
+      screen.getByLabelText(/request number for sa role binding/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Change Request/i)).toBeInTheDocument();
-    expect(screen.getByText(/Autosys/i)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/request number for ad group role binding/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
   });
 
-  test('matches snapshot (static text)', () => {
-    const { container } = render(<GuidelinesIntakeForm />);
-    expect(container).toMatchSnapshot();
+  test('shows success alert when form valid and saved', async () => {
+    const user = userEvent.setup();
+    render(<GCPSaferoomIntakeForm intakeFormTrackingId={1} />);
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/saved successfully/i);
+    expect(screen.queryByText(/please complete all required/i)).not.toBeInTheDocument();
+  });
+
+  test('shows error alert when required fields missing', async () => {
+    const user = userEvent.setup();
+    render(<GCPSaferoomIntakeForm intakeFormTrackingId={1} />);
+    // no filling
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/please complete all required/i);
+  });
+
+  test('disables inputs and save button when read-only', () => {
+    // readOnly triggers when intakeFormTrackingId && gcpSaferoomIntakeId != 0
+    render(<GCPSaferoomIntakeForm intakeFormTrackingId={999} />);
+    expect(
+      screen.getByLabelText(/request number for sa role binding/i)
+    ).toBeDisabled();
+    expect(
+      screen.getByLabelText(/request number for ad group role binding/i)
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+  });
+
+  test('cancel button logs to console', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const user = userEvent.setup();
+    render(<GCPSaferoomIntakeForm intakeFormTrackingId={1} />);
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(logSpy).toHaveBeenCalledWith('Form cancelled');
   });
 });
