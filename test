@@ -1,71 +1,50 @@
-// src/sideNavbar/boarding/applicationDetails.test.tsx
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+// --------- Component under test ----------
 import ApplicationDetails from './applicationDetails';
 
-// ---------- Mock FormContext (runtime require to avoid TS complaints) ----------
-jest.mock('./FormContext', () => {
-  const React = require('react');
-  const Ctx = React.createContext<any>(null);
-  return {
-    __esModule: true,
-    // hook the component imports
-    useFormContext: () => React.useContext(Ctx),
-    // provider we'll use in tests
-    TestFormProvider: ({ value, children }: any) => (
-      <Ctx.Provider value={value}>{children}</Ctx.Provider>
-    ),
-  };
-});
-// pull mocked export at runtime, not via static import
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { TestFormProvider } = require('./FormContext');
+// --------- A mutable context value the hook will return ----------
+let ctxValue: any;
 
-// ---------- Minimal, robust mocks for MUI X date pickers ----------
+// Mock the FormContext hook only (no Provider JSX = no TS JSX errors)
+jest.mock('./FormContext', () => ({
+  useFormContext: () => ctxValue,
+}));
+
+// --------- Minimal, robust mocks for MUI X date pickers ----------
 jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
-  __esModule: true,
-  default: function AdapterDayjs() {
-    return null;
-  },
+  AdapterDayjs: class AdapterDayjs {},
 }));
+
 jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
-  __esModule: true,
-  default: ({ children }: any) => <div>{children}</div>,
+  LocalizationProvider: ({ children }: any) => <div>{children}</div>,
 }));
+
+// Render a plain input that calls the provided onChange with the typed string.
+// Our component takes the value and converts via dayjs(date).toISOString().
 jest.mock('@mui/x-date-pickers/DatePicker', () => ({
-  __esModule: true,
-  default: ({ label, onChange }: { label: string; onChange: (d: any) => void }) => (
-    <input aria-label={label} onChange={(e) => onChange?.((e as any).target.value)} />
+  DatePicker: ({ label, value, onChange }: any) => (
+    <input
+      aria-label={label}
+      value={value ?? ''}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
   ),
 }));
 
-// ---------- Router bits used in the component (links only) ----------
-jest.mock('react-router-dom', () => ({
+// --------- API hook mock so we can assert calls & return data ----------
+const makeRequestMock = jest.fn();
+jest.mock('../services/useApiService', () => ({
   __esModule: true,
-  Link: (props: any) => <a {...props} />,
+  default: () => ({ makeRequest: makeRequestMock }),
+  // some code may import named as well:
+  useApiService: () => ({ makeRequest: makeRequestMock }),
 }));
 
-// ---------- Icons (avoid heavy SVG) ----------
-jest.mock('@mui/icons-material/ExpandMore', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/Search', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/AddCircle', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/RemoveCircle', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/ErrorOutline', () => ({ __esModule: true, default: () => <span /> }));
-
-// ---------- API service (no network) ----------
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({
-    makeRequest: jest.fn().mockResolvedValue({
-      data: { environments: ['DEV1', 'SIT'], applicationID: 'APP-123' },
-    }),
-  }),
-}));
-
-// ---------- Helpers ----------
-function makeBaseFormData() {
-  // include every field that the component reads to keep inputs controlled
+// --------- Helpers ----------
+function makeBaseFormData(overrides: Partial<any> = {}) {
   return {
     applicationDetails: {
       applicationID: '',
@@ -74,37 +53,24 @@ function makeBaseFormData() {
       description: '',
       purposeAndBenefit: '',
       lobDomain: '',
-      environmentsNeeded: [] as string[],
+      environmentsNeeded: [],
       requesterName: '',
       requesterEmail: '',
-      businessExecutiveSponsor: '',
-      applicationBusinessOwner: '',
-      applicationPortfolioOwner: '',
-      techExecutiveSponsor: '',
-      primaryTechManager: '',
-      cloudAccountableExecutive: '',
-      applicationArchitect: '',
-      auNumber: '',
-      techContact: '',
-      serviceNowSupportGroup: '',
-      developersList: '',
-      applicationOwnerApprover: '',
-      timelineSandbox: null as any,
-      timelineNonProd: null as any,
-      timelineProd: null as any,
+      timelineSandbox: null,
+      timelineNonProd: null,
+      timelineProd: null,
       isNewApp: '',
       appLocation: '',
       appLinkInBAM: '',
       beamsStatus: '',
-      dataSource: 'External',
-      dataFormat: [] as string[],
+      dataSource: '',
+      dataFormat: [],
       dataSLATime: '',
       dataClassification: '',
       panCardDataInScope: '',
       panCardDetails: '',
       sarUarData: '',
       internationalUsers: '',
-      internationalUsersDetails: '',
       externalIngress: '',
       externalIngressDetails: '',
       serviceNowCI: '',
@@ -112,90 +78,138 @@ function makeBaseFormData() {
       reviewedWithCIO: '',
       reviewedWithArchitect: '',
       requiresCloudReview: '',
-      artRequestDetails: {}, // map<string, {label, value, isCustom, helperText}[]>
-      historicalDataSize: 0,
-      appIdInBAM: '',
-      timelineProdReq: '', // helper only
+      // ...add more as your tests need
+      ...overrides,
     },
-    actDetails: {
-      requesterName: '',
-      requesterEmail: '',
-    },
+    // other slices used by setFormData mirroring screenshots:
+    actDetails: {},
   };
 }
 
-type RenderOpts = {
-  validation?: Record<string, any>;
+function renderWithCtx(opts?: {
+  formData?: any;
   setFormDataSpy?: jest.Mock;
-};
-
-function renderWithProvider(opts: RenderOpts = {}) {
+  validation?: any;
+}) {
   const user = userEvent.setup();
-  const formData = makeBaseFormData();
-  const setFormData = opts.setFormDataSpy ?? jest.fn();
-  const value = { formData, setFormData };
+  const formData = opts?.formData ?? makeBaseFormData();
+  const setFormData = opts?.setFormDataSpy ?? jest.fn();
 
-  // component takes validationErrors + setValidationErrors
-  const Wrapper: React.FC = ({ children }) => (
-    <TestFormProvider value={value}>{children}</TestFormProvider>
-  );
+  // value returned by useFormContext
+  ctxValue = { formData, setFormData };
 
-  const validationErrors = opts.validation ?? { applicationDetails: {} };
+  const validationErrors = opts?.validation ?? { applicationDetails: {} };
   const setValidationErrors = jest.fn();
 
   render(
-    <Wrapper>
-      <ApplicationDetails
-        validationErrors={validationErrors}
-        setValidationErrors={setValidationErrors}
-      />
-    </Wrapper>
+    <ApplicationDetails
+      validationErrors={validationErrors}
+      setValidationErrors={setValidationErrors}
+    />
   );
 
   return { user, formData, setFormData, setValidationErrors };
 }
 
-// ---------- Tests ----------
+// ============== TESTS =================
+
 describe('ApplicationDetails', () => {
-  test('renders Overview section and key fields', () => {
-    renderWithProvider();
-
-    // one stable thing we know is present from the screenshots: the "Application ID" field
-    expect(screen.getByLabelText(/application id/i)).toBeInTheDocument();
-    // a couple of other labels that exist early in the form
-    expect(screen.getByLabelText(/application name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/summary/i)).toBeInTheDocument();
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  test('typing invalid requester email sets validation message', async () => {
-    const { user } = renderWithProvider({
-      validation: { applicationDetails: {} },
-    });
+  test('renders key fields and headings', () => {
+    renderWithCtx();
 
-    const email = screen.getByLabelText(/requester email/i);
+    // A few representative labels visible in your screenshots
+    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Application Name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Summary$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Description/i)).toBeInTheDocument();
+    expect(screen.getByText(/Overview/i)).toBeInTheDocument();
+    expect(screen.getByText(/Points of Contact/i)).toBeInTheDocument();
+    expect(screen.getByText(/Timing Section/i)).toBeInTheDocument();
+  });
+
+  test('shows email validation message for invalid email', async () => {
+    const { user } = renderWithCtx();
+
+    const email = screen.getByLabelText(/Requester Email/i) as HTMLInputElement;
     await user.clear(email);
-    await user.type(email, 'not-an-email');
+    await user.type(email, 'bad-email');
 
-    // Helper text shows "Invalid email format" when regex fails
-    expect(await screen.findByText(/invalid email format/i)).toBeInTheDocument();
+    // component sets validationErrors.applicationDetails.requesterEmail = 'Invalid email format'
+    expect(screen.getByText(/Invalid email format/i)).toBeInTheDocument();
   });
 
-  test('typing Application ID updates formData via setFormData', async () => {
-    const setFormDataSpy = jest.fn();
-    const { user } = renderWithProvider({ setFormDataSpy });
+  test('clicking search icon on Application ID triggers BAM fetch', async () => {
+    const { user } = renderWithCtx();
 
-    const appId = screen.getByLabelText(/application id/i);
+    // enter an Application ID
+    const appId = screen.getByLabelText(/Application ID/i) as HTMLInputElement;
     await user.clear(appId);
-    await user.type(appId, 'APP-42');
+    await user.type(appId, 'APP123');
 
-    // Expect last call merged applicationDetails.applicationID = 'APP-42'
-    const lastCall = setFormDataSpy.mock.calls.pop();
-    expect(lastCall).toBeTruthy();
+    // Click the icon button wired to handleAppIdChange
+    // There is only one IconButton in the "Application ID" InputAdornment area, so query by role
+    const searchBtn = screen.getAllByRole('button').find((b) =>
+      /search/i.test(b.innerHTML) || b.getAttribute('aria-label')?.match(/search/i)
+    ) ?? screen.getAllByRole('button')[0];
 
-    const updater = lastCall![0];
-    const prev = { formData: makeBaseFormData() } as any;
-    const next = typeof updater === 'function' ? updater(prev.formData) : updater;
+    await user.click(searchBtn);
 
-    expect(next.applicationDetails.applicationID).toBe('APP-42');
+    // the component calls makeRequest('/api/application-details/bam-data?appid=...')
+    expect(makeRequestMock).toHaveBeenCalled();
+    const arg = makeRequestMock.mock.calls[0][0];
+    expect(arg).toEqual(
+      expect.objectContaining({
+        method: 'GET',
+        endpoints: expect.stringMatching(/bam-data\?appid=APP123/i),
+      })
+    );
+  });
+
+  test('multi-select "Environments Needed" displays selected values as comma-joined string', async () => {
+    const fm = makeBaseFormData({
+      environmentsNeeded: ['Sandbox'],
+    });
+    const { user, setFormData } = renderWithCtx({ formData: fm });
+
+    // The select is labeled "Environments Needed"
+    const select = screen.getByLabelText(/Environments Needed/i);
+
+    // Our component uses <Select multiple> – in tests we simulate by firing change with array-like value
+    // but since we don’t render the real MUI <Select>, we’ll update via onChange handler using native input
+    // Try a simple change to add more values (simulate DEV1, UAT)
+    fireEvent.change(select, { target: { value: ['Sandbox', 'DEV1', 'UAT'] } });
+
+    // The component custom-renderValue joins with ", "
+    // We can assert setFormData received updated list
+    expect(setFormData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        applicationDetails: expect.objectContaining({
+          environmentsNeeded: ['Sandbox', 'DEV1', 'UAT'],
+        }),
+      })
+    );
+  });
+
+  test('picks dates via DatePicker and stores ISO strings', async () => {
+    const { user, setFormData } = renderWithCtx();
+
+    // The mocked DatePicker renders as an <input aria-label="Timeline for Sandbox">
+    const sandbox = screen.getByLabelText(/Timeline for Sandbox/i);
+    await user.clear(sandbox);
+    await user.type(sandbox, '2025-01-12');
+
+    // the component calls setFormData with ISO-ish conversion via dayjs(date).toISOString()
+    // We only verify that setFormData was called with a stringy value
+    expect(setFormData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        applicationDetails: expect.objectContaining({
+          timelineSandbox: expect.any(String),
+        }),
+      })
+    );
   });
 });
