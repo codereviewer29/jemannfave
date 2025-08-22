@@ -1,25 +1,17 @@
 // src/sideNavbar/boarding/intake-components/saferoomIntakeForm.test.tsx
-
-// --- 1) Router hooks MUST be mocked BEFORE importing the component ---
-jest.mock('react-router-dom', () => ({
-  // keep only what this component needs
-  useSubmit: () => jest.fn(),
-  useNavigate: () => jest.fn(),
-}));
-
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// --- 2) Form context mock ---
+// ---- Form context mock ----
 const setFormData = jest.fn();
 const useFormContextMock = jest.fn();
-
 jest.mock('../FormContext', () => ({
   useFormContext: () => useFormContextMock(),
 }));
 
-// --- 3) MUI + icon stubs (minimal & a11y-friendly) ---
+// ---- MUI + icon stubs (lightweight) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children }: { children: React.ReactNode }) => <>{children}</>;
@@ -35,6 +27,7 @@ jest.mock('@mui/material', () => {
     </div>
   );
 
+  // Native <select> so we can interact
   const Select = ({ label, id, name, value, onChange, children, disabled }: any) => {
     const options = React.Children.toArray(children).map((n: any, i: number) => (
       <option key={i} value={n?.props?.value}>
@@ -77,21 +70,34 @@ jest.mock('@mui/icons-material/Info', () => ({
   default: () => <span data-testid="info-icon" />,
 }));
 
-// --- 4) Import SUT AFTER mocks ---
+// ---- Import SUT AFTER mocks ----
 import SaferoomIntakeForm from './saferoomIntakeForm';
 
-// --- Helpers ---
+// ---- Helpers ----
 const baseFormData = {
   cdpDetails: { versionCDPRequired: '' },
   safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
 };
+
+function renderWithDataRouter(ui: React.ReactElement) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/',
+        element: ui, // mount SUT inside a Data Router route
+      },
+    ],
+    { initialEntries: ['/'] }
+  );
+  return render(<RouterProvider router={router} />);
+}
 
 function setup(formData = baseFormData) {
   setFormData.mockClear();
   useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
 
   const user = userEvent.setup();
-  render(<SaferoomIntakeForm validationErrors={{}} />);
+  renderWithDataRouter(<SaferoomIntakeForm validationErrors={{}} />);
 
   const combo = screen.getByRole('combobox', {
     name: /select the saferoom data load capability/i,
@@ -99,7 +105,7 @@ function setup(formData = baseFormData) {
   return { user, combo, formData };
 }
 
-// --- Tests ---
+// ---- Tests ----
 describe('SaferoomIntakeForm', () => {
   test('renders overview text, section header, tooltip and icon', () => {
     setup();
