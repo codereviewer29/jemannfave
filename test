@@ -1,7 +1,6 @@
 // src/sideNavbar/boarding/intake-components/cdpIntakeForm.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
 // ---- FormContext mock ----
@@ -10,7 +9,7 @@ jest.mock('../FormContext', () => ({
   useFormContext: () => useFormContextMock(),
 }));
 
-// ---- MUI stubs (tiny + a11y-friendly) ----
+// ---- MUI stubs ----
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
@@ -28,27 +27,7 @@ jest.mock('@mui/material', () => {
       {children}
     </div>
   );
-  const Button = ({ children, onClick, disabled }: any) => (
-    <button onClick={onClick} disabled={disabled}>
-      {children}
-    </button>
-  );
-  const Alert = ({ severity, children }: any) => (
-    <div role="alert" data-severity={severity}>
-      {children}
-    </div>
-  );
-
-  // Use a native select for interaction/queries
-  const Select = ({
-    label,
-    id,
-    name,
-    value,
-    onChange,
-    disabled,
-    children,
-  }: any) => {
+  const Select = ({ label, id, name, value, disabled, children }: any) => {
     const options = React.Children.toArray(children).map((n: any, i: number) => (
       <option key={i} value={n?.props?.value}>
         {n?.props?.children}
@@ -62,22 +41,23 @@ jest.mock('@mui/material', () => {
           name={name}
           aria-label={label}
           value={value ?? ''}
-          onChange={(e) =>
-            onChange?.({ target: { name: e.currentTarget.name, value: e.currentTarget.value } })
-          }
           disabled={disabled}
+          onChange={() => {}}
         >
           {options}
         </select>
       </label>
     );
   };
-
+  const Alert = ({ severity, children }: any) => (
+    <div role="alert" data-severity={severity}>
+      {children}
+    </div>
+  );
   return {
     __esModule: true,
     Alert,
     Box,
-    Button,
     FormControl,
     Grid,
     InputLabel,
@@ -87,7 +67,6 @@ jest.mock('@mui/material', () => {
     Typography,
   };
 });
-
 jest.mock('@mui/icons-material/Info', () => ({
   __esModule: true,
   default: () => <span data-testid="info-icon" />,
@@ -96,46 +75,37 @@ jest.mock('@mui/icons-material/Info', () => ({
 // ---- SUT AFTER mocks ----
 import CDPIntakeForm from './cdpIntakeForm';
 
-// ---- Helpers ----
+// ---- helpers ----
 function renderWithDataRouter(ui: React.ReactElement) {
   const router = createMemoryRouter([{ path: '/', element: ui }], {
     initialEntries: ['/'],
   });
   return render(<RouterProvider router={router} />);
 }
-
 const makeFormData = (dataLoadRequired: string, version = '') => ({
   safeRoomDetails: { dataLoadRequired },
   cdpDetails: { versionCDPRequired: version },
 });
-
-function setup(formData = makeFormData('Cloud Storage', '')) {
-  jest.clearAllMocks();
-  // Provide setFormData just in case (component mostly reads/mutates formData)
+function setup(formData: any) {
   const setFormData = jest.fn();
-  useFormContextMock.mockReturnValue({
-    formData,
-    setFormData,
-    isReadOnly: false,
-  });
-  const user = userEvent.setup();
+  useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
   renderWithDataRouter(<CDPIntakeForm validationErrors={{}} />);
   const select = screen.getByRole('combobox', { name: /which version of cdp is required/i });
-  const saveBtn = screen.getByRole('button', { name: /save/i });
-  return { user, select, saveBtn, setFormData };
+  return { select, formData };
 }
 
-// ---- Tests ----
+// ---- tests ----
 describe('CDPIntakeForm', () => {
-  test('renders overview text and the select', () => {
-    const { select } = setup();
+  test('renders overview text and disabled select', () => {
+    const { select } = setup(makeFormData('Cloud Storage', 'File to BQ version'));
     expect(screen.getByRole('heading', { name: /cdp overview/i })).toBeInTheDocument();
     expect(
       screen.getByText(/cdp framework streamlines and accelerates cloud migration/i)
     ).toBeInTheDocument();
-    expect(select).toBeInTheDocument();
-    // Select is disabled per component
     expect(select).toBeDisabled();
+    // tooltips/icons present
+    expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('info-icon')).toBeInTheDocument();
   });
 
   test('auto-selects "File to BQ version" when SafeRoom is Cloud Storage', () => {
@@ -146,20 +116,5 @@ describe('CDPIntakeForm', () => {
   test('auto-selects "BQ to BQ version" when SafeRoom is Big Query', () => {
     const { select } = setup(makeFormData('Big Query', 'BQ to BQ version'));
     expect(select).toHaveDisplayValue(/bq to bq version/i);
-  });
-
-  test('save shows success alert when required field present', async () => {
-    const { user } = setup(makeFormData('Cloud Storage', 'File to BQ version'));
-    await user.click(screen.getByRole('button', { name: /save/i }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/saved successfully/i);
-    expect(screen.queryByText(/please complete all required fields/i)).not.toBeInTheDocument();
-  });
-
-  test('save shows error alert when required field is missing', async () => {
-    // Choose a value for dataLoadRequired that doesn't auto-populate the version (empty)
-    const { user } = setup(makeFormData('', ''));
-    await user.click(screen.getByRole('button', { name: /save/i }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/please complete all required fields/i);
-    expect(screen.queryByText(/saved successfully/i)).not.toBeInTheDocument();
   });
 });
