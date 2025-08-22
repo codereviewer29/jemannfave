@@ -1,100 +1,165 @@
-// src/sideNavbar/boarding/intake-components/confirmationOnboarding.test.tsx
+// src/sideNavbar/boarding/intake-components/cdpIntakeForm.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// ---- Minimal MUI stubs (Dialog shows children only when open) ----
+// ---- FormContext mock ----
+const useFormContextMock = jest.fn();
+jest.mock('../FormContext', () => ({
+  useFormContext: () => useFormContextMock(),
+}));
+
+// ---- MUI stubs (tiny + a11y-friendly) ----
 jest.mock('@mui/material', () => {
   const React = require('react');
+  const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+  const Box = Pass;
+  const Grid = Pass;
+  const FormControl = Pass;
+  const InputLabel = ({ htmlFor, children }: any) => (
+    <label htmlFor={htmlFor}>{children}</label>
+  );
+  const MenuItem = ({ children }: any) => <>{children}</>;
+  const Typography = ({ children }: any) => <div>{children}</div>;
+  const Tooltip = ({ title, children }: any) => (
+    <div>
+      <div data-testid="tooltip-title">{title}</div>
+      {children}
+    </div>
+  );
+  const Button = ({ children, onClick, disabled }: any) => (
+    <button onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  );
+  const Alert = ({ severity, children }: any) => (
+    <div role="alert" data-severity={severity}>
+      {children}
+    </div>
+  );
 
-  const Dialog = ({ open, onClose, children }: any) => (
-    <div data-testid="dialog">{open ? <div>{children}<button
-      aria-label="close-dialog"
-      onClick={() => onClose?.({}, 'backdropClick')}
-    /></div> : null}</div>
-  );
-  const DialogTitle = ({ children }: any) => <h2>{children}</h2>;
-  const DialogContent = ({ children }: any) => <div>{children}</div>;
-  const DialogContentText = ({ children }: any) => <p>{children}</p>;
-  const DialogActions = ({ children }: any) => <div>{children}</div>;
-  const Button = ({ children, onClick, ...rest }: any) => (
-    <button onClick={onClick} {...rest}>{children}</button>
-  );
+  // Use a native select for interaction/queries
+  const Select = ({
+    label,
+    id,
+    name,
+    value,
+    onChange,
+    disabled,
+    children,
+  }: any) => {
+    const options = React.Children.toArray(children).map((n: any, i: number) => (
+      <option key={i} value={n?.props?.value}>
+        {n?.props?.children}
+      </option>
+    ));
+    return (
+      <label htmlFor={id}>
+        {label}
+        <select
+          id={id}
+          name={name}
+          aria-label={label}
+          value={value ?? ''}
+          onChange={(e) =>
+            onChange?.({ target: { name: e.currentTarget.name, value: e.currentTarget.value } })
+          }
+          disabled={disabled}
+        >
+          {options}
+        </select>
+      </label>
+    );
+  };
 
   return {
     __esModule: true,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogContentText,
-    DialogActions,
+    Alert,
+    Box,
     Button,
+    FormControl,
+    Grid,
+    InputLabel,
+    MenuItem,
+    Select,
+    Tooltip,
+    Typography,
   };
 });
 
-// ---- SUT ----
-import ConfirmationOnboarding from './confirmationOnboarding';
+jest.mock('@mui/icons-material/Info', () => ({
+  __esModule: true,
+  default: () => <span data-testid="info-icon" />,
+}));
 
-describe('ConfirmationOnboarding', () => {
-  test('renders title, message and tracking id when open', () => {
-    const onConfirm = jest.fn();
-    render(
-      <ConfirmationOnboarding
-        intakeFormTrackingId={12345}
-        openConfirmSubmitDialog={true}
-        handleConfirmSubmit={onConfirm}
-      />
-    );
+// ---- SUT AFTER mocks ----
+import CDPIntakeForm from './cdpIntakeForm';
 
-    expect(screen.getByRole('heading', { name: /information/i })).toBeInTheDocument();
+// ---- Helpers ----
+function renderWithDataRouter(ui: React.ReactElement) {
+  const router = createMemoryRouter([{ path: '/', element: ui }], {
+    initialEntries: ['/'],
+  });
+  return render(<RouterProvider router={router} />);
+}
+
+const makeFormData = (dataLoadRequired: string, version = '') => ({
+  safeRoomDetails: { dataLoadRequired },
+  cdpDetails: { versionCDPRequired: version },
+});
+
+function setup(formData = makeFormData('Cloud Storage', '')) {
+  jest.clearAllMocks();
+  // Provide setFormData just in case (component mostly reads/mutates formData)
+  const setFormData = jest.fn();
+  useFormContextMock.mockReturnValue({
+    formData,
+    setFormData,
+    isReadOnly: false,
+  });
+  const user = userEvent.setup();
+  renderWithDataRouter(<CDPIntakeForm validationErrors={{}} />);
+  const select = screen.getByRole('combobox', { name: /which version of cdp is required/i });
+  const saveBtn = screen.getByRole('button', { name: /save/i });
+  return { user, select, saveBtn, setFormData };
+}
+
+// ---- Tests ----
+describe('CDPIntakeForm', () => {
+  test('renders overview text and the select', () => {
+    const { select } = setup();
+    expect(screen.getByRole('heading', { name: /cdp overview/i })).toBeInTheDocument();
     expect(
-      screen.getByText(/gcp provisioning form is submitted succesfully/i)
+      screen.getByText(/cdp framework streamlines and accelerates cloud migration/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/12345/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ok/i })).toBeInTheDocument();
+    expect(select).toBeInTheDocument();
+    // Select is disabled per component
+    expect(select).toBeDisabled();
   });
 
-  test('does not render dialog content when closed', () => {
-    const onConfirm = jest.fn();
-    render(
-      <ConfirmationOnboarding
-        intakeFormTrackingId={1}
-        openConfirmSubmitDialog={false}
-        handleConfirmSubmit={onConfirm}
-      />
-    );
-
-    expect(screen.queryByRole('heading', { name: /information/i })).not.toBeInTheDocument();
-    expect(screen.getByTestId('dialog')).toBeInTheDocument(); // container exists from stub
+  test('auto-selects "File to BQ version" when SafeRoom is Cloud Storage', () => {
+    const { select } = setup(makeFormData('Cloud Storage', 'File to BQ version'));
+    expect(select).toHaveDisplayValue(/file to bq version/i);
   });
 
-  test('clicking Ok calls handleConfirmSubmit', async () => {
-    const onConfirm = jest.fn();
-    const user = userEvent.setup();
-    render(
-      <ConfirmationOnboarding
-        intakeFormTrackingId={7}
-        openConfirmSubmitDialog={true}
-        handleConfirmSubmit={onConfirm}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: /ok/i }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+  test('auto-selects "BQ to BQ version" when SafeRoom is Big Query', () => {
+    const { select } = setup(makeFormData('Big Query', 'BQ to BQ version'));
+    expect(select).toHaveDisplayValue(/bq to bq version/i);
   });
 
-  test('closing the dialog triggers handleConfirmSubmit (onClose)', async () => {
-    const onConfirm = jest.fn();
-    const user = userEvent.setup();
-    render(
-      <ConfirmationOnboarding
-        intakeFormTrackingId={99}
-        openConfirmSubmitDialog={true}
-        handleConfirmSubmit={onConfirm}
-      />
-    );
+  test('save shows success alert when required field present', async () => {
+    const { user } = setup(makeFormData('Cloud Storage', 'File to BQ version'));
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/saved successfully/i);
+    expect(screen.queryByText(/please complete all required fields/i)).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole('button', { name: /close-dialog/i }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+  test('save shows error alert when required field is missing', async () => {
+    // Choose a value for dataLoadRequired that doesn't auto-populate the version (empty)
+    const { user } = setup(makeFormData('', ''));
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/please complete all required fields/i);
+    expect(screen.queryByText(/saved successfully/i)).not.toBeInTheDocument();
   });
 });
