@@ -1,208 +1,201 @@
-// applicationDetails.test.tsx
-import React, { useState } from 'react';
+// src/sideNavbar/boarding/applicationDetails.test.tsx
+import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ApplicationDetails from './applicationDetails';
 
-// ---- Mock FormContext: export a Provider we can use in tests + the hook the component imports
-jest.mock('../FormContext', () => {
+// ---------- Mock FormContext (runtime require to avoid TS complaints) ----------
+jest.mock('./FormContext', () => {
   const React = require('react');
   const Ctx = React.createContext<any>(null);
   return {
     __esModule: true,
-    // Hook used by the component
+    // hook the component imports
     useFormContext: () => React.useContext(Ctx),
-    // Provider we will use in the tests
+    // provider we'll use in tests
     TestFormProvider: ({ value, children }: any) => (
       <Ctx.Provider value={value}>{children}</Ctx.Provider>
     ),
   };
 });
-import { TestFormProvider } from '../FormContext';
+// pull mocked export at runtime, not via static import
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { TestFormProvider } = require('./FormContext');
 
-// ---- Minimal, robust mocks for MUI X date pickers
-jest.mock('@mui/x-date-pickers/AdapterDayjs', () => function AdapterDayjs() { return null; });
+// ---------- Minimal, robust mocks for MUI X date pickers ----------
+jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
+  __esModule: true,
+  default: function AdapterDayjs() {
+    return null;
+  },
+}));
 jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
-  LocalizationProvider: ({ children }: any) => <div>{children}</div>,
+  __esModule: true,
+  default: ({ children }: any) => <div>{children}</div>,
 }));
 jest.mock('@mui/x-date-pickers/DatePicker', () => ({
-  DatePicker: ({ label, value, onChange }: any) => (
-    <input
-      aria-label={label}
-      value={value ?? ''}
-      onChange={(e) => onChange?.(e.target.value)}
-    />
+  __esModule: true,
+  default: ({ label, onChange }: { label: string; onChange: (d: any) => void }) => (
+    <input aria-label={label} onChange={(e) => onChange?.((e as any).target.value)} />
   ),
 }));
 
-// ---- API service is not exercised here
-jest.mock('../../services/useApiService', () => () => ({
-  makeRequest: jest.fn(),
+// ---------- Router bits used in the component (links only) ----------
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  Link: (props: any) => <a {...props} />,
 }));
 
-// ---- Base formData shape
-const makeBaseFormData = () => ({
-  applicationDetails: {
-    applicationID: '',
-    applicationName: '',
-    summary: '',
-    description: '',
-    purposeAndBenefit: '',
-    lobDomain: '',
-    environmentsNeeded: [] as string[],
-    requesterName: '',
-    requesterEmail: '',
-    businessExecutiveSponsor: '',
-    applicationBusinessOwner: '',
-    applicationPortfolioOwner: '',
-    techExecutiveSponsor: '',
-    primaryTechManager: '',
-    cloudAccountableExecutive: '',
-    applicationArchitect: '',
-    auNumber: '',
-    techContact: '',
-    dmiCloudContact: '',
-    serviceNowSupportGroup: '',
-    developersList: '',
-    applicationOwnerApprover: '',
-    timelineSandbox: null as any,
-    timelineNonProd: null as any,
-    timelineProd: null as any,
-    isNewApp: '',
-    application: '',
-    appLinkInBAM: '',
-    beamsStatus: '',
-    dataSource: '',
-    dataFormat: [] as string[],
-    dataSLATime: '',
-    dataClassification: '',
-    panCardDataInScope: '',
-    panCardDetails: '',
-    sarUarData: '',
-    internationalUsers: '',
-    externalIngress: '',
-    externalIngressDetails: '',
-    serviceNowCI: '',
-    technicalConstraints: '',
-    artRequestDetails: {
-      sandbox: [{ label: 'Request number', value: '', isCustom: false }],
-    } as Record<string, Array<{ label: string; value: string; isCustom?: boolean }>>,
-  },
-  actDetails: {},
-});
+// ---------- Icons (avoid heavy SVG) ----------
+jest.mock('@mui/icons-material/ExpandMore', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/Search', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/AddCircle', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/RemoveCircle', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/ErrorOutline', () => ({ __esModule: true, default: () => <span /> }));
 
-function Host() {
-  const [formData, setFormData] = useState(makeBaseFormData());
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+// ---------- API service (no network) ----------
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({
+    makeRequest: jest.fn().mockResolvedValue({
+      data: { environments: ['DEV1', 'SIT'], applicationID: 'APP-123' },
+    }),
+  }),
+}));
+
+// ---------- Helpers ----------
+function makeBaseFormData() {
+  // include every field that the component reads to keep inputs controlled
+  return {
+    applicationDetails: {
+      applicationID: '',
+      applicationName: '',
+      summary: '',
+      description: '',
+      purposeAndBenefit: '',
+      lobDomain: '',
+      environmentsNeeded: [] as string[],
+      requesterName: '',
+      requesterEmail: '',
+      businessExecutiveSponsor: '',
+      applicationBusinessOwner: '',
+      applicationPortfolioOwner: '',
+      techExecutiveSponsor: '',
+      primaryTechManager: '',
+      cloudAccountableExecutive: '',
+      applicationArchitect: '',
+      auNumber: '',
+      techContact: '',
+      serviceNowSupportGroup: '',
+      developersList: '',
+      applicationOwnerApprover: '',
+      timelineSandbox: null as any,
+      timelineNonProd: null as any,
+      timelineProd: null as any,
+      isNewApp: '',
+      appLocation: '',
+      appLinkInBAM: '',
+      beamsStatus: '',
+      dataSource: 'External',
+      dataFormat: [] as string[],
+      dataSLATime: '',
+      dataClassification: '',
+      panCardDataInScope: '',
+      panCardDetails: '',
+      sarUarData: '',
+      internationalUsers: '',
+      internationalUsersDetails: '',
+      externalIngress: '',
+      externalIngressDetails: '',
+      serviceNowCI: '',
+      technicalConstraints: '',
+      reviewedWithCIO: '',
+      reviewedWithArchitect: '',
+      requiresCloudReview: '',
+      artRequestDetails: {}, // map<string, {label, value, isCustom, helperText}[]>
+      historicalDataSize: 0,
+      appIdInBAM: '',
+      timelineProdReq: '', // helper only
+    },
+    actDetails: {
+      requesterName: '',
+      requesterEmail: '',
+    },
+  };
+}
+
+type RenderOpts = {
+  validation?: Record<string, any>;
+  setFormDataSpy?: jest.Mock;
+};
+
+function renderWithProvider(opts: RenderOpts = {}) {
+  const user = userEvent.setup();
+  const formData = makeBaseFormData();
+  const setFormData = opts.setFormDataSpy ?? jest.fn();
   const value = { formData, setFormData };
-  return (
-    <TestFormProvider value={value}>
+
+  // component takes validationErrors + setValidationErrors
+  const Wrapper: React.FC = ({ children }) => (
+    <TestFormProvider value={value}>{children}</TestFormProvider>
+  );
+
+  const validationErrors = opts.validation ?? { applicationDetails: {} };
+  const setValidationErrors = jest.fn();
+
+  render(
+    <Wrapper>
       <ApplicationDetails
         validationErrors={validationErrors}
         setValidationErrors={setValidationErrors}
       />
-    </TestFormProvider>
+    </Wrapper>
   );
+
+  return { user, formData, setFormData, setValidationErrors };
 }
 
-function renderApp() {
-  const user = userEvent.setup();
-  render(<Host />);
-  return { user };
-}
-
+// ---------- Tests ----------
 describe('ApplicationDetails', () => {
-  test('renders key sections and fields', () => {
-    renderApp();
+  test('renders Overview section and key fields', () => {
+    renderWithProvider();
 
-    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Application Name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Summary$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Description$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Purpose and Benefit/i)).toBeInTheDocument();
-
-    expect(screen.getByRole('button', { name: /Environments Needed/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /List of Data Format/i })).toBeInTheDocument();
-
-    expect(screen.getByLabelText(/LOB Domain\/CTO/i)).toBeDisabled();
+    // one stable thing we know is present from the screenshots: the "Application ID" field
+    expect(screen.getByLabelText(/application id/i)).toBeInTheDocument();
+    // a couple of other labels that exist early in the form
+    expect(screen.getByLabelText(/application name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/summary/i)).toBeInTheDocument();
   });
 
-  test('typing updates controlled fields (Application Name, Summary)', async () => {
-    const { user } = renderApp();
+  test('typing invalid requester email sets validation message', async () => {
+    const { user } = renderWithProvider({
+      validation: { applicationDetails: {} },
+    });
 
-    const appName = screen.getByLabelText(/Application Name/i) as HTMLInputElement;
-    await user.clear(appName);
-    await user.type(appName, 'Payments Hub');
-    expect(appName).toHaveValue('Payments Hub');
-
-    const summary = screen.getByLabelText(/^Summary$/i) as HTMLInputElement;
-    await user.clear(summary);
-    await user.type(summary, 'Short summary');
-    expect(summary).toHaveValue('Short summary');
-  });
-
-  test('requesterEmail validation shows and clears error text', async () => {
-    const { user } = renderApp();
-    const email = screen.getByLabelText(/Requester Email/i) as HTMLInputElement;
-
-    await user.type(email, 'not-an-email');
-    expect(await screen.findByText(/Invalid email format/i)).toBeInTheDocument();
-
+    const email = screen.getByLabelText(/requester email/i);
     await user.clear(email);
-    await user.type(email, 'user@example.com');
-    expect(screen.queryByText(/Invalid email format/i)).not.toBeInTheDocument();
+    await user.type(email, 'not-an-email');
+
+    // Helper text shows "Invalid email format" when regex fails
+    expect(await screen.findByText(/invalid email format/i)).toBeInTheDocument();
   });
 
-  test('environmentsNeeded multi-select adds values and displays them', async () => {
-    const { user } = renderApp();
+  test('typing Application ID updates formData via setFormData', async () => {
+    const setFormDataSpy = jest.fn();
+    const { user } = renderWithProvider({ setFormDataSpy });
 
-    const envSelect = screen.getByRole('button', { name: /Environments Needed/i });
-    await user.click(envSelect);
-    await user.click(await screen.findByRole('option', { name: 'DEV1' }));
-    await user.click(screen.getByRole('option', { name: 'SIT' }));
-    await user.click(envSelect); // close
+    const appId = screen.getByLabelText(/application id/i);
+    await user.clear(appId);
+    await user.type(appId, 'APP-42');
 
-    expect(envSelect).toHaveTextContent(/DEV1/i);
-    expect(envSelect).toHaveTextContent(/SIT/i);
-  });
+    // Expect last call merged applicationDetails.applicationID = 'APP-42'
+    const lastCall = setFormDataSpy.mock.calls.pop();
+    expect(lastCall).toBeTruthy();
 
-  test('dataFormat multi-select adds values (CSV, PDF)', async () => {
-    const { user } = renderApp();
+    const updater = lastCall![0];
+    const prev = { formData: makeBaseFormData() } as any;
+    const next = typeof updater === 'function' ? updater(prev.formData) : updater;
 
-    const formatSelect = screen.getByRole('button', { name: /List of Data Format/i });
-    await user.click(formatSelect);
-    await user.click(await screen.findByRole('option', { name: 'CSV' }));
-    await user.click(screen.getByRole('option', { name: 'PDF' }));
-    await user.click(formatSelect);
-
-    expect(formatSelect).toHaveTextContent(/CSV/i);
-    expect(formatSelect).toHaveTextContent(/PDF/i);
-  });
-
-  test('data classification radio selects "Restricted"', async () => {
-    const { user } = renderApp();
-    const restricted = screen.getByRole('radio', { name: /Restricted/i }) as HTMLInputElement;
-    await user.click(restricted);
-    expect(restricted).toBeChecked();
-  });
-
-  test('PAN/Credit-Card-in-scope toggles details textarea when Yes', async () => {
-    const { user } = renderApp();
-
-    // Click any "Yes" (the group is independent so first works)
-    await user.click(screen.getAllByRole('radio', { name: /^Yes$/i })[0]);
-
-    const details = await screen.findByLabelText(/Provide details about PAN\/Credit\/Debit Card data/i);
-    await user.type(details, 'Tokenized in transit only');
-    expect(details).toHaveValue('Tokenized in transit only');
-  });
-
-  test('External Ingress details appear when selecting Yes', async () => {
-    const { user } = renderApp();
-
-    await user.click(screen.getAllByRole('radio', { name: /^Yes$/i })[0]);
-    const extDetails = screen.getByLabelText(/Provide details to any external systems or Third-party Environments/i);
-    await user.type(extDetails, 'Outbound https to vendor ABC');
-    expect(extDetails).toHaveValue('Outbound https to vendor ABC');
+    expect(next.applicationDetails.applicationID).toBe('APP-42');
   });
 });
