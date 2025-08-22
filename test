@@ -1,11 +1,26 @@
 // applicationDetails.test.tsx
 import React, { useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ApplicationDetails from './applicationDetails';
-import { FormContext } from '../FormContext';
 
-// ---- Minimal, robust mocks for MUI X date pickers (we don't verify them here)
+// ---- Mock FormContext: export a Provider we can use in tests + the hook the component imports
+jest.mock('../FormContext', () => {
+  const React = require('react');
+  const Ctx = React.createContext<any>(null);
+  return {
+    __esModule: true,
+    // Hook used by the component
+    useFormContext: () => React.useContext(Ctx),
+    // Provider we will use in the tests
+    TestFormProvider: ({ value, children }: any) => (
+      <Ctx.Provider value={value}>{children}</Ctx.Provider>
+    ),
+  };
+});
+import { TestFormProvider } from '../FormContext';
+
+// ---- Minimal, robust mocks for MUI X date pickers
 jest.mock('@mui/x-date-pickers/AdapterDayjs', () => function AdapterDayjs() { return null; });
 jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
   LocalizationProvider: ({ children }: any) => <div>{children}</div>,
@@ -20,24 +35,21 @@ jest.mock('@mui/x-date-pickers/DatePicker', () => ({
   ),
 }));
 
-// ---- API hook is present but we won't hit the network in these tests
+// ---- API service is not exercised here
 jest.mock('../../services/useApiService', () => () => ({
   makeRequest: jest.fn(),
 }));
 
-/** Shape the component expects inside FormContext */
+// ---- Base formData shape
 const makeBaseFormData = () => ({
   applicationDetails: {
-    // Overview
     applicationID: '',
     applicationName: '',
     summary: '',
     description: '',
     purposeAndBenefit: '',
     lobDomain: '',
-    // Environments (multi-select)
     environmentsNeeded: [] as string[],
-    // POC
     requesterName: '',
     requesterEmail: '',
     businessExecutiveSponsor: '',
@@ -53,20 +65,16 @@ const makeBaseFormData = () => ({
     serviceNowSupportGroup: '',
     developersList: '',
     applicationOwnerApprover: '',
-    // Timing (date pickers)
     timelineSandbox: null as any,
     timelineNonProd: null as any,
     timelineProd: null as any,
-    // Planned/existing app info
     isNewApp: '',
     application: '',
     appLinkInBAM: '',
     beamsStatus: '',
     dataSource: '',
-    // List of Data Format (multi-select)
     dataFormat: [] as string[],
     dataSLATime: '',
-    // Classification and special-data sections
     dataClassification: '',
     panCardDataInScope: '',
     panCardDetails: '',
@@ -74,10 +82,8 @@ const makeBaseFormData = () => ({
     internationalUsers: '',
     externalIngress: '',
     externalIngressDetails: '',
-    // Servicenow / constraints
     serviceNowCI: '',
     technicalConstraints: '',
-    // ART Request Details
     artRequestDetails: {
       sandbox: [{ label: 'Request number', value: '', isCustom: false }],
     } as Record<string, Array<{ label: string; value: string; isCustom?: boolean }>>,
@@ -85,18 +91,17 @@ const makeBaseFormData = () => ({
   actDetails: {},
 });
 
-/** Small host that keeps real state so setFormData/setValidationErrors cause rerenders */
 function Host() {
   const [formData, setFormData] = useState(makeBaseFormData());
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-
+  const value = { formData, setFormData };
   return (
-    <FormContext.Provider value={{ formData, setFormData }}>
+    <TestFormProvider value={value}>
       <ApplicationDetails
         validationErrors={validationErrors}
         setValidationErrors={setValidationErrors}
       />
-    </FormContext.Provider>
+    </TestFormProvider>
   );
 }
 
@@ -110,22 +115,15 @@ describe('ApplicationDetails', () => {
   test('renders key sections and fields', () => {
     renderApp();
 
-    // Overview section inputs
     expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Application Name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Summary$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Description$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Purpose and Benefit/i)).toBeInTheDocument();
 
-    // Multi-selects are rendered as buttons by MUI
-    expect(
-      screen.getByRole('button', { name: /Environments Needed/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /List of Data Format/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Environments Needed/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /List of Data Format/i })).toBeInTheDocument();
 
-    // A required/disabled field from the read-only list
     expect(screen.getByLabelText(/LOB Domain\/CTO/i)).toBeDisabled();
   });
 
@@ -145,15 +143,11 @@ describe('ApplicationDetails', () => {
 
   test('requesterEmail validation shows and clears error text', async () => {
     const { user } = renderApp();
-
     const email = screen.getByLabelText(/Requester Email/i) as HTMLInputElement;
 
-    // Type invalid first -> component should set a validation error via prop setter
     await user.type(email, 'not-an-email');
-    // error helper text from component state should appear after setValidationErrors runs
     expect(await screen.findByText(/Invalid email format/i)).toBeInTheDocument();
 
-    // Now fix the email -> error should disappear
     await user.clear(email);
     await user.type(email, 'user@example.com');
     expect(screen.queryByText(/Invalid email format/i)).not.toBeInTheDocument();
@@ -162,18 +156,12 @@ describe('ApplicationDetails', () => {
   test('environmentsNeeded multi-select adds values and displays them', async () => {
     const { user } = renderApp();
 
-    // Open the select
     const envSelect = screen.getByRole('button', { name: /Environments Needed/i });
     await user.click(envSelect);
-
-    // Choose DEV1 and SIT
     await user.click(await screen.findByRole('option', { name: 'DEV1' }));
     await user.click(screen.getByRole('option', { name: 'SIT' }));
+    await user.click(envSelect); // close
 
-    // Close the listbox (click away on the trigger again)
-    await user.click(envSelect);
-
-    // MUI renderValue shows selected values joined by ', '
     expect(envSelect).toHaveTextContent(/DEV1/i);
     expect(envSelect).toHaveTextContent(/SIT/i);
   });
@@ -183,47 +171,36 @@ describe('ApplicationDetails', () => {
 
     const formatSelect = screen.getByRole('button', { name: /List of Data Format/i });
     await user.click(formatSelect);
-
     await user.click(await screen.findByRole('option', { name: 'CSV' }));
     await user.click(screen.getByRole('option', { name: 'PDF' }));
+    await user.click(formatSelect);
 
-    await user.click(formatSelect); // close
     expect(formatSelect).toHaveTextContent(/CSV/i);
     expect(formatSelect).toHaveTextContent(/PDF/i);
   });
 
   test('data classification radio selects "Restricted"', async () => {
     const { user } = renderApp();
-
-    // Unique label within the classification group
     const restricted = screen.getByRole('radio', { name: /Restricted/i }) as HTMLInputElement;
     await user.click(restricted);
     expect(restricted).toBeChecked();
   });
 
-  test('PAN/Credit-Card-in-scope toggles a details textarea when set to Yes', async () => {
+  test('PAN/Credit-Card-in-scope toggles details textarea when Yes', async () => {
     const { user } = renderApp();
 
-    const yesRadio = screen.getByRole('radio', { name: /^Yes$/i, exact: false });
-    // Multiple "Yes" radios exist; choose the one near the PAN question by clicking the label element
-    // Click the one that appears before the "Provide details about PAN..." field
-    await user.click(yesRadio); // acceptable for RTL since radios are independent
+    // Click any "Yes" (the group is independent so first works)
+    await user.click(screen.getAllByRole('radio', { name: /^Yes$/i })[0]);
 
-    // The conditional textarea is labeled "Provide details about PAN/Credit/Debit Card data"
     const details = await screen.findByLabelText(/Provide details about PAN\/Credit\/Debit Card data/i);
     await user.type(details, 'Tokenized in transit only');
     expect(details).toHaveValue('Tokenized in transit only');
   });
 
-  test('external ingress details field appears when selecting "Yes" in External Ingress group', async () => {
+  test('External Ingress details appear when selecting Yes', async () => {
     const { user } = renderApp();
 
-    // This group has a unique details label we can assert on
-    // First click Yes in one of the Yes/No radios (the one in this section becomes checked)
-    const yes = screen.getAllByRole('radio', { name: /^Yes$/i })[0];
-    await user.click(yes);
-
-    // Now the details textarea exists; fill it
+    await user.click(screen.getAllByRole('radio', { name: /^Yes$/i })[0]);
     const extDetails = screen.getByLabelText(/Provide details to any external systems or Third-party Environments/i);
     await user.type(extDetails, 'Outbound https to vendor ABC');
     expect(extDetails).toHaveValue('Outbound https to vendor ABC');
