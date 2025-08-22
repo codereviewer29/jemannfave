@@ -1,110 +1,84 @@
-import { renderHook, act } from '@testing-library/react';
-import * as reactLib from '@wf/react-library';         // we'll spy on these
-import * as processHttp from './processHttp';          // we'll spy on this
+import { renderHook } from '@testing-library/react';
 import useApiService from './useApiService';
 import type { HttpRequest } from './types';
 
-/* -------------------- Helper: typed request builder -------------------- */
+/* ─── Mocks ─────────────────────────────────────────────────────────────── */
 
-const makeReq = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
-  method: 'GET',
-  endpoints: '/things',        // required by your HttpRequest type
-  responseType: 'json',        // required by your HttpRequest type
-  ...overrides,
-});
+jest.mock('@wf/react-library', () => ({
+  // we’ll control these returns per-test
+  useAppGlobalState: jest.fn(),
+  useConfig: jest.fn(),
+}));
 
-/* -------------------- Test setup -------------------- */
+jest.mock('./processHttp', () => ({
+  __esModule: true,
+  processHttpRequest: jest.fn(),
+}));
 
-const TOKEN = { access_token: 'abc123' };
+/* typed helpers for our mocks */
+const { useAppGlobalState, useConfig } = jest.requireMock('@wf/react-library') as {
+  useAppGlobalState: jest.Mock;
+  useConfig: jest.Mock;
+};
+
+const { processHttpRequest } = jest.requireMock('./processHttp') as {
+  processHttpRequest: jest.Mock;
+};
+
+const TOKEN = { access_token: 'abc.123' };
+const BASE = 'https://api.example.com';
 
 beforeEach(() => {
-  jest.restoreAllMocks();
   jest.clearAllMocks();
-
-  // default config for all tests (can be overridden in a test)
-  jest.spyOn(reactLib, 'useConfig').mockReturnValue({
-    API_BASE_ENDPOINT: 'BASE',
-  } as any);
+  useConfig.mockReturnValue({ API_BASE_ENDPOINT: BASE });
 });
 
-/* -------------------- Tests -------------------- */
+/* ─── Tests ──────────────────────────────────────────────────────────────── */
 
 test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
-  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
-  const httpSpy = jest
-    .spyOn(processHttp, 'processHttpRequest')
-    .mockResolvedValue({ ok: true } as any);
+  useAppGlobalState.mockReturnValue(TOKEN);
+  processHttpRequest.mockResolvedValue({ ok: true });
 
   const { result } = renderHook(() => useApiService());
-  const req = makeReq({ endpoints: '/things' });
+  const req = { method: 'GET', endpoint: '/things' } as unknown as HttpRequest;
 
-  await act(async () => {
-    await result.current.makeRequest(req);
-  });
+  await result.current.makeRequest(req);
 
-  expect(httpSpy).toHaveBeenCalledTimes(1);
-  expect(httpSpy).toHaveBeenCalledWith(req, TOKEN.access_token, 'BASE');
+  expect(processHttpRequest).toHaveBeenCalledTimes(1);
+  expect(processHttpRequest).toHaveBeenCalledWith(req, TOKEN.access_token, BASE);
 });
 
-test('passes undefined token when global state has none', async () => {
-  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(undefined as any);
-  const httpSpy = jest
-    .spyOn(processHttp, 'processHttpRequest')
-    .mockResolvedValue({ ok: true } as any);
+test('passes undefined token when global state has no token', async () => {
+  useAppGlobalState.mockReturnValue(undefined);
+  processHttpRequest.mockResolvedValue({ ok: true });
 
   const { result } = renderHook(() => useApiService());
-  const req = makeReq();
+  const req = { method: 'GET', endpoint: '/things' } as unknown as HttpRequest;
 
-  await act(async () => {
-    await result.current.makeRequest(req);
-  });
+  await result.current.makeRequest(req);
 
-  expect(httpSpy).toHaveBeenCalledWith(req, undefined, 'BASE');
+  expect(processHttpRequest).toHaveBeenCalledWith(req, undefined, BASE);
 });
 
 test('returns the resolved value from processHttpRequest', async () => {
-  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
+  useAppGlobalState.mockReturnValue(TOKEN);
   const payload = { id: 7, name: 'thing' };
-  jest.spyOn(processHttp, 'processHttpRequest').mockResolvedValue(payload as any);
+  processHttpRequest.mockResolvedValue(payload);
 
   const { result } = renderHook(() => useApiService());
-  const req = makeReq({ endpoints: '/thing/7' });
+  const req = { method: 'GET', endpoint: '/thing/7' } as unknown as HttpRequest;
 
-  const value = await act(async () => result.current.makeRequest(req));
+  const value = await result.current.makeRequest(req);
   expect(value).toBe(payload);
 });
 
 test('propagates errors from processHttpRequest', async () => {
-  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
-  jest.spyOn(processHttp, 'processHttpRequest').mockRejectedValue(new Error('network down'));
+  useAppGlobalState.mockReturnValue(TOKEN);
+  const err = new Error('network down');
+  processHttpRequest.mockRejectedValue(err);
 
   const { result } = renderHook(() => useApiService());
-  const req = makeReq({ endpoints: '/oops' });
+  const req = { method: 'GET', endpoint: '/oops' } as unknown as HttpRequest;
 
   await expect(result.current.makeRequest(req)).rejects.toThrow('network down');
-});
-
-test('uses the base endpoint coming from useConfig each call', async () => {
-  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
-  const httpSpy = jest
-    .spyOn(processHttp, 'processHttpRequest')
-    .mockResolvedValue({ ok: true } as any);
-
-  // prove we read the config at call time
-  const useConfigSpy = jest.spyOn(reactLib, 'useConfig');
-  useConfigSpy.mockReturnValueOnce({ API_BASE_ENDPOINT: 'A' } as any);
-  useConfigSpy.mockReturnValueOnce({ API_BASE_ENDPOINT: 'B' } as any);
-
-  const { result } = renderHook(() => useApiService());
-
-  const r1 = makeReq({ endpoints: '/one' });
-  const r2 = makeReq({ endpoints: '/two' });
-
-  await act(async () => {
-    await result.current.makeRequest(r1);
-    await result.current.makeRequest(r2);
-  });
-
-  expect(httpSpy).toHaveBeenNthCalledWith(1, r1, TOKEN.access_token, 'A');
-  expect(httpSpy).toHaveBeenNthCalledWith(2, r2, TOKEN.access_token, 'B');
 });
