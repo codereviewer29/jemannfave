@@ -1,54 +1,39 @@
 import { renderHook, act } from '@testing-library/react';
+import * as reactLib from '@wf/react-library';         // we'll spy on these
+import * as processHttp from './processHttp';          // we'll spy on this
 import useApiService from './useApiService';
 import type { HttpRequest } from './types';
 
-/* -------------------- Mocks -------------------- */
+/* -------------------- Helper: typed request builder -------------------- */
 
-// @wf/react-library: only the hooks we use
-jest.mock('@wf/react-library', () => ({
-  useAppGlobalState: jest.fn(),
-  useConfig: jest.fn(),
-}));
-const useAppGlobalStateMock = jest.requireMock('@wf/react-library')
-  .useAppGlobalState as jest.Mock;
-const useConfigMock = jest.requireMock('@wf/react-library')
-  .useConfig as jest.Mock;
-
-// processHttp: named export processHttpRequest
-jest.mock('./processHttp', () => ({
-  processHttpRequest: jest.fn(),
-}));
-const processHttpRequestMock = jest.requireMock('./processHttp')
-  .processHttpRequest as jest.Mock;
-
-/* -------------------- Helpers -------------------- */
-
-// Build a fully-typed HttpRequest with sensible defaults.
-// NOTE: Your app’s type requires `endpoints` and `responseType`.
 const makeReq = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
   method: 'GET',
-  endpoints: '/things',
-  // keep this for any legacy reads in code/tests (harmless if unused)
-  // @ts-expect-error retain single 'endpoint' for compatibility
-  endpoint: '/things',
-  responseType: 'json',
+  endpoints: '/things',        // required by your HttpRequest type
+  responseType: 'json',        // required by your HttpRequest type
   ...overrides,
 });
 
+/* -------------------- Test setup -------------------- */
+
 const TOKEN = { access_token: 'abc123' };
-const BASE = 'BASE';
 
 beforeEach(() => {
+  jest.restoreAllMocks();
   jest.clearAllMocks();
-  // default env
-  useConfigMock.mockReturnValue({ API_BASE_ENDPOINT: BASE });
+
+  // default config for all tests (can be overridden in a test)
+  jest.spyOn(reactLib, 'useConfig').mockReturnValue({
+    API_BASE_ENDPOINT: 'BASE',
+  } as any);
 });
 
 /* -------------------- Tests -------------------- */
 
 test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
-  useAppGlobalStateMock.mockReturnValue(TOKEN);
-  processHttpRequestMock.mockResolvedValue({ ok: true });
+  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
+  const httpSpy = jest
+    .spyOn(processHttp, 'processHttpRequest')
+    .mockResolvedValue({ ok: true } as any);
 
   const { result } = renderHook(() => useApiService());
   const req = makeReq({ endpoints: '/things' });
@@ -57,13 +42,15 @@ test('calls processHttpRequest with (request, access_token, baseEndpoint)', asyn
     await result.current.makeRequest(req);
   });
 
-  expect(processHttpRequestMock).toHaveBeenCalledTimes(1);
-  expect(processHttpRequestMock).toHaveBeenCalledWith(req, TOKEN.access_token, BASE);
+  expect(httpSpy).toHaveBeenCalledTimes(1);
+  expect(httpSpy).toHaveBeenCalledWith(req, TOKEN.access_token, 'BASE');
 });
 
-test('passes undefined token when global state does not have one', async () => {
-  useAppGlobalStateMock.mockReturnValue(undefined);
-  processHttpRequestMock.mockResolvedValue({ ok: true });
+test('passes undefined token when global state has none', async () => {
+  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(undefined as any);
+  const httpSpy = jest
+    .spyOn(processHttp, 'processHttpRequest')
+    .mockResolvedValue({ ok: true } as any);
 
   const { result } = renderHook(() => useApiService());
   const req = makeReq();
@@ -72,27 +59,24 @@ test('passes undefined token when global state does not have one', async () => {
     await result.current.makeRequest(req);
   });
 
-  expect(processHttpRequestMock).toHaveBeenCalledWith(req, undefined, BASE);
+  expect(httpSpy).toHaveBeenCalledWith(req, undefined, 'BASE');
 });
 
 test('returns the resolved value from processHttpRequest', async () => {
-  useAppGlobalStateMock.mockReturnValue(TOKEN);
+  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
   const payload = { id: 7, name: 'thing' };
-  processHttpRequestMock.mockResolvedValue(payload);
+  jest.spyOn(processHttp, 'processHttpRequest').mockResolvedValue(payload as any);
 
   const { result } = renderHook(() => useApiService());
   const req = makeReq({ endpoints: '/thing/7' });
 
-  // act returns whatever the callback returns; await directly for clarity
   const value = await act(async () => result.current.makeRequest(req));
-
   expect(value).toBe(payload);
 });
 
 test('propagates errors from processHttpRequest', async () => {
-  useAppGlobalStateMock.mockReturnValue(TOKEN);
-  const err = new Error('network down');
-  processHttpRequestMock.mockRejectedValue(err);
+  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
+  jest.spyOn(processHttp, 'processHttpRequest').mockRejectedValue(new Error('network down'));
 
   const { result } = renderHook(() => useApiService());
   const req = makeReq({ endpoints: '/oops' });
@@ -100,14 +84,19 @@ test('propagates errors from processHttpRequest', async () => {
   await expect(result.current.makeRequest(req)).rejects.toThrow('network down');
 });
 
-test('uses base endpoint from useConfig each call', async () => {
-  // prove we read fresh config (not cached in test)
-  useConfigMock.mockReturnValueOnce({ API_BASE_ENDPOINT: 'A' });
-  useConfigMock.mockReturnValueOnce({ API_BASE_ENDPOINT: 'B' });
-  useAppGlobalStateMock.mockReturnValue(TOKEN);
-  processHttpRequestMock.mockResolvedValue({ ok: true });
+test('uses the base endpoint coming from useConfig each call', async () => {
+  jest.spyOn(reactLib, 'useAppGlobalState').mockReturnValue(TOKEN as any);
+  const httpSpy = jest
+    .spyOn(processHttp, 'processHttpRequest')
+    .mockResolvedValue({ ok: true } as any);
+
+  // prove we read the config at call time
+  const useConfigSpy = jest.spyOn(reactLib, 'useConfig');
+  useConfigSpy.mockReturnValueOnce({ API_BASE_ENDPOINT: 'A' } as any);
+  useConfigSpy.mockReturnValueOnce({ API_BASE_ENDPOINT: 'B' } as any);
 
   const { result } = renderHook(() => useApiService());
+
   const r1 = makeReq({ endpoints: '/one' });
   const r2 = makeReq({ endpoints: '/two' });
 
@@ -116,6 +105,6 @@ test('uses base endpoint from useConfig each call', async () => {
     await result.current.makeRequest(r2);
   });
 
-  expect(processHttpRequestMock).toHaveBeenNthCalledWith(1, r1, TOKEN.access_token, 'A');
-  expect(processHttpRequestMock).toHaveBeenNthCalledWith(2, r2, TOKEN.access_token, 'B');
+  expect(httpSpy).toHaveBeenNthCalledWith(1, r1, TOKEN.access_token, 'A');
+  expect(httpSpy).toHaveBeenNthCalledWith(2, r2, TOKEN.access_token, 'B');
 });
