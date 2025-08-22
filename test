@@ -2,73 +2,48 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-
-// ---- SUT ----
 import SaferoomIntakeForm from './saferoomIntakeForm';
 
-// ---- App Form Context mock ----
+// --- Router hook stubs (fixes: "useSubmit must be used within a data router") ---
+jest.mock('react-router-dom', () => {
+  const actual = jest.requireActual('react-router-dom');
+  return {
+    ...actual,
+    useSubmit: () => jest.fn(),     // avoid data router requirement
+    useNavigate: () => jest.fn(),   // no-op for components that navigate
+  };
+});
+
+// --- App Form Context mock ---
 const setFormData = jest.fn();
 const useFormContextMock = jest.fn();
-
 jest.mock('../FormContext', () => ({
-  // keep the hook name that your component imports
   useFormContext: () => useFormContextMock(),
 }));
 
-// ---- MUI + icons stubs (no MUI dependency) ----
+// --- MUI + icons stubs (a11y-friendly) ---
 jest.mock('@mui/material', () => {
   const React = require('react');
-
   const Pass = ({ children }: { children: React.ReactNode }) => <>{children}</>;
   const Box = Pass;
   const Grid = Pass;
   const FormControl = Pass;
-  const InputLabel = ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  );
+  const InputLabel = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
   const MenuItem = ({ children }: { children: React.ReactNode }) => <>{children}</>;
-  const Tooltip = ({
-    title,
-    children,
-  }: {
-    title?: React.ReactNode;
-    children: React.ReactNode;
-  }) => (
+  const Tooltip = ({ title, children }: any) => (
     <div>
       <div data-testid="tooltip-title">{title}</div>
       {children}
     </div>
   );
 
-  // Minimal Select -> real HTML <select> so we can interact
-  const Select = ({
-    label,
-    id,
-    name,
-    value,
-    onChange,
-    children,
-    disabled,
-    ...rest
-  }: {
-    label?: string;
-    id?: string;
-    name?: string;
-    value?: any;
-    onChange?: (e: any) => void;
-    children?: React.ReactNode;
-    disabled?: boolean;
-  }) => {
-    const toOptions = (nodes: React.ReactNode) =>
-      React.Children.toArray(nodes).map((n: any, i: number) => {
-        if (!n?.props) return null;
-        return (
-          <option key={i} value={n.props.value}>
-            {n.props.children}
-          </option>
-        );
-      });
-
+  // Minimal Select -> native <select> so we can interact
+  const Select = ({ label, id, name, value, onChange, children, disabled }: any) => {
+    const options = React.Children.toArray(children).map((n: any, i: number) => (
+      <option key={i} value={n?.props?.value}>
+        {n?.props?.children}
+      </option>
+    ));
     return (
       <label htmlFor={id}>
         {label}
@@ -77,13 +52,12 @@ jest.mock('@mui/material', () => {
           name={name}
           aria-label={label}
           value={value ?? ''}
-          onChange={(e) =>
-            onChange?.({ target: { name: e.target.name, value: e.target.value } })
-          }
           disabled={disabled}
-          {...rest}
+          onChange={(e) =>
+            onChange?.({ target: { name: e.currentTarget.name, value: e.currentTarget.value } })
+          }
         >
-          {toOptions(children)}
+          {options}
         </select>
       </label>
     );
@@ -106,7 +80,7 @@ jest.mock('@mui/icons-material/Info', () => ({
   default: () => <span data-testid="info-icon" />,
 }));
 
-// ---- Test helpers ----
+// --- Helpers ---
 const baseFormData = {
   cdpDetails: { versionCDPRequired: '' },
   safeRoomDetails: { dataLoadRequired: 'Cloud Storage' },
@@ -114,10 +88,7 @@ const baseFormData = {
 
 function setup(formData = baseFormData) {
   setFormData.mockClear();
-  useFormContextMock.mockReturnValue({
-    formData,
-    setFormData,
-  });
+  useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
   const user = userEvent.setup();
   render(<SaferoomIntakeForm validationErrors={{}} />);
   const combo = screen.getByRole('combobox', {
@@ -126,59 +97,39 @@ function setup(formData = baseFormData) {
   return { user, combo, formData };
 }
 
+// --- Tests ---
 describe('SaferoomIntakeForm', () => {
   test('renders overview text, section header, tooltip and icon', () => {
     setup();
-
-    // Static copy checks to increase line coverage
-    expect(
-      screen.getByRole('heading', { name: /saferoom overview/i })
-    ).toBeInTheDocument();
-
+    expect(screen.getByRole('heading', { name: /saferoom overview/i })).toBeInTheDocument();
     expect(
       screen.getByText(/please select the required data load capability for saferoom/i)
     ).toBeInTheDocument();
-
-    // Tooltip/title stub present
     expect(screen.getByTestId('tooltip-title')).toBeInTheDocument();
     expect(screen.getByTestId('info-icon')).toBeInTheDocument();
   });
 
   test('renders select with initial value and options', () => {
     const { combo } = setup();
-
-    // Initial value from context
     expect(combo).toHaveDisplayValue(/cloud storage/i);
-
-    // Both options present
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Cloud Storage',
       'Big Query',
     ]);
   });
 
-  test('updates formData.safeRoomDetails.dataLoadRequired on change', async () => {
+  test('updates nested formData on change', async () => {
     const { user, combo, formData } = setup();
-
     await user.selectOptions(combo, 'Big Query');
-
-    // Nested update shape must be preserved
     expect(setFormData).toHaveBeenCalledTimes(1);
     expect(setFormData).toHaveBeenCalledWith({
       ...formData,
-      safeRoomDetails: {
-        ...formData.safeRoomDetails,
-        dataLoadRequired: 'Big Query',
-      },
+      safeRoomDetails: { ...formData.safeRoomDetails, dataLoadRequired: 'Big Query' },
     });
   });
 
   test('respects existing value when starting with Big Query', () => {
-    setup({
-      ...baseFormData,
-      safeRoomDetails: { dataLoadRequired: 'Big Query' },
-    });
-
+    setup({ ...baseFormData, safeRoomDetails: { dataLoadRequired: 'Big Query' } });
     expect(
       screen.getByRole('combobox', {
         name: /select the saferoom data load capability/i,
