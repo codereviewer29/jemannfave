@@ -1,27 +1,25 @@
 // src/sideNavbar/boarding/intake-components/saferoomIntakeForm.test.tsx
+
+// --- 1) Router hooks MUST be mocked BEFORE importing the component ---
+jest.mock('react-router-dom', () => ({
+  // keep only what this component needs
+  useSubmit: () => jest.fn(),
+  useNavigate: () => jest.fn(),
+}));
+
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import SaferoomIntakeForm from './saferoomIntakeForm';
 
-// --- Router hook stubs (fixes: "useSubmit must be used within a data router") ---
-jest.mock('react-router-dom', () => {
-  const actual = jest.requireActual('react-router-dom');
-  return {
-    ...actual,
-    useSubmit: () => jest.fn(),     // avoid data router requirement
-    useNavigate: () => jest.fn(),   // no-op for components that navigate
-  };
-});
-
-// --- App Form Context mock ---
+// --- 2) Form context mock ---
 const setFormData = jest.fn();
 const useFormContextMock = jest.fn();
+
 jest.mock('../FormContext', () => ({
   useFormContext: () => useFormContextMock(),
 }));
 
-// --- MUI + icons stubs (a11y-friendly) ---
+// --- 3) MUI + icon stubs (minimal & a11y-friendly) ---
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children }: { children: React.ReactNode }) => <>{children}</>;
@@ -37,7 +35,6 @@ jest.mock('@mui/material', () => {
     </div>
   );
 
-  // Minimal Select -> native <select> so we can interact
   const Select = ({ label, id, name, value, onChange, children, disabled }: any) => {
     const options = React.Children.toArray(children).map((n: any, i: number) => (
       <option key={i} value={n?.props?.value}>
@@ -80,6 +77,9 @@ jest.mock('@mui/icons-material/Info', () => ({
   default: () => <span data-testid="info-icon" />,
 }));
 
+// --- 4) Import SUT AFTER mocks ---
+import SaferoomIntakeForm from './saferoomIntakeForm';
+
 // --- Helpers ---
 const baseFormData = {
   cdpDetails: { versionCDPRequired: '' },
@@ -89,8 +89,10 @@ const baseFormData = {
 function setup(formData = baseFormData) {
   setFormData.mockClear();
   useFormContextMock.mockReturnValue({ formData, setFormData, isReadOnly: false });
+
   const user = userEvent.setup();
   render(<SaferoomIntakeForm validationErrors={{}} />);
+
   const combo = screen.getByRole('combobox', {
     name: /select the saferoom data load capability/i,
   });
@@ -131,9 +133,7 @@ describe('SaferoomIntakeForm', () => {
   test('respects existing value when starting with Big Query', () => {
     setup({ ...baseFormData, safeRoomDetails: { dataLoadRequired: 'Big Query' } });
     expect(
-      screen.getByRole('combobox', {
-        name: /select the saferoom data load capability/i,
-      })
+      screen.getByRole('combobox', { name: /select the saferoom data load capability/i })
     ).toHaveDisplayValue(/big query/i);
   });
 });
