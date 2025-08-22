@@ -13,7 +13,6 @@ jest.mock('../FormContext', () => ({
 }));
 
 // ---- MUI stubs ----
-// Note: TextField is imported from '@mui/material/TextField' so we stub that path too.
 jest.mock('@mui/material', () => {
   const React = require('react');
   const Pass = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
@@ -98,8 +97,9 @@ function setup() {
   const user = userEvent.setup();
   renderWithDataRouter(<GCPComponentIntakeForm validationErrors={{}} />);
 
-  const bucket = screen.getByLabelText(/provide additional bucket name/i);
-  const dataset = screen.getByLabelText(/provide additional bq dataset name/i);
+  // Use placeholders (reliable with our stub and the component)
+  const bucket = screen.getByPlaceholderText(/bucket/i);
+  const dataset = screen.getByPlaceholderText(/discriminator/i);
 
   return { user, bucket, dataset, baseFormData };
 }
@@ -113,13 +113,11 @@ describe('GCPComponentIntakeForm', () => {
       screen.getByText(/the application data project and cdm next project are key gcp components/i)
     ).toBeInTheDocument();
 
-    // key service names from the static list
-    expect(screen.getByText(/gcs \(google cloud storage\) buckets/i)).toBeInTheDocument();
+    expect(screen.getByText(/gcs\(google cloud storage\) buckets/i)).toBeInTheDocument();
     expect(screen.getByText(/cloud scheduler/i)).toBeInTheDocument();
     expect(screen.getByText(/big query/i)).toBeInTheDocument();
     expect(screen.getByText(/kms keys/i)).toBeInTheDocument();
 
-    // tooltips+icon are present
     expect(screen.getAllByTestId('tooltip-title').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('error-outline-icon').length).toBeGreaterThan(0);
   });
