@@ -1,141 +1,185 @@
+/**
+ * @file gcp-infra-setup.test.tsx
+ */
+
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import GCPInfraSetup from './gcp-infra-setup';
 
-// ---- Router mocks (params + navigation) ----
-const navigateMock = jest.fn();
-jest.mock('react-router-dom', () => {
-  const actual = jest.requireActual('react-router-dom');
-  return {
-    ...actual,
-    // Your component reads these two params
-    useParams: () => ({ appId: 'abc-999', environment: 'dev' }),
-    useNavigate: () => navigateMock,
-    // Let Link render a simple anchor so role="link" works
-    Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
-  };
-});
+// --- Mocks we control --------------------------------------------------------
+const makeRequestMock = jest.fn();
 
-// ---- Child components mocked (render lightweight placeholders) ----
-jest.mock('../act-task-validation', () => ({
+// useApiService hook -> returns our makeRequest mock
+jest.mock('../services/useApiService', () => ({
   __esModule: true,
-  default: (props: any) => (
-    <div data-testid="ActTaskValidation">ActTaskValidation</div>
-  ),
+  default: () => ({ makeRequest: makeRequestMock }),
 }));
 
-jest.mock('../gcp-infra-setup', () => ({
+// Provision context – we only need tokens for the POST body
+jest.mock('./ProvisionContext', () => ({
   __esModule: true,
-  default: (props: any) => (
-    <div data-testid="GcpInfraSetup">GcpInfraSetup</div>
-  ),
+  useProvisionContext: () => ({
+    provisioningData: {
+      githubToken: 'ghp_abc',
+      terraformToken: 'tfp_def',
+    },
+  }),
 }));
 
-jest.mock('../build-saferoom-infra', () => ({
-  __esModule: true,
-  default: (props: any) => (
-    <div data-testid="BuildSaferoomInfra">BuildSaferoomInfra</div>
-  ),
-}));
-
-// MUI icon (only used as decoration) – render a tiny stub to avoid SVG noise
+// Keep MUI icons-lite (avoid SVG noise)
 jest.mock('@mui/icons-material/InfoOutlined', () => ({
   __esModule: true,
-  default: (props: any) => <i data-testid="info-icon" {...props} />,
+  default: () => <i data-testid="info-icon" />,
+}));
+jest.mock('@mui/icons-material/Visibility', () => ({
+  __esModule: true,
+  default: () => <i data-testid="vis-on" />,
+}));
+jest.mock('@mui/icons-material/VisibilityOff', () => ({
+  __esModule: true,
+  default: () => <i data-testid="vis-off" />,
 }));
 
-// ---- SUT ----
-import ProvisionDetails from './provision-details';
+// Prevent real window.open from exploding the test
+const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null);
 
-// Helpers
-const stepLabels = [
-  'GCP Project Creation',
-  'GCP App Infrastructure Setup',
-  'GCP CDM Next Infrastructure Setup',
-  'CDM Next Deployment',
-  'Environment Build Validation',
-];
+// -----------------------------------------------------------------------------
+// Fixtures that match the component’s shape
+const envParams = {
+  vault_password: 'GoodP4ssword',
+  servicenowsupportgroup: 'svc-group',
+  requestemail: 'team@example.com',
+  app_repo_name: 'corp-abc',
+  app_branch_name: 'main',
+  app_project_id: 'p-123',
+  app_notification_channel: 'app-chan',
+  saferoom_repo_name: 'corp-abc',
+  saferoom_branch_name: 'main',
+  saferoom_project_id: 's-456',
+  saferoom_notification_channel: 'safe-chan',
+};
 
-// Window.open (used in the “CDM Next Deployment” step)
-const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
+function renderPage(overrides: Partial<React.ComponentProps<typeof GCPInfraSetup>> = {}) {
+  const props = {
+    appid: 'abc-999',
+    environment: 'dev',
+    completedTabs: [] as number[],
+    setCompletedTabs: jest.fn(),
+    tabIndex: 2,
+    ...overrides,
+  };
+
+  return {
+    ...props,
+    ui: render(<GCPInfraSetup {...props} />),
+  };
+}
 
 afterEach(() => {
-  jest.clearAllMocks();
+  makeRequestMock.mockReset();
 });
 
-describe('ProvisionDetails', () => {
-  test('boots, shows breadcrumb + fields, renders all step labels', async () => {
-    render(<ProvisionDetails />);
+afterAll(() => {
+  openSpy.mockRestore();
+});
 
-    // Initial loading state flashes – don’t assert it strictly, but ensure final UI shows
-    expect(await screen.findByText(/Provisioning Details/i)).toBeInTheDocument();
+describe('GCPInfraSetup', () => {
+  test('loads existing env params (GET) and renders the form with values', async () => {
+    // 1st call: bootstrap GET
+    makeRequestMock.mockResolvedValueOnce({ data: { env_params: envParams } });
 
-    // App/environment TextFields show param values
-    expect(screen.getByDisplayValue('abc-999')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('dev')).toBeInTheDocument();
+    renderPage();
 
-    // Stepper labels
-    for (const label of stepLabels) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
+    // loading indicator appears then disappears
+    // (the component uses <CircularProgress/> + "GCP App Infrastructure Setup running..." text later;
+    // use a general wait for inputs)
+    expect(await screen.findByLabelText(/Vault Password/i)).toBeInTheDocument();
 
-    // By default step 0 is active -> our mocked component should be visible
-    expect(screen.getByTestId('ActTaskValidation')).toBeInTheDocument();
+    // the GET was issued with method GET (don’t over-specify endpoint string)
+    await waitFor(() =>
+      expect(makeRequestMock).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'GET' })
+      )
+    );
+
+    // a couple of fields should be pre-populated from GET data
+    expect(screen.getByLabelText(/Repo Name/i)).toHaveValue(envParams.app_repo_name);
+    expect(screen.getByLabelText(/Project ID/i)).toHaveValue(envParams.app_project_id);
+    expect(screen.getByLabelText(/Email Address/i)).toHaveValue(envParams.requestemail);
   });
 
-  test('clicking a step label switches panels (step 1 -> GCP Infra Setup)', async () => {
-    render(<ProvisionDetails />);
+  test('shows helper text when vault password fails validation', async () => {
+    makeRequestMock.mockResolvedValueOnce({ data: { env_params: envParams } });
+    renderPage();
 
-    // Wait for bootstrap
-    await screen.findByText(/Provisioning Details/i);
+    const pwd = await screen.findByLabelText(/Vault Password/i);
+    // Type an invalid password (no number, too short, etc.)
+    fireEvent.change(pwd, { target: { value: 'short' } });
 
-    // Click the “GCP App Infrastructure Setup” step label (index 1)
-    fireEvent.click(screen.getByText(stepLabels[1]));
-
-    // Panel should switch to GcpInfraSetup
-    expect(screen.getByTestId('GcpInfraSetup')).toBeInTheDocument();
-
-    // The step title shown below the Stepper updates too
-    expect(screen.getByText(stepLabels[1])).toBeInTheDocument();
+    // Component validates on change and toggles error + helper text
+    expect(
+      await screen.findByText(/Password must have 8\+ characters/i)
+    ).toBeInTheDocument();
   });
 
-  test('step 2 shows Saferoom Infra panel (BuildSaferoomInfra mock)', async () => {
-    render(<ProvisionDetails />);
+  test('Build GCP Infrastructure: POST success shows logs and marks tab complete', async () => {
+    // GET then POST
+    makeRequestMock
+      .mockResolvedValueOnce({ data: { env_params: envParams } }) // bootstrap GET
+      .mockResolvedValueOnce({
+        status: 200,
+        data: { log_output: ['Create bucket - SUCCESS', 'Bind roles - SUCCESS'] },
+      }); // POST success
 
-    await screen.findByText(/Provisioning Details/i);
+    const { setCompletedTabs, tabIndex } = renderPage();
 
-    fireEvent.click(screen.getByText(stepLabels[2]));
-    expect(screen.getByTestId('BuildSaferoomInfra')).toBeInTheDocument();
-    expect(screen.getByText(stepLabels[2])).toBeInTheDocument();
-  });
-
-  test('step 3 shows “CDM Next Deployment” button and opens link', async () => {
-    render(<ProvisionDetails />);
-
-    await screen.findByText(/Provisioning Details/i);
-
-    fireEvent.click(screen.getByText(stepLabels[3]));
-
-    const btn = screen.getByRole('button', { name: /CDM Next Deployment/i });
+    // Click the action button
+    const btn = await screen.findByRole('button', { name: /Build GCP Infrastructure/i });
     fireEvent.click(btn);
 
-    // We don’t assert the exact long URL; just ensure window.open was called with https link
-    expect(openSpy).toHaveBeenCalled();
-    const [url] = (openSpy.mock.calls[0] ?? []) as unknown as [string];
-    expect(url).toMatch(/^https?:\/\//);
+    // POST sent (again: do not assert exact URL, only method/body presence)
+    await waitFor(() =>
+      expect(makeRequestMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.objectContaining({
+            env_params: expect.objectContaining({ app_project_id: envParams.app_project_id }),
+            github_token: 'ghp_abc',
+            terraform_token: 'tfp_def',
+          }),
+        })
+      )
+    );
+
+    // Logs panel appears (we render each item)
+    expect(await screen.findByText(/Create bucket - SUCCESS/i)).toBeInTheDocument();
+
+    // "Next Step" hint is shown after logs
+    expect(screen.getByText(/Next Step/i)).toBeInTheDocument();
+
+    // Tab is marked complete
+    expect(setCompletedTabs).toHaveBeenCalled();
+    const updater = (setCompletedTabs as jest.Mock).mock.calls.at(-1)?.[0];
+    // Call the updater to ensure it adds tabIndex
+    const result = updater([0, 1]);
+    expect(result).toEqual(expect.arrayContaining([tabIndex]));
   });
 
-  test('step 4 shows “Environment Build Validation Execution” link', async () => {
-    render(<ProvisionDetails />);
+  test('Build GCP Infrastructure: POST failure opens toast with error message', async () => {
+    // GET ok, POST non-200
+    makeRequestMock
+      .mockResolvedValueOnce({ data: { env_params: envParams } })
+      .mockResolvedValueOnce({ status: 500, data: { log_output: [] } });
 
-    await screen.findByText(/Provisioning Details/i);
+    renderPage();
 
-    fireEvent.click(screen.getByText(stepLabels[4]));
+    fireEvent.click(await screen.findByRole('button', { name: /Build GCP Infrastructure/i }));
 
-    const link = screen.getByRole('link', {
-      name: /Environment Build Validation Execution/i,
-    });
-    expect(link).toBeInTheDocument();
-    // Basic sanity: looks like a valid http(s) link
-    expect(link).toHaveAttribute('href', expect.stringMatching(/^https?:\/\//));
+    // An error toast (Snackbar + Alert) appears with our generic message
+    // (we don’t rely on exact HTML — just detect the Alert role/text region)
+    expect(
+      await screen.findByText(/Error has occurred while building GCP App Infrastructure Setup/i)
+    ).toBeInTheDocument();
   });
 });
