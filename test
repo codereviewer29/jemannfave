@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import ProvisionLogs from '../Provision-logs';
 
-// ---- mock the child template so we can assert it was picked correctly ----
+// Mock the child so we can assert which tab is rendered
 jest.mock('../provision-logs-template', () => ({
   __esModule: true,
   default: ({ logType }: { logType: string }) => (
@@ -11,75 +11,54 @@ jest.mock('../provision-logs-template', () => ({
   ),
 }));
 
-// Shape helper that matches ProvisionLogsProps exactly
-function makeLogs(
+// ✅ Return the *exact* prop type the component expects
+type ProvisionLogsProps = React.ComponentProps<typeof ProvisionLogs>['provisioningLogs'];
+
+const makeLogs = (
   overall: 'success' | 'failure' = 'success'
-): {
-  overall_status: string;
+): ProvisionLogsProps => ({
+  overall_status: overall,
   validation_results: {
-    gcpapp_validation: { status: string; details: any[] };
-    gcpdm_validation: { status: string; details: any[] };
-    github_repos_validation: { status: string; details: any[] };
-    secondary_ranges_validation: { status: string; details: any[] };
-    workspace_validation: { status: string; details: any[] };
-  };
-} {
-  return {
-    overall_status: overall,
-    validation_results: {
-      gcpapp_validation: { status: 'ok', details: [] },
-      gcpdm_validation: { status: 'ok', details: [] },
-      github_repos_validation: { status: 'ok', details: [] },
-      secondary_ranges_validation: { status: 'ok', details: [] },
-      workspace_validation: { status: 'ok', details: [] },
-    },
-  };
-}
+    gcpapp_validation: { status: 'ok', details: [] },
+    gcpdm_validation: { status: 'ok', details: [] },
+    github_repos_validation: { status: 'ok', details: [] },
+    secondary_ranges_validation: { status: 'ok', details: [] },
+    workspace_validation: { status: 'ok', details: [] },
+  },
+});
 
 describe('ProvisionLogs', () => {
   test('renders empty state when no logs', () => {
-    // @ts-expect-error – deliberately pass undefined to hit the empty branch
+    // intentionally pass undefined to hit the guard branch
+    // @ts-expect-error testing empty branch
     render(<ProvisionLogs provisioningLogs={undefined} />);
 
-    expect(
-      screen.getByText(/no provisioning logs available/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/no provisioning logs available/i)).toBeInTheDocument();
     expect(screen.queryByTestId('logs-template')).not.toBeInTheDocument();
   });
 
   test('shows overall status "Success" in green by default (APP tab active)', () => {
     render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
 
-    // Overall label
     expect(screen.getByText(/overall status/i)).toBeInTheDocument();
 
-    // Value text is "Success" (component capitalizes first letter)
     const statusValue = screen.getByText(/success/i);
     expect(statusValue).toBeInTheDocument();
-    // Inline style via sx applies color
     expect(statusValue).toHaveStyle({ color: 'green' });
 
-    // APP tab is initially active so the template should render with APP label
-    expect(screen.getByTestId('logs-template')).toHaveTextContent(
-      /gcp app validation logs/i
-    );
+    // APP tab is active initially
+    expect(screen.getByTestId('logs-template')).toHaveTextContent(/gcp app validation logs/i);
   });
 
   test('switches to CDM tab and renders CDM template', () => {
     render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
 
-    // Click the CDM button
-    fireEvent.click(
-      screen.getByRole('button', { name: /gcp cdm validation logs/i })
-    );
+    fireEvent.click(screen.getByRole('button', { name: /gcp cdm validation logs/i }));
 
-    // Now child template should show the CDM label
-    expect(screen.getByTestId('logs-template')).toHaveTextContent(
-      /gcp cdm validation logs/i
-    );
+    expect(screen.getByTestId('logs-template')).toHaveTextContent(/gcp cdm validation logs/i);
   });
 
-  test('shows overall status "Failure" in red when overall_status=failure', () => {
+  test('shows overall status "Failure" in red', () => {
     render(<ProvisionLogs provisioningLogs={makeLogs('failure')} />);
 
     const statusValue = screen.getByText(/failure/i);
