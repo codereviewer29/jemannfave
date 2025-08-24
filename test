@@ -1,19 +1,20 @@
-// src/provision/Provision-logs.test.tsx
+// provision-logs.test.tsx
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import ProvisionLogs from '../Provision-logs';
 
-import ProvisionLogs from './Provision-logs';
-
-// --- Mock the child so we can assert props/visibility clearly ---
-jest.mock('./provision-logs-template', () => ({
+// ---- mock the child template so we can assert it was picked correctly ----
+jest.mock('../provision-logs-template', () => ({
   __esModule: true,
   default: ({ logType }: { logType: string }) => (
     <div data-testid="logs-template">{logType}</div>
   ),
 }));
 
-type Logs = {
+// Shape helper that matches ProvisionLogsProps exactly
+function makeLogs(
+  overall: 'success' | 'failure' = 'success'
+): {
   overall_status: string;
   validation_results: {
     gcpapp_validation: { status: string; details: any[] };
@@ -22,10 +23,7 @@ type Logs = {
     secondary_ranges_validation: { status: string; details: any[] };
     workspace_validation: { status: string; details: any[] };
   };
-};
-
-// Minimal helper for props
-function makeLogs(overall: string = 'success'): Logs {
+} {
   return {
     overall_status: overall,
     validation_results: {
@@ -39,48 +37,50 @@ function makeLogs(overall: string = 'success'): Logs {
 }
 
 describe('ProvisionLogs', () => {
-  test('renders empty state when no logs provided', () => {
-    // @ts-expect-error – exercising runtime empty/undefined guard
-    render(<ProvisionLogs provisioninglogs={undefined} />);
+  test('renders empty state when no logs', () => {
+    // @ts-expect-error – deliberately pass undefined to hit the empty branch
+    render(<ProvisionLogs provisioningLogs={undefined} />);
 
     expect(
       screen.getByText(/no provisioning logs available/i)
     ).toBeInTheDocument();
-    // No template should be rendered
     expect(screen.queryByTestId('logs-template')).not.toBeInTheDocument();
   });
 
   test('shows overall status "Success" in green by default (APP tab active)', () => {
-    render(<ProvisionLogs provisioninglogs={makeLogs('success')} />);
+    render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
 
-    // Status label + value are rendered
+    // Overall label
     expect(screen.getByText(/overall status/i)).toBeInTheDocument();
 
+    // Value text is "Success" (component capitalizes first letter)
     const statusValue = screen.getByText(/success/i);
     expect(statusValue).toBeInTheDocument();
-    // style computed via sx -> rendered as inline style
+    // Inline style via sx applies color
     expect(statusValue).toHaveStyle({ color: 'green' });
 
-    // APP tab is active by default and template renders with APP label
+    // APP tab is initially active so the template should render with APP label
     expect(screen.getByTestId('logs-template')).toHaveTextContent(
-      'GCP APP Validation Logs'
+      /gcp app validation logs/i
     );
   });
 
   test('switches to CDM tab and renders CDM template', () => {
-    render(<ProvisionLogs provisioninglogs={makeLogs('success')} />);
+    render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
 
-    // Click the CDM tab button
-    fireEvent.click(screen.getByRole('button', { name: /gcp cdm validation logs/i }));
+    // Click the CDM button
+    fireEvent.click(
+      screen.getByRole('button', { name: /gcp cdm validation logs/i })
+    );
 
-    // Now the mocked template should render the CDM label
+    // Now child template should show the CDM label
     expect(screen.getByTestId('logs-template')).toHaveTextContent(
-      'GCP CDM Validation Logs'
+      /gcp cdm validation logs/i
     );
   });
 
   test('shows overall status "Failure" in red when overall_status=failure', () => {
-    render(<ProvisionLogs provisioninglogs={makeLogs('failure')} />);
+    render(<ProvisionLogs provisioningLogs={makeLogs('failure')} />);
 
     const statusValue = screen.getByText(/failure/i);
     expect(statusValue).toBeInTheDocument();
