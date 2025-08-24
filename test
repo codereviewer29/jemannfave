@@ -1,71 +1,89 @@
-// ProvisionContext.test.tsx
+// src/provision/Provision-logs.test.tsx
 import React from 'react';
-import { renderHook, act } from '@testing-library/react';
-import { ProvisionProvider, useProvisionContext, InitialProvisionData } from './ProvisionContext';
+import { render, screen, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
-describe('ProvisionContext', () => {
-  test('provides initial state correctly', () => {
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <ProvisionProvider>{children}</ProvisionProvider>
-    );
+import ProvisionLogs from './Provision-logs';
 
-    const { result } = renderHook(() => useProvisionContext(), { wrapper });
+// --- Mock the child so we can assert props/visibility clearly ---
+jest.mock('./provision-logs-template', () => ({
+  __esModule: true,
+  default: ({ logType }: { logType: string }) => (
+    <div data-testid="logs-template">{logType}</div>
+  ),
+}));
 
-    expect(result.current.provisioningData).toEqual(InitialProvisionData);
-    expect(result.current.requiredFields).toEqual(['githubToken', 'terraformToken']);
+type Logs = {
+  overall_status: string;
+  validation_results: {
+    gcpapp_validation: { status: string; details: any[] };
+    gcpdm_validation: { status: string; details: any[] };
+    github_repos_validation: { status: string; details: any[] };
+    secondary_ranges_validation: { status: string; details: any[] };
+    workspace_validation: { status: string; details: any[] };
+  };
+};
+
+// Minimal helper for props
+function makeLogs(overall: string = 'success'): Logs {
+  return {
+    overall_status: overall,
+    validation_results: {
+      gcpapp_validation: { status: 'ok', details: [] },
+      gcpdm_validation: { status: 'ok', details: [] },
+      github_repos_validation: { status: 'ok', details: [] },
+      secondary_ranges_validation: { status: 'ok', details: [] },
+      workspace_validation: { status: 'ok', details: [] },
+    },
+  };
+}
+
+describe('ProvisionLogs', () => {
+  test('renders empty state when no logs provided', () => {
+    // @ts-expect-error – exercising runtime empty/undefined guard
+    render(<ProvisionLogs provisioninglogs={undefined} />);
+
+    expect(
+      screen.getByText(/no provisioning logs available/i)
+    ).toBeInTheDocument();
+    // No template should be rendered
+    expect(screen.queryByTestId('logs-template')).not.toBeInTheDocument();
   });
 
-  test('updates provisioningData with setProvisionData', () => {
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <ProvisionProvider>{children}</ProvisionProvider>
+  test('shows overall status "Success" in green by default (APP tab active)', () => {
+    render(<ProvisionLogs provisioninglogs={makeLogs('success')} />);
+
+    // Status label + value are rendered
+    expect(screen.getByText(/overall status/i)).toBeInTheDocument();
+
+    const statusValue = screen.getByText(/success/i);
+    expect(statusValue).toBeInTheDocument();
+    // style computed via sx -> rendered as inline style
+    expect(statusValue).toHaveStyle({ color: 'green' });
+
+    // APP tab is active by default and template renders with APP label
+    expect(screen.getByTestId('logs-template')).toHaveTextContent(
+      'GCP APP Validation Logs'
     );
-
-    const { result } = renderHook(() => useProvisionContext(), { wrapper });
-
-    act(() => {
-      result.current.setProvisionData({
-        githubToken: 'abc',
-        terraformToken: 'xyz',
-        githubRepo: ['repo1'],
-        githubBranch: ['main'],
-      });
-    });
-
-    expect(result.current.provisioningData.githubToken).toBe('abc');
-    expect(result.current.provisioningData.terraformToken).toBe('xyz');
   });
 
-  test('resets provisioningData to InitialProvisionData', () => {
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <ProvisionProvider>{children}</ProvisionProvider>
+  test('switches to CDM tab and renders CDM template', () => {
+    render(<ProvisionLogs provisioninglogs={makeLogs('success')} />);
+
+    // Click the CDM tab button
+    fireEvent.click(screen.getByRole('button', { name: /gcp cdm validation logs/i }));
+
+    // Now the mocked template should render the CDM label
+    expect(screen.getByTestId('logs-template')).toHaveTextContent(
+      'GCP CDM Validation Logs'
     );
-
-    const { result } = renderHook(() => useProvisionContext(), { wrapper });
-
-    // set custom data first
-    act(() => {
-      result.current.setProvisionData({
-        githubToken: 'abc',
-        terraformToken: 'xyz',
-        githubRepo: ['repo1'],
-        githubBranch: ['main'],
-      });
-    });
-
-    expect(result.current.provisioningData.githubToken).toBe('abc');
-
-    // reset back
-    act(() => {
-      result.current.resetProvisionData();
-    });
-
-    expect(result.current.provisioningData).toEqual(InitialProvisionData);
   });
 
-  test('throws error if useProvisionContext is used outside provider', () => {
-    const { result } = renderHook(() => useProvisionContext());
-    expect(result.error).toEqual(
-      new Error('useFormContext must be used within a ProvisionProvider')
-    );
+  test('shows overall status "Failure" in red when overall_status=failure', () => {
+    render(<ProvisionLogs provisioninglogs={makeLogs('failure')} />);
+
+    const statusValue = screen.getByText(/failure/i);
+    expect(statusValue).toBeInTheDocument();
+    expect(statusValue).toHaveStyle({ color: 'red' });
   });
 });
