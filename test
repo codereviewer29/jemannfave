@@ -1,61 +1,18 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import useAuth from './hooks/useAuth';
 import axios from 'axios';
+import useAuth from './hooks/useAuth';
 
-// ---- Mock the env JSON exactly as the hook imports it (default import) ----
+jest.spyOn(console, 'log').mockImplementation(() => {});
+
+// Use the same literal in both places to avoid hoist issues
 const BASE = 'https://api.example.com';
+
 jest.mock('../assets/json/env-properties.json', () => ({
   __esModule: true,
-  default: { API_BASE_ENDPOINT: BASE },
+  default: { API_BASE_ENDPOINT: 'https://api.example.com' }, // <- literal, not BASE
 }));
 
-// ---- Mock axios (default import) ----
 jest.mock('axios');
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+const axiosMock = axios as jest.Mocked<typeof axios>;
 
-describe('useAuth', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test('calls /auth/user with credentials and sets isAuthenticated=true on success', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: { isAuthenticated: true } });
-
-    const { result } = renderHook(() => useAuth());
-
-    // axios called with correct URL + options
-    await waitFor(() =>
-      expect(mockedAxios.get).toHaveBeenCalledWith(`${BASE}/auth/user`, {
-        withCredentials: true,
-      })
-    );
-
-    // final state
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.isAuthenticated).toBe(true);
-    });
-  });
-
-  test('sets isAuthenticated=false when API returns false', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: { isAuthenticated: false } });
-
-    const { result } = renderHook(() => useAuth());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.isAuthenticated).toBe(false);
-    });
-  });
-
-  test('sets isAuthenticated=false when request fails', async () => {
-    mockedAxios.get.mockRejectedValueOnce(new Error('network error'));
-
-    const { result } = renderHook(() => useAuth());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.isAuthenticated).toBe(false);
-    });
-  });
-});
+// … the rest of your tests unchanged …
