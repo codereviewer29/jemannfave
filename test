@@ -1,221 +1,141 @@
-// src/provision/provision-list.test.tsx
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
-// ---- Fixtures -------------------------------------------------------------
-
-const projectEnvList = [
-  { id: 1, projectId: 'abc-999', projectid: 'abc-999', env_id: 'dev', env: 'dev' },
-  { id: 2, projectId: 'abc-999', projectid: 'abc-999', env_id: 'qa',  env: 'qa'  },
-];
-
-const validationRows = [
-  {
-    App_id: 'abc-999',
-    Environment: 'dev',
-    enablementJiraStatus: 'done',
-    actjiraStatus: 'pending',
-  },
-];
-
-// ---- Mocks ----------------------------------------------------------------
-
-// useNavigate
+// ---- Router mocks (params + navigation) ----
 const navigateMock = jest.fn();
-jest.mock('react-router-dom', () => ({
-  ...(jest.requireActual('react-router-dom') as object),
-  useNavigate: () => navigateMock,
-}));
+jest.mock('react-router-dom', () => {
+  const actual = jest.requireActual('react-router-dom');
+  return {
+    ...actual,
+    // Your component reads these two params
+    useParams: () => ({ appId: 'abc-999', environment: 'dev' }),
+    useNavigate: () => navigateMock,
+    // Let Link render a simple anchor so role="link" works
+    Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
+  };
+});
 
-// API service (makeRequest)
-const makeRequestMock = jest.fn();
-jest.mock('../services/useApiService', () => ({
+// ---- Child components mocked (render lightweight placeholders) ----
+jest.mock('../act-task-validation', () => ({
   __esModule: true,
-  default: () => ({ makeRequest: makeRequestMock }),
-}));
-
-// dataParsing (your code pipes all API .data through this)
-jest.mock('../utils/dataParsing', () => ({
-  __esModule: true,
-  dataParsing: (x: unknown) => x,
-}));
-
-// Config hook (prevent pulling crypto-es)
-jest.mock('../gcp_oauth/hooks/useConfApi', () => ({
-  __esModule: true,
-  default: () => ({ API_BASE_ENDPOINT: 'http://api.example.com' }),
-}));
-
-// Auth hook (pretend user is logged in)
-jest.mock('../gcp_oauth/hooks/useAuth', () => ({
-  __esModule: true,
-  default: () => ({ loading: false, isAuthenticated: true }),
-}));
-
-// Context (CRITICAL: setter name is setprovisionData with lower-case p)
-const setProvisionDataMock = jest.fn();
-jest.mock('../ProvisionContext', () => ({
-  __esModule: true,
-  useProvisionContext: () => ({
-    provisioningData: { githubToken: '', terraformToken: '' },
-    setprovisionData: setProvisionDataMock,   // <- lower-case p
-  }),
-}));
-
-// CustomNavigation — simple stub
-jest.mock('../home/CustomNavigation', () => ({
-  __esModule: true,
-  default: () => <div data-testid="nav" />,
-}));
-
-// Dropdown — render a basic select we can change
-jest.mock('../components/dropdown/Dropdown', () => ({
-  __esModule: true,
-  default: ({
-    'data-testid': dt,
-    options,
-    value,
-    onChange,
-  }: any) => (
-    <select
-      data-testid={dt}
-      value={value?.value ?? ''}
-      onChange={(e) =>
-        onChange?.({ id: 1, value: e.target.value, label: e.target.value })
-      }
-    >
-      {(options ?? []).map((o: any) => (
-        <option key={`${o.value}`} value={o.value}>
-          {o.label ?? o.value}
-        </option>
-      ))}
-    </select>
+  default: (props: any) => (
+    <div data-testid="ActTaskValidation">ActTaskValidation</div>
   ),
 }));
 
-// ---- Under test -----------------------------------------------------------
-import ProvisionList from './provision-list';
+jest.mock('../gcp-infra-setup', () => ({
+  __esModule: true,
+  default: (props: any) => (
+    <div data-testid="GcpInfraSetup">GcpInfraSetup</div>
+  ),
+}));
 
-// Helper to relax request assertions (endPoints vs endpoints)
-const reqContains = (substr: string) =>
-  expect.stringContaining(substr);
+jest.mock('../build-saferoom-infra', () => ({
+  __esModule: true,
+  default: (props: any) => (
+    <div data-testid="BuildSaferoomInfra">BuildSaferoomInfra</div>
+  ),
+}));
 
-const jsonCallIncludes = (substr: string) =>
-  (arg: any) => JSON.stringify(arg).includes(substr);
+// MUI icon (only used as decoration) – render a tiny stub to avoid SVG noise
+jest.mock('@mui/icons-material/InfoOutlined', () => ({
+  __esModule: true,
+  default: (props: any) => <i data-testid="info-icon" {...props} />,
+}));
 
-// Common render with primed API
-const primeBootstrap = () => {
-  makeRequestMock.mockReset();
-  // 1) app/env list
-  makeRequestMock.mockResolvedValueOnce({ data: projectEnvList });
-  // 2) auto validation fetch for default selection
-  makeRequestMock.mockResolvedValueOnce({ data: validationRows });
-};
+// ---- SUT ----
+import ProvisionDetails from './provision-details';
 
-const renderPage = () => render(<ProvisionList />);
+// Helpers
+const stepLabels = [
+  'GCP Project Creation',
+  'GCP App Infrastructure Setup',
+  'GCP CDM Next Infrastructure Setup',
+  'CDM Next Deployment',
+  'Environment Build Validation',
+];
 
-// ---- Tests ----------------------------------------------------------------
+// Window.open (used in the “CDM Next Deployment” step)
+const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
 
-describe('ProvisionList', () => {
-  test('loads project/env data, auto-fetches validation details, and renders table', async () => {
-    primeBootstrap();
-    renderPage();
+afterEach(() => {
+  jest.clearAllMocks();
+});
 
-    // Wait for the heading so we know the page mounted
-    expect(await screen.findByText(/Provision List/i)).toBeInTheDocument();
+describe('ProvisionDetails', () => {
+  test('boots, shows breadcrumb + fields, renders all step labels', async () => {
+    render(<ProvisionDetails />);
 
-    // We made the initial GET for the app/env list
-    await waitFor(() => {
-      // check method then search the URL flexibly
-      const firstArg = makeRequestMock.mock.calls[0]?.[0];
-      expect(firstArg).toEqual(expect.objectContaining({ method: 'GET' }));
-      expect(JSON.stringify(firstArg)).toMatch(/provisions\/getAppIdEnvDetails/i);
-    });
+    // Initial loading state flashes – don’t assert it strictly, but ensure final UI shows
+    expect(await screen.findByText(/Provisioning Details/i)).toBeInTheDocument();
 
-    // Table headers render
-    expect(screen.getByText(/Application Task Validation/i)).toBeInTheDocument();
-    expect(screen.getByText(/GCP Project Task Validation/i)).toBeInTheDocument();
+    // App/environment TextFields show param values
+    expect(screen.getByDisplayValue('abc-999')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('dev')).toBeInTheDocument();
 
-    // And at least one row eventually appears (comes from validationRows)
-    // (This also gives time for the 2nd call to resolve.)
-    await screen.findByRole('button', { name: /provision/i });
+    // Stepper labels
+    for (const label of stepLabels) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+
+    // By default step 0 is active -> our mocked component should be visible
+    expect(screen.getByTestId('ActTaskValidation')).toBeInTheDocument();
   });
 
-  test('switching project and environment triggers a fresh validation fetch', async () => {
-    primeBootstrap();
-    renderPage();
+  test('clicking a step label switches panels (step 1 -> GCP Infra Setup)', async () => {
+    render(<ProvisionDetails />);
 
-    // Bootstrap sends 2 calls (list + first validation)
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+    // Wait for bootstrap
+    await screen.findByText(/Provisioning Details/i);
 
-    // Prime the API for the "change" flow call
-    makeRequestMock.mockResolvedValueOnce({ data: validationRows });
+    // Click the “GCP App Infrastructure Setup” step label (index 1)
+    fireEvent.click(screen.getByText(stepLabels[1]));
 
-    // Trigger change on env dropdown
-    const envSel = await screen.findByTestId('environment-dropdown');
-    fireEvent.change(envSel, { target: { value: 'dev' } });
+    // Panel should switch to GcpInfraSetup
+    expect(screen.getByTestId('GcpInfraSetup')).toBeInTheDocument();
 
-    // Should trigger one more fetch (total 3 so far)
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(3));
+    // The step title shown below the Stepper updates too
+    expect(screen.getByText(stepLabels[1])).toBeInTheDocument();
   });
 
-  test('clicking Provision opens the token dialog when tokens are missing', async () => {
-    primeBootstrap();
-    renderPage();
+  test('step 2 shows Saferoom Infra panel (BuildSaferoomInfra mock)', async () => {
+    render(<ProvisionDetails />);
 
-    // Wait for row/button
-    const provisionBtn = await screen.findByRole('button', { name: /provision/i });
-    fireEvent.click(provisionBtn);
+    await screen.findByText(/Provisioning Details/i);
 
-    // Dialog should appear
-    expect(await screen.findByText(/Action Required/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(stepLabels[2]));
+    expect(screen.getByTestId('BuildSaferoomInfra')).toBeInTheDocument();
+    expect(screen.getByText(stepLabels[2])).toBeInTheDocument();
   });
 
-  test('clicking Provision navigates when both tokens exist', async () => {
-    primeBootstrap();
+  test('step 3 shows “CDM Next Deployment” button and opens link', async () => {
+    render(<ProvisionDetails />);
 
-    // For this test we need tokens to exist in context.
-    // Patch the context mock just for this test.
-    (jest.requireMock('../ProvisionContext') as any).useProvisionContext = () => ({
-      provisioningData: { githubToken: 'ghp_abc', terraformToken: 'tfp_xyz' },
-      setprovisionData: setProvisionDataMock,
-    });
+    await screen.findByText(/Provisioning Details/i);
 
-    renderPage();
+    fireEvent.click(screen.getByText(stepLabels[3]));
 
-    const provisionBtn = await screen.findByRole('button', { name: /provision/i });
-    fireEvent.click(provisionBtn);
+    const btn = screen.getByRole('button', { name: /CDM Next Deployment/i });
+    fireEvent.click(btn);
 
-    // Navigates to /provisions/:appid/:env using the row data (abc-999/dev)
-    await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith('/provisions/abc-999/dev')
-    );
+    // We don’t assert the exact long URL; just ensure window.open was called with https link
+    expect(openSpy).toHaveBeenCalled();
+    const [url] = (openSpy.mock.calls[0] ?? []) as unknown as [string];
+    expect(url).toMatch(/^https?:\/\//);
   });
 
-  test('fills tokens in dialog and submits to close the dialog path', async () => {
-    primeBootstrap();
-    renderPage();
+  test('step 4 shows “Environment Build Validation Execution” link', async () => {
+    render(<ProvisionDetails />);
 
-    // Open dialog
-    const provisionBtn = await screen.findByRole('button', { name: /provision/i });
-    fireEvent.click(provisionBtn);
-    expect(await screen.findByText(/Action Required/i)).toBeInTheDocument();
+    await screen.findByText(/Provisioning Details/i);
 
-    // Type both tokens
-    fireEvent.change(screen.getByLabelText(/Github Token/i), {
-      target: { value: 'ghp_abc' },
+    fireEvent.click(screen.getByText(stepLabels[4]));
+
+    const link = screen.getByRole('link', {
+      name: /Environment Build Validation Execution/i,
     });
-    fireEvent.change(screen.getByLabelText(/Terraform Token/i), {
-      target: { value: 'tfp_xyz' },
-    });
-
-    // Submit
-    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
-
-    // We at least called the context setter with merged values
-    expect(setProvisionDataMock).toHaveBeenCalled();
-    const last = setProvisionDataMock.mock.calls.at(-1)?.[0];
-    // When using functional setter we receive a function; just ensure we passed one
-    expect(typeof last === 'function' || typeof last === 'object').toBeTruthy();
+    expect(link).toBeInTheDocument();
+    // Basic sanity: looks like a valid http(s) link
+    expect(link).toHaveAttribute('href', expect.stringMatching(/^https?:\/\//));
   });
 });
