@@ -2,61 +2,37 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import ProvisionLogs from './Provision-logs';
 
-// Mock the child template exactly how the component imports it
-jest.mock('./Provision-logs-template', () => ({
+// Mock the child exactly as imported by the component
+jest.mock('./provision-logs-template', () => ({
   __esModule: true,
   default: ({ logType }: { logType: string }) => (
     <div data-testid="logs-template">{logType}</div>
   ),
 }));
 
-/** This is the *inner* shape expected for the logs object */
-type LogsShape = {
-  overall_status: string;
-  validation_results: {
-    gcpapp_validation: { status: string; details: any[] };
-    gcpdm_validation: { status: string; details: any[] };
-    github_repos_validation: { status: string; details: any[] };
-    secondary_ranges_validation: { status: string; details: any[] };
-    workspace_validation: { status: string; details: any[] };
-  };
-};
+// Derive the exact prop type of the provisioningLogs prop
+type ProvisioningLogsProps = React.ComponentProps<
+  typeof ProvisionLogs
+>['provisioningLogs'];
 
-/** Build a valid logs payload for the prop */
-function makeLogs(overall: 'success' | 'failure' = 'success'): LogsShape {
+// Helper that returns a clearly non‑empty object (so Object.keys(...) > 0)
+function makeLogs(overall: 'success' | 'failure'): ProvisioningLogsProps {
   return {
     overall_status: overall,
     validation_results: {
-      gcpapp_validation: { status: 'ok', details: [] },
-      gcpdm_validation: { status: 'ok', details: [] },
-      github_repos_validation: { status: 'ok', details: [] },
+      gcpapp_validation:     { status: 'ok', details: [] },
+      gcpdm_validation:      { status: 'ok', details: [] },
+      github_repos_validation:{ status: 'ok', details: [] },
       secondary_ranges_validation: { status: 'ok', details: [] },
-      workspace_validation: { status: 'ok', details: [] },
+      workspace_validation:  { status: 'ok', details: [] },
     },
   };
 }
 
-/**
- * Render helper that *always* uses the component’s real prop name.
- * We derive the prop type and then assign into it dynamically to avoid
- * TS errors if the key is `provisionIngLogs` vs `provisioningLogs`, etc.
- */
-type CompProps = React.ComponentProps<typeof ProvisionLogs>;
-function renderWithLogs(logs: LogsShape | undefined) {
-  const props = {} as CompProps;
-  if (logs === undefined) {
-    // put `undefined` on the single prop key the component actually expects
-    (props as any)[Object.keys(props as any)[0] ?? 'provisioningLogs'] = undefined;
-  } else {
-    (props as any)[Object.keys(props as any)[0] ?? 'provisioningLogs'] = logs;
-  }
-  return render(<ProvisionLogs {...props} />);
-}
-
 describe('ProvisionLogs', () => {
   test('renders empty state when no logs', () => {
-    // @ts-expect-error — intentionally pass undefined to exercise empty branch
-    renderWithLogs(undefined);
+    // explicitly pass undefined to exercise the early-return branch
+    render(<ProvisionLogs provisioningLogs={undefined} />);
 
     expect(
       screen.getByText(/no provisioning logs available/i)
@@ -65,37 +41,40 @@ describe('ProvisionLogs', () => {
   });
 
   test('shows overall status "Success" in green by default (APP tab active)', () => {
-    renderWithLogs(makeLogs('success'));
+    render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
 
-    // Label exists
+    // label exists
     expect(screen.getByText(/overall status/i)).toBeInTheDocument();
 
-    // Value "Success" (component capitalizes)
+    // value text (component capitalizes first letter)
     const statusValue = screen.getByText(/success/i);
     expect(statusValue).toBeInTheDocument();
-    // sx applies inline style
+
+    // sx inline style sets the color
     expect(statusValue).toHaveStyle({ color: 'green' });
 
-    // APP tab is initially active; mocked child shows APP label
+    // APP tab is active initially -> child template shows APP label
     expect(screen.getByTestId('logs-template')).toHaveTextContent(
       /gcp app validation logs/i
     );
   });
 
   test('switches to CDM tab and renders CDM template', () => {
-    renderWithLogs(makeLogs('success'));
+    render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
 
+    // Click the CDM tab button as it appears in the markup
     fireEvent.click(
       screen.getByRole('button', { name: /gcp cdm validation logs/i })
     );
 
+    // Now the mocked child should show the CDM label
     expect(screen.getByTestId('logs-template')).toHaveTextContent(
       /gcp cdm validation logs/i
     );
   });
 
   test('shows overall status "Failure" in red when overall_status=failure', () => {
-    renderWithLogs(makeLogs('failure'));
+    render(<ProvisionLogs provisioningLogs={makeLogs('failure')} />);
 
     const statusValue = screen.getByText(/failure/i);
     expect(statusValue).toBeInTheDocument();
