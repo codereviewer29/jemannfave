@@ -1,95 +1,203 @@
-// src/provision/Provision-logs.test.tsx
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import ProvisionLogs from './Provision-logs';
+import { render, screen } from '@testing-library/react';
+import ProvisionLogsTemplate from './Provision-logs-template';
 
-// Mock the child exactly as imported by the component
-jest.mock('./provision-logs-template', () => ({
+// --- Minimal icon mocks so we can assert which one shows ---
+jest.mock('@mui/icons-material/CheckCircle', () => ({
   __esModule: true,
-  default: ({ logType }: { logType: string }) => (
-    <div data-testid="logs-template">{logType}</div>
-  ),
+  default: (props: any) => <i data-testid="ok-icon" {...props} />,
+}));
+jest.mock('@mui/icons-material/Cancel', () => ({
+  __esModule: true,
+  default: (props: any) => <i data-testid="error-icon" {...props} />,
 }));
 
-// Derive the *exact* type used for the logs object from the component’s props.
-// NB: the component prop is misspelled as "provisoningLogs".
-type ProvisioningLogsProps = React.ComponentProps<typeof ProvisionLogs>['provisoningLogs'];
+// --- Type helpers (pull the exact prop shape from the component) ---
+type Props = React.ComponentProps<typeof ProvisionLogsTemplate>;
+type Logs = Props['provisioningLogs'];
 
-// Helper to produce a clearly non-empty logs object
-function makeLogs(
-  overall: 'success' | 'failure' = 'success'
-): ProvisioningLogsProps {
+// Factory: a complete, valid logs object we can tweak per test
+function makeLogs(overall: 'success' | 'failure' = 'success'): Logs {
   return {
     overall_status: overall,
     validation_results: {
-      gcpapp_validation: { status: 'ok', details: [] },
-      gcpdm_validation: { status: 'ok', details: [] },
-      github_repos_validation: { status: 'ok', details: [] },
-      secondary_ranges_validation: { status: 'ok', details: [] },
-      workspace_validation: { status: 'ok', details: [] },
-    },
-  } as unknown as ProvisioningLogsProps;
+      gcppap_validation: {
+        status: 'success',
+        details: {
+          project_id: 'proj-123',
+          terraform_service_account: undefined, // should display "N/A"
+        },
+      },
+      gcpdm_validation: {
+        status: 'success',
+        details: {},
+      },
+      github_repos_validation: {
+        status: 'success',
+        details: [],
+      },
+      secondary_ranges_validation: {
+        status: 'success',
+        details: { secondary_ranges_validation: [] },
+      },
+      workspace_validation: {
+        status: 'success',
+        details: [],
+      },
+      // sections the template checks by name
+      // “Missing Roles” uses these arrays inside details:
+      // - missing_additional_roles (string[])
+      // - missing_grantable_roles (string[])
+      // “Missing Services” uses: missing_services (string[])
+      // “Project Creation Flags” uses: project_flags (Array<{flag_name, flag_value}>)
+      // They’re part of gcpdm_validation details in your file, so keep them there:
+      gcpdm_validation_extra: undefined as unknown as never, // (just to remind future readers)
+    } as any,
+  };
 }
 
-// Small helper to render with a given logs object, using the misspelled prop
-function renderWithLogs(logs: ProvisioningLogsProps | undefined) {
-  // cast to any so we can pass the misspelled prop name without TS grief
-  return render(
-    <ProvisionLogs {...({ provisoningLogs: logs } as any)} />
-  );
-}
+const renderTemplate = (partial?: Partial<Props>) => {
+  const base: Props = {
+    logType: 'GCP APP Validation Logs',
+    provisioningLogs: makeLogs('success'),
+    ...partial,
+  };
+  return render(<ProvisionLogsTemplate {...base} />);
+};
 
-describe('ProvisionLogs', () => {
-  test('renders empty state when no logs', () => {
-    // explicitly pass undefined to hit the early-return branch
-    renderWithLogs(undefined);
+describe('ProvisionLogsTemplate', () => {
+  test('renders all section headings for APP logs', () => {
+    renderTemplate();
 
+    // Section titles / headings the template renders
     expect(
-      screen.getByText(/no provisioning logs available/i)
+      screen.getByText(/GCP Validation/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/GitHub Repos Validation/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Secondary Ranges Validation/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Workspace Validation/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Missing Roles/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Missing Services/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Project Creation Flags/i)
     ).toBeInTheDocument();
 
-    // child template is not rendered
-    expect(screen.queryByTestId('logs-template')).not.toBeInTheDocument();
+    // Because every section above is success in our factory,
+    // we should see at least one "ok" icon and no "error" icon.
+    expect(screen.getAllByTestId('ok-icon').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('error-icon')).toBeNull();
   });
 
-  test('shows overall status "Success" in green by default (APP tab active)', () => {
-    renderWithLogs(makeLogs('success'));
+  test('shows GCP project details and uses "N/A" when service account is missing', () => {
+    const logs = makeLogs('success');
+    // GCP Validation details are in gcppap_validation.details in your component
+    logs.validation_results.gcppap_validation.details = {
+      project_id: 'abc-999',
+      // terraform_service_account absent -> "N/A"
+    };
 
-    // label is present (Typography heading contains the phrase)
-    expect(screen.getByText(/overall status/i)).toBeInTheDocument();
+    renderTemplate({ provisioningLogs: logs });
 
-    // the status value text is “Success” (component capitalizes first letter)
-    const statusValue = screen.getByText(/success/i);
-    expect(statusValue).toBeInTheDocument();
-
-    // sx inline style sets color to green when success
-    expect(statusValue).toHaveStyle({ color: 'green' });
-
-    // APP tab is initially active, so the child template shows APP label
-    expect(screen.getByTestId('logs-template')).toHaveTextContent(
-      /gcp app validation logs/i
-    );
+    expect(screen.getByText(/GCP APP Project ID/i)).toBeInTheDocument();
+    expect(screen.getByText(/abc-999/i)).toBeInTheDocument();
+    // text "Terraform Service Account:" followed by "N/A"
+    expect(screen.getByText(/Terraform Service Account/i)).toBeInTheDocument();
+    expect(screen.getByText(/N\/A/i)).toBeInTheDocument();
   });
 
-  test('switches to CDM tab and renders CDM template', () => {
-    renderWithLogs(makeLogs('success'));
+  test('renders Missing Roles items and marks section as failure when lists have entries', () => {
+    const logs = makeLogs('success');
+    // The component reads “Missing Roles” from one validation’s details.
+    // In your file that content is shown under a section named “Missing Roles”,
+    // which uses arrays missing_additional_roles and missing_grantable_roles.
+    (logs.validation_results as any).gcpdm_validation = {
+      status: 'success',
+      details: {
+        missing_additional_roles: ['roles/logging.viewer', 'roles/storage.objectViewer'],
+        missing_grantable_roles: ['roles/iam.serviceAccountUser'],
+      },
+    };
 
-    // Click the CDM tab button by its accessible name
-    fireEvent.click(
-      screen.getByRole('button', { name: /gcp cdm validation logs/i })
-    );
+    renderTemplate({ provisioningLogs: logs });
 
-    // The mocked template now shows the CDM label
-    expect(screen.getByTestId('logs-template')).toHaveTextContent(
-      /gcp cdm validation logs/i
-    );
+    // We expect the list items to render
+    expect(screen.getByText(/roles\/logging\.viewer/i)).toBeInTheDocument();
+    expect(screen.getByText(/roles\/storage\.objectViewer/i)).toBeInTheDocument();
+    expect(screen.getByText(/roles\/iam\.serviceAccountUser/i)).toBeInTheDocument();
+
+    // That section becomes failure -> we should see at least one error icon now
+    expect(screen.getByTestId('error-icon')).toBeInTheDocument();
   });
 
-  test('shows overall status "Failure" in red when overall_status=failure', () => {
-    renderWithLogs(makeLogs('failure'));
+  test('renders Project Creation Flags as list items', () => {
+    const logs = makeLogs('success');
+    (logs.validation_results as any).gcpdm_validation = {
+      status: 'success',
+      details: {
+        project_flags: [
+          { flag_name: 'billingEnabled', flag_value: 'true' },
+          { flag_name: 'orgPolicySet', flag_value: 'false' },
+        ],
+      },
+    };
 
-    const statusValue = screen.getByText(/failure/i);
-    expect(statusValue).toBeInTheDocument();
-    expect(statusValue).toHaveStyle({ color: 'red' });
+    renderTemplate({ provisioningLogs: logs });
+
+    expect(screen.getByText(/billingEnabled\s*:\s*true/i)).toBeInTheDocument();
+    expect(screen.getByText(/orgPolicySet\s*:\s*false/i)).toBeInTheDocument();
+  });
+
+  test('renders Secondary Ranges items', () => {
+    const logs = makeLogs('success');
+    logs.validation_results.secondary_ranges_validation = {
+      status: 'failure',
+      details: { secondary_ranges_validation: ['range-a', 'range-b'] },
+    };
+
+    renderTemplate({ provisioningLogs: logs });
+
+    expect(screen.getByText(/range-a/i)).toBeInTheDocument();
+    expect(screen.getByText(/range-b/i)).toBeInTheDocument();
+    // failure -> error icon present
+    expect(screen.getByTestId('error-icon')).toBeInTheDocument();
+  });
+
+  test('shows footer email when overall_status=failure', () => {
+    const failing = makeLogs('failure');
+    renderTemplate({ provisioningLogs: failing });
+
+    // The footer paragraph shown only when overall failure is present
+    expect(
+      screen.getByText(/Please contact the Enablement Team/i)
+    ).toBeInTheDocument();
+
+    // The mailto anchor text from your file
+    expect(
+      screen.getByText(/CloudEnablement@wellsfargo\.com/i)
+    ).toBeInTheDocument();
+  });
+
+  test('renders CDM log view when logType = "GCP CDM Validation Logs"', () => {
+    const logs = makeLogs('success');
+    renderTemplate({
+      logType: 'GCP CDM Validation Logs',
+      provisioningLogs: logs,
+    });
+
+    // We can still see shared section titles; this just confirms the template
+    // renders correctly for the CDM variant.
+    expect(
+      screen.getByText(/GCP CDM Validation Logs/i)
+    ).toBeInTheDocument();
   });
 });
