@@ -1,110 +1,173 @@
-import { render, screen, within } from '@testing-library/react';
-// … keep the rest of your imports, icon mocks, makeLogs, renderTemplate …
+// src/provision/Provision-logs-template.test.tsx
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import ProvisionLogsTemplate from './Provision-logs-template';
 
-/* 1) GCP APP details + “N/A” for missing service account */
-test('shows GCP APP project details and prints "N/A" when service account is missing', () => {
-  const logs = makeLogs('success');
+// --- minimal icon mocks so we can assert which one shows ---
+jest.mock('@mui/icons-material/CheckCircle', () => ({
+  __esModule: true,
+  default: (props: any) => <i data-testid="ok-icon" {...props} />,
+}));
+jest.mock('@mui/icons-material/Cancel', () => ({
+  __esModule: true,
+  default: (props: any) => <i data-testid="error-icon" {...props} />,
+}));
 
-  // SHAPE EXACTLY AS COMPONENT EXPECTS
-  logs.validation_results.gcpapp_validation.details = {
-    project_id: 'abc-999',
-    // leave undefined/null so component renders “N/A”
-    terraform_service_account: undefined,
-  } as any;
+// 1) Pull the real prop type from the component (keeps us aligned)
+type Props = React.ComponentProps<typeof ProvisionLogsTemplate>;
+// Convenience alias for the logs object
+type Logs = Props['provisioningLogs'];
 
-  renderTemplate({ provisioningLogs: logs });
+// 2) Factory that builds a valid logs object the component understands
+function makeLogs(overall: 'success' | 'failure' = 'success'): Logs {
+  return {
+    overall_status: overall,
+    validation_results: {
+      gcpapp_validation: {
+        status: 'success',
+        details: [] as any[], // becomes an object (cast to any) in specific tests
+      },
+      gcpdm_validation: {
+        status: 'success',
+        details: [] as any[],
+      },
+      github_repos_validation: {
+        status: 'success',
+        details: [] as any[],
+      },
+      secondary_ranges_validation: {
+        status: 'success',
+        details: [] as any[],
+      },
+      workspace_validation: {
+        status: 'success',
+        details: [] as any[],
+      },
+    },
+  } as Logs;
+}
 
-  // Find the GCP Validation section first, then assert inside it
-  const gcpSection = screen.getByRole('heading', { name: /gcp validation/i }).closest('div')!;
-  const S = within(gcpSection);
-
-  // “GCP APP Project ID: abc-999”
-  expect(S.getByText(/gcp app project id/i)).toBeInTheDocument();
-  expect(S.getByText(/abc-999/i)).toBeInTheDocument();
-
-  // “Terraform Service Account: N/A”
-  expect(S.getByText(/terraform service account/i)).toBeInTheDocument();
-  expect(S.getByText(/n\/a/i)).toBeInTheDocument();
-});
-
-/* 2) “Missing Roles” lists render and section is considered failure */
-test('renders "Missing Roles" items and marks section as failure when lists have entries', () => {
-  const logs = makeLogs('success');
-
-  // SHAPE EXACTLY AS COMPONENT EXPECTS (the template reads these off gcpdm_validation.details)
-  logs.validation_results.gcpdm_validation.details = {
-    missing_additional_roles: ['roles/logging.viewer', 'roles/storage.objectViewer'],
-    missing_grantable_roles: ['roles/iam.serviceAccountUser'],
-    project_flags: [], // keep flags empty here
-  } as any;
-
-  renderTemplate({ provisioningLogs: logs });
-
-  // Scope to the “Missing Roles” section
-  const rolesSection = screen.getByRole('heading', { name: /missing roles/i }).closest('div')!;
-  const S = within(rolesSection);
-
-  // The items should appear
-  expect(S.getByText(/roles\/logging\.viewer/i)).toBeInTheDocument();
-  expect(S.getByText(/roles\/storage\.objectviewer/i)).toBeInTheDocument();
-  expect(S.getByText(/roles\/iam\.serviceaccountuser/i)).toBeInTheDocument();
-
-  // Any error icon indicates the section is treated as failure
-  expect(S.getByTestId('error-icon')).toBeInTheDocument();
-});
-
-/* 3) “Project Creation Flags” render as list items */
-test('renders Project Creation Flags as list items', () => {
-  const logs = makeLogs('success');
-
-  // FLAGS LIVE UNDER gcpdm_validation.details.project_flags
-  logs.validation_results.gcpdm_validation.details = {
-    missing_additional_roles: [],
-    missing_grantable_roles: [],
-    project_flags: [
-      { flag_name: 'billingEnabled', flag_value: 'true' },
-      { flag_name: 'orgPolicySet',  flag_value: 'false' },
-    ],
-  } as any;
-
-  renderTemplate({ provisioningLogs: logs });
-
-  // Scope to the “Project Creation Flags” section
-  const flagsSection = screen.getByRole('heading', { name: /project creation flags/i }).closest('div')!;
-  const S = within(flagsSection);
-
-  // Tolerate punctuation/spacing: “billingEnabled … true”, “orgPolicySet … false”
-  expect(S.getByText(/billingenabled.*true/i)).toBeInTheDocument();
-  expect(S.getByText(/orgpolicyset.*false/i)).toBeInTheDocument();
-});
-
-/* 4) Secondary ranges appear and section shows failure icon */
-test('renders Secondary Ranges items and flags section as failure when list has entries', () => {
-  const logs = makeLogs('success');
-
-  // SECONDARY RANGES SHAPE: details.secondary_ranges_validation = string[]
-  logs.validation_results.secondary_ranges_validation = {
-    status: 'failure', // your component considers non-empty arrays as failure anyway
-    details: { secondary_ranges_validation: ['range-a', 'range-b'] },
-  } as any;
-
-  renderTemplate({ provisioningLogs: logs });
-
-  const secSection = screen.getByRole('heading', { name: /secondary ranges validation/i }).closest('div')!;
-  const S = within(secSection);
-
-  expect(S.getByText(/range-a/i)).toBeInTheDocument();
-  expect(S.getByText(/range-b/i)).toBeInTheDocument();
-  expect(S.getByTestId('error-icon')).toBeInTheDocument();
-});
-
-/* 5) CDM flavor renders the CDM title */
-test('renders CDM log view when logType = "GCP CDM Validation Logs"', () => {
-  renderTemplate({
-    logType: 'GCP CDM Validation Logs',
+// 3) Helper to render with sane defaults and optional overrides
+const renderTemplate = (partial?: Partial<Props>) => {
+  const base: Props = {
+    logType: 'GCP APP Validation Logs',
     provisioningLogs: makeLogs('success'),
+  };
+  return render(<ProvisionLogsTemplate {...base} {...(partial as Props)} />);
+};
+
+describe('ProvisionLogsTemplate', () => {
+  test('renders all section headings', () => {
+    renderTemplate();
+
+    // These headings come from your component titles in renderValidationSection
+    expect(screen.getByText(/GCP Validation/i)).toBeInTheDocument();
+    expect(screen.getByText(/GitHub Repos Validation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Secondary Ranges Validation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Workspace Validation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Missing Roles/i)).toBeInTheDocument();
+    expect(screen.getByText(/Missing Services/i)).toBeInTheDocument();
+    expect(screen.getByText(/Project Creation Flags/i)).toBeInTheDocument();
+
+    // Everything is "success" in the default factory so at least one ok icon should appear
+    expect(screen.getAllByTestId('ok-icon').length).toBeGreaterThan(0);
+    // and no error icon when all sections are success
+    expect(screen.queryByTestId('error-icon')).toBeNull();
   });
 
-  // The CDM header is rendered somewhere in the template
-  expect(screen.getByText(/gcp cdm validation logs/i)).toBeInTheDocument();
+  test('shows GCP APP project details and prints "N/A" when service account is missing', () => {
+    const logs = makeLogs('success');
+    // Your GCP Validation details are read from gcpapp_validation.details
+    logs.validation_results.gcpapp_validation.details = {
+      project_id: 'abc-999',
+      terraform_service_account: undefined, // triggers "N/A" in the component
+    } as any;
+
+    renderTemplate({ provisioningLogs: logs });
+
+    // Label + id
+    expect(screen.getByText(/GCP APP Project ID/i)).toBeInTheDocument();
+    expect(screen.getByText(/abc-999/i)).toBeInTheDocument();
+    // Terraform Service Account label + N/A
+    expect(screen.getByText(/Terraform Service Account/i)).toBeInTheDocument();
+    expect(screen.getByText(/N\/A/i)).toBeInTheDocument();
+  });
+
+  test('renders "Missing Roles" items and marks section as failure when lists have entries', () => {
+    const logs = makeLogs('success');
+    // For "Missing Roles" the component also reads from gcpapp_validation.details
+    logs.validation_results.gcpapp_validation.details = {
+      missing_additional_roles: ['roles/logging.viewer', 'roles/storage.objectViewer'],
+      missing_grantable_roles: ['roles/iam.serviceAccountUser'],
+      project_flags: [],
+    } as any;
+
+    renderTemplate({ provisioningLogs: logs });
+
+    // List items
+    expect(screen.getByText(/roles\/logging\.viewer/i)).toBeInTheDocument();
+    expect(screen.getByText(/roles\/storage\.objectViewer/i)).toBeInTheDocument();
+    expect(screen.getByText(/roles\/iam\.serviceAccountUser/i)).toBeInTheDocument();
+
+    // Section becomes failure -> at least one error icon should appear
+    expect(screen.getByTestId('error-icon')).toBeInTheDocument();
+  });
+
+  test('renders Project Creation Flags as list items', () => {
+    const logs = makeLogs('success');
+    logs.validation_results.gcpapp_validation.details = {
+      missing_additional_roles: [],
+      missing_grantable_roles: [],
+      project_flags: [
+        { flag_name: 'billingEnabled', flag_value: 'true' },
+        { flag_name: 'orgPolicySet', flag_value: 'false' },
+      ],
+    } as any;
+
+    renderTemplate({ provisioningLogs: logs });
+
+    expect(screen.getByText(/billingEnabled.*true/i)).toBeInTheDocument();
+    expect(screen.getByText(/orgPolicySet.*false/i)).toBeInTheDocument();
+  });
+
+  test('renders Secondary Ranges items and shows error icon when list has entries', () => {
+    const logs = makeLogs('success');
+    // The Secondary Ranges section uses gcpdm_validation; your component
+    // treats the section as failure when it has entries
+    logs.validation_results.gcpdm_validation = {
+      status: 'failure',
+      details: { secondary_ranges_validation: ['range-a', 'range-b'] } as any,
+    };
+
+    renderTemplate({ provisioningLogs: logs });
+
+    expect(screen.getByText(/range-a/i)).toBeInTheDocument();
+    expect(screen.getByText(/range-b/i)).toBeInTheDocument();
+    expect(screen.getByTestId('error-icon')).toBeInTheDocument();
+  });
+
+  test('renders CDN log label variant when logType = "GCP CDM Validation Logs"', () => {
+    // We only sanity-check the label that changes with the variant
+    renderTemplate({
+      logType: 'GCP CDM Validation Logs',
+      provisioningLogs: makeLogs('success'),
+    });
+
+    // The template headings still render; this asserts we rendered for the CDM variant
+    expect(screen.getByText(/GCP CDM Validation Logs/i)).toBeInTheDocument();
+  });
+
+  test('shows the footer email when overall_status is failure', () => {
+    const failing = makeLogs('failure');
+
+    renderTemplate({ provisioningLogs: failing });
+
+    // This footer paragraph + mailto appears only when overall_status === 'failure'
+    expect(
+      screen.getByText(/Please contact the Enablement Team/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/CloudEnablement@wellsfargo\.com/i)
+    ).toBeInTheDocument();
+  });
 });
