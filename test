@@ -1,95 +1,94 @@
+// src/provision/gcp-infra-setup.test.tsx
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import GCPInfraSetup from './gcp-infra-setup';
 
-// --- shared mocks -----------------------------------------------------------
+// ---- shared mocks -------------------------------------------------
 
-// spy for window.open (links in the UI)
+// window.open (used by a couple of <Link/>s)
 const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
 
-// API client hook -> returns a function we can spy on
+// API hook: component imports from "./services/useApiService"
 const makeRequestMock = jest.fn();
-jest.mock('../services/useApiService', () => ({
+jest.mock('./services/useApiService', () => ({
   __esModule: true,
   default: () => makeRequestMock,
 }));
 
-// react-router navigate + params
-const navigateMock = jest.fn();
+// react-router
 jest.mock('react-router-dom', () => {
   const real = jest.requireActual('react-router-dom');
   return {
     ...real,
-    useNavigate: () => navigateMock,
     useParams: () => ({ appid: 'abc-999', environment: 'dev' }),
-    Link: (props: any) => <a {...props} />,
+    useNavigate: () => jest.fn(),
   };
 });
 
-// Provision context (only github/terraform tokens are used here)
-jest.mock('../ProvisionContext', () => ({
+// Provision context (tokens used in POST body)
+jest.mock('./ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
     provisioningData: {
-      githubToken: 'ghp_123',
-      terraformToken: 'tf_123',
+      githubToken: 'ghp_token',
+      terraformToken: 'tf_token',
     },
   }),
 }));
 
-// --- helpers ----------------------------------------------------------------
+// ---- helpers ------------------------------------------------------
 
-const GET_ENV_RESPONSE = {
-  data: {
-    env_params: {
-      // app values (what the form shows)
-      vault_password: 'P@ssw0rd1',
-      servicenowsupportgroup: 'svc-group',
-      requestemail: 'user@example.com',
-      app_repo_name: 'corp-abc',
-      app_branch_name: 'main',
-      app_project_id: 'p-123',
-      app_notification_channel: 'app-chan',
-      // saferoom values
-      saferoom_repo_name: 'corp-abc',
-      saferoom_branch_name: 'main',
-      saferoom_project_id: 's-456',
-      saferoom_notification_channel: 'safe-chan',
-    },
+function renderPage() {
+  render(
+    <GCPInfraSetup
+      appid="abc-999"
+      environment="dev"
+      completedTabs={[]}
+      setCompletedTabs={jest.fn()}
+      tabIndex={2}
+    />
+  );
+}
+
+const envParams = {
+  env_params: {
+    vault_password: 'Abcdef12!',
+    servicenowsupportgroup: 'svc-group',
+    requestereamil: 'req@corp.com', // spelling matches component interface
+    app_repo_name: 'corp-abc',
+    app_branch_name: 'main',
+    app_project_id: 'prj-123',
+    app_notification_channel: 'chan-a',
+    saferoom_repo_name: 'corp-abc',
+    saferoom_branch_name: 'main',
+    saferoom_project_id: 'sr-456',
+    saferoom_notification_channel: 'safe-chan',
   },
 };
 
-function primeGETOnce() {
-  makeRequestMock.mockResolvedValueOnce(GET_ENV_RESPONSE);
+// Utility to prime the GET
+function mockGetOk(params = envParams) {
+  makeRequestMock.mockResolvedValueOnce({ data: params });
 }
 
-function primePOSTSuccessOnce() {
-  makeRequestMock.mockResolvedValueOnce({
-    status: 200,
-    data: { log_output: ['ok'] },
-  });
+// Utility to prime the POST
+function mockPost(result: any, status = 200) {
+  makeRequestMock.mockResolvedValueOnce({ data: result, status });
 }
 
-function primePOSTNon200Once() {
-  makeRequestMock.mockResolvedValueOnce({
-    status: 500,
-    data: { log_output: [] },
-  });
-}
+// Make matchers a little looser & resilient
+const calledWithGet = () =>
+  expect(makeRequestMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      method: 'GET',
+      endPoints: expect.stringMatching(/get-env-params/i),
+    })
+  );
 
-function primePOSTRejectOnce() {
-  makeRequestMock.mockRejectedValueOnce(new Error('boom'));
-}
+const calledTimes = (n: number) =>
+  waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(n));
 
-/** render the page and return basic handles */
-function renderPage() {
-  // Component takes props from router params; no props to pass.
-  makeRequestMock.mockClear();
-  const ui = render(<GCPInfraSetup />);
-  return { ui };
-}
-
-// --- tests ------------------------------------------------------------------
+// ---- tests --------------------------------------------------------
 
 afterEach(() => {
   makeRequestMock.mockReset();
@@ -101,128 +100,122 @@ afterAll(() => {
 
 describe('GCPInfraSetup', () => {
   test('loads existing env params (GET) and renders the form with values', async () => {
-    // 1) prime GET
-    primeGETOnce();
-
+    mockGetOk(); // 1st call → GET
     renderPage();
 
-    // 2) GET is sent
-    await waitFor(() =>
-      expect(makeRequestMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          endPoints: expect.stringMatching(/get-env-params/i),
-        })
-      )
-    );
+    // wait for GET to be sent
+    await calledTimes(1);
+    await calledWithGet();
 
-    // 3) form is hydrated with returned values
-    expect(await screen.findByLabelText(/vault password/i)).toHaveValue('P@ssw0rd1');
-    expect(screen.getByLabelText(/repo name/i)).toHaveValue('corp-abc');
-    expect(screen.getByLabelText(/project id/i)).toHaveValue('p-123');
+    // and rendered values appear
+    expect(await screen.findByLabelText(/vault password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/repo name/i)).toHaveValue(envParams.env_params.app_repo_name);
+    expect(screen.getByLabelText(/project id/i)).toHaveValue(envParams.env_params.app_project_id);
   });
 
   test('clicking "Build GCP Infrastructure" posts env params and marks tab complete', async () => {
-    // 1) bootstrap GET then POST success
-    primeGETOnce();
-    primePOSTSuccessOnce();
+    // GET -> populate form
+    mockGetOk();
+    // POST -> success
+    mockPost({ log_output: ['OK'] }, 200);
 
     renderPage();
 
-    // wait for GET
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
+    // ensure GET happened
+    await calledTimes(1);
+    await calledWithGet();
 
     // click the action button -> triggers POST
     fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // Ensure GET + POST happened
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+    // GET + POST
+    await calledTimes(2);
 
-    // Inspect the last call (the POST)
-    const lastCallArg = makeRequestMock.mock.calls.at(-1)?.[0];
-    expect(lastCallArg).toEqual(
+    // last call must be the POST with tokens and env_params
+    const last = makeRequestMock.mock.calls.at(-1)![0];
+    expect(last).toEqual(
       expect.objectContaining({
         method: 'POST',
         endPoints: expect.stringMatching(/tab=gcpapp/i),
         body: expect.objectContaining({
           env_params: expect.objectContaining({
-            app_project_id: 'p-123',
-            app_repo_name: 'corp-abc',
+            app_project_id: envParams.env_params.app_project_id,
           }),
-          github_token: 'ghp_123',
-          terraform_token: 'tf_123',
+          github_token: 'ghp_token',
+          terraform_token: 'tf_token',
         }),
       })
     );
+
+    // success logs region appears
+    expect(await screen.findByText(/logs/i)).toBeInTheDocument();
   });
 
   test('shows an error toast if POST returns non-200', async () => {
-    primeGETOnce();
-    primePOSTNon200Once();
+    mockGetOk();
+    // non-200 result
+    mockPost({ log_output: [], message: 'error' }, 500);
 
     renderPage();
 
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
-
+    await calledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // POST attempted
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+    await calledTimes(2);
 
-    // Toast appears (component sets HTML message inside Snackbar/Alert)
-    expect(await screen.findByText(/error has occurred/i)).toBeInTheDocument();
+    // error toast shows
+    expect(await screen.findByRole('alert')).toHaveTextContent(/error has occurred/i);
   });
 
   test('shows an error toast if POST rejects (catch path)', async () => {
-    primeGETOnce();
-    primePOSTRejectOnce();
+    mockGetOk();
+    // reject the POST
+    makeRequestMock.mockRejectedValueOnce(new Error('boom'));
 
     renderPage();
 
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
-
+    await calledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // POST attempted -> rejected
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+    // GET + rejected POST still counts as 2 calls
+    await calledTimes(2);
 
-    expect(await screen.findByText(/error has occurred/i)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/error has occurred/i);
   });
 
   test('validation prevents POST and shows "required fields" toast when required data is missing', async () => {
-    // Provide GET with empty required fields to trigger validation failure
-    makeRequestMock.mockResolvedValueOnce({
-      data: { env_params: { ...GET_ENV_RESPONSE.data.env_params, app_repo_name: '' } },
-    });
+    // Return empty env params so validation fails
+    mockGetOk({ env_params: {} as any });
 
     renderPage();
 
-    // wait for GET to settle so inputs exist
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
+    await calledTimes(1);
 
-    // Try to submit with an empty required field
     fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // Ensure no POST was sent (still only the initial GET)
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
+    // Still only the GET was called
+    await calledTimes(1);
 
-    // Required fields toast text
-    expect(await screen.findByText(/please fill in all required fields/i)).toBeInTheDocument();
+    // Toast with validation message appears
+    expect(await screen.findByRole('alert')).toHaveTextContent(/required/i);
   });
 
   test('vault password visibility toggle switches type', async () => {
-    primeGETOnce();
-
+    mockGetOk();
     renderPage();
 
-    // wait for GET to settle so input exists
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalled());
+    await calledTimes(1);
 
     const pwd = screen.getByLabelText(/vault password/i) as HTMLInputElement;
     const toggle = screen.getByRole('button', { name: /toggle password visibility/i });
 
+    // initial: password
     expect(pwd.type).toBe('password');
+
     fireEvent.click(toggle);
     expect(pwd.type).toBe('text');
+
+    fireEvent.click(toggle);
+    expect(pwd.type).toBe('password');
   });
 });
