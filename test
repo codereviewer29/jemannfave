@@ -1,18 +1,71 @@
-import { renderHook, waitFor } from '@testing-library/react';
-import axios from 'axios';
-import useAuth from './hooks/useAuth';
+// ProvisionContext.test.tsx
+import React from 'react';
+import { renderHook, act } from '@testing-library/react';
+import { ProvisionProvider, useProvisionContext, InitialProvisionData } from './ProvisionContext';
 
-jest.spyOn(console, 'log').mockImplementation(() => {});
+describe('ProvisionContext', () => {
+  test('provides initial state correctly', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ProvisionProvider>{children}</ProvisionProvider>
+    );
 
-// Use the same literal in both places to avoid hoist issues
-const BASE = 'https://api.example.com';
+    const { result } = renderHook(() => useProvisionContext(), { wrapper });
 
-jest.mock('../assets/json/env-properties.json', () => ({
-  __esModule: true,
-  default: { API_BASE_ENDPOINT: 'https://api.example.com' }, // <- literal, not BASE
-}));
+    expect(result.current.provisioningData).toEqual(InitialProvisionData);
+    expect(result.current.requiredFields).toEqual(['githubToken', 'terraformToken']);
+  });
 
-jest.mock('axios');
-const axiosMock = axios as jest.Mocked<typeof axios>;
+  test('updates provisioningData with setProvisionData', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ProvisionProvider>{children}</ProvisionProvider>
+    );
 
-// … the rest of your tests unchanged …
+    const { result } = renderHook(() => useProvisionContext(), { wrapper });
+
+    act(() => {
+      result.current.setProvisionData({
+        githubToken: 'abc',
+        terraformToken: 'xyz',
+        githubRepo: ['repo1'],
+        githubBranch: ['main'],
+      });
+    });
+
+    expect(result.current.provisioningData.githubToken).toBe('abc');
+    expect(result.current.provisioningData.terraformToken).toBe('xyz');
+  });
+
+  test('resets provisioningData to InitialProvisionData', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ProvisionProvider>{children}</ProvisionProvider>
+    );
+
+    const { result } = renderHook(() => useProvisionContext(), { wrapper });
+
+    // set custom data first
+    act(() => {
+      result.current.setProvisionData({
+        githubToken: 'abc',
+        terraformToken: 'xyz',
+        githubRepo: ['repo1'],
+        githubBranch: ['main'],
+      });
+    });
+
+    expect(result.current.provisioningData.githubToken).toBe('abc');
+
+    // reset back
+    act(() => {
+      result.current.resetProvisionData();
+    });
+
+    expect(result.current.provisioningData).toEqual(InitialProvisionData);
+  });
+
+  test('throws error if useProvisionContext is used outside provider', () => {
+    const { result } = renderHook(() => useProvisionContext());
+    expect(result.error).toEqual(
+      new Error('useFormContext must be used within a ProvisionProvider')
+    );
+  });
+});
