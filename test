@@ -1,38 +1,40 @@
-// provision-logs.test.tsx
+// src/provision/Provision-logs.test.tsx
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import ProvisionLogs from '../Provision-logs';
+import ProvisionLogs from './Provision-logs';                 // <-- same folder
 
-// Mock the child so we can assert which tab is rendered
-jest.mock('../provision-logs-template', () => ({
+// mock the child exactly like the component imports it
+jest.mock('./provision-logs-template', () => ({               // <-- same folder
   __esModule: true,
   default: ({ logType }: { logType: string }) => (
     <div data-testid="logs-template">{logType}</div>
   ),
 }));
 
-// ✅ Return the *exact* prop type the component expects
-type ProvisionLogsProps = React.ComponentProps<typeof ProvisionLogs>['provisioningLogs'];
+// derive the exact prop type for provisioningLogs
+type ProvisionLogsProps =
+  React.ComponentProps<typeof ProvisionLogs>['provisioningLogs'];
 
-const makeLogs = (
+// helper to build valid props
+function makeLogs(
   overall: 'success' | 'failure' = 'success'
-): ProvisionLogsProps => ({
-  overall_status: overall,
-  validation_results: {
-    gcpapp_validation: { status: 'ok', details: [] },
-    gcpdm_validation: { status: 'ok', details: [] },
-    github_repos_validation: { status: 'ok', details: [] },
-    secondary_ranges_validation: { status: 'ok', details: [] },
-    workspace_validation: { status: 'ok', details: [] },
-  },
-});
+): ProvisionLogsProps {
+  return {
+    overall_status: overall,
+    validation_results: {
+      gcpapp_validation: { status: 'ok', details: [] },
+      gcpdm_validation: { status: 'ok', details: [] },
+      github_repos_validation: { status: 'ok', details: [] },
+      secondary_ranges_validation: { status: 'ok', details: [] },
+      workspace_validation: { status: 'ok', details: [] },
+    },
+  };
+}
 
 describe('ProvisionLogs', () => {
   test('renders empty state when no logs', () => {
-    // intentionally pass undefined to hit the guard branch
-    // @ts-expect-error testing empty branch
+    // @ts-expect-error: exercising empty branch
     render(<ProvisionLogs provisioningLogs={undefined} />);
-
     expect(screen.getByText(/no provisioning logs available/i)).toBeInTheDocument();
     expect(screen.queryByTestId('logs-template')).not.toBeInTheDocument();
   });
@@ -46,21 +48,17 @@ describe('ProvisionLogs', () => {
     expect(statusValue).toBeInTheDocument();
     expect(statusValue).toHaveStyle({ color: 'green' });
 
-    // APP tab is active initially
     expect(screen.getByTestId('logs-template')).toHaveTextContent(/gcp app validation logs/i);
   });
 
   test('switches to CDM tab and renders CDM template', () => {
     render(<ProvisionLogs provisioningLogs={makeLogs('success')} />);
-
     fireEvent.click(screen.getByRole('button', { name: /gcp cdm validation logs/i }));
-
     expect(screen.getByTestId('logs-template')).toHaveTextContent(/gcp cdm validation logs/i);
   });
 
   test('shows overall status "Failure" in red', () => {
     render(<ProvisionLogs provisioningLogs={makeLogs('failure')} />);
-
     const statusValue = screen.getByText(/failure/i);
     expect(statusValue).toBeInTheDocument();
     expect(statusValue).toHaveStyle({ color: 'red' });
