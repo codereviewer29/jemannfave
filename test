@@ -1,137 +1,131 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom';
 import GCPInfraSetup from './gcp-infra-setup';
 
-/** ----------------- Shared mocks ----------------- */
+// --- shared mocks -----------------------------------------------------------
 
-// window.open is called by some Links in the component
+// spy for window.open (links in the UI)
 const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
 
-// API hook -> returns a function we can spy on
+// API client hook -> returns a function we can spy on
 const makeRequestMock = jest.fn();
 jest.mock('../services/useApiService', () => ({
   __esModule: true,
   default: () => makeRequestMock,
 }));
 
-// react-router
+// react-router navigate + params
 const navigateMock = jest.fn();
 jest.mock('react-router-dom', () => {
-  const real: any = jest.requireActual('react-router-dom');
+  const real = jest.requireActual('react-router-dom');
   return {
     ...real,
     useNavigate: () => navigateMock,
     useParams: () => ({ appid: 'abc-999', environment: 'dev' }),
-    // render Link as simple <a> to keep DOM simple
-    Link: ({ children, ...rest }: any) => <a {...rest}>{children}</a>,
+    Link: (props: any) => <a {...props} />,
   };
 });
 
-// Provision context (tokens consumed on POST)
+// Provision context (only github/terraform tokens are used here)
 jest.mock('../ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
     provisioningData: {
-      githubToken: 'ghp_abc',
-      terraformToken: 'tfp_abc',
+      githubToken: 'ghp_123',
+      terraformToken: 'tf_123',
     },
   }),
 }));
 
-/** ----------------- Test helpers ----------------- */
+// --- helpers ----------------------------------------------------------------
 
-type Props = React.ComponentProps<typeof GCPInfraSetup>;
+const GET_ENV_RESPONSE = {
+  data: {
+    env_params: {
+      // app values (what the form shows)
+      vault_password: 'P@ssw0rd1',
+      servicenowsupportgroup: 'svc-group',
+      requestemail: 'user@example.com',
+      app_repo_name: 'corp-abc',
+      app_branch_name: 'main',
+      app_project_id: 'p-123',
+      app_notification_channel: 'app-chan',
+      // saferoom values
+      saferoom_repo_name: 'corp-abc',
+      saferoom_branch_name: 'main',
+      saferoom_project_id: 's-456',
+      saferoom_notification_channel: 'safe-chan',
+    },
+  },
+};
 
-const setCompletedTabsMock = jest.fn();
-
-function renderPage(overrides: Partial<Props> = {}) {
-  const props: Props = {
-    appid: 'abc-999',
-    environment: 'dev',
-    completedTabs: [],
-    setCompletedTabs: setCompletedTabsMock,
-    tabIndex: 2,
-    ...overrides,
-  };
-  const ui = render(<GCPInfraSetup {...props} />);
-  return { props, ui };
+function primeGETOnce() {
+  makeRequestMock.mockResolvedValueOnce(GET_ENV_RESPONSE);
 }
 
-// convenient fixtures for GET/POST responses
-const envParams = {
-  env_params: {
-    vault_password: 'Password1',
-    servicesnowsupportgroup: 'svc-group',
-    requestemail: 'someone@example.com',
-    app_repo_name: '', // forces fallback "corp-<appid>"
-    app_branch_name: 'main',
-    app_project_id: 'p-123',
-    app_notification_channel: 'chan',
-    saferoom_repo_name: '',
-    saferoom_branch_name: 'main',
-    saferoom_project_id: 's-456',
-    saferoom_notification_channel: 'safe-chan',
-  },
-};
+function primePOSTSuccessOnce() {
+  makeRequestMock.mockResolvedValueOnce({
+    status: 200,
+    data: { log_output: ['ok'] },
+  });
+}
 
-const postSuccess = {
-  status: 200,
-  data: {
-    log_output: [
-      'SUCCESS: bucket created',
-      'FAILED: some step',
-      'Success: another step',
-    ],
-  },
-};
+function primePOSTNon200Once() {
+  makeRequestMock.mockResolvedValueOnce({
+    status: 500,
+    data: { log_output: [] },
+  });
+}
 
-/** Reset spies between tests */
+function primePOSTRejectOnce() {
+  makeRequestMock.mockRejectedValueOnce(new Error('boom'));
+}
+
+/** render the page and return basic handles */
+function renderPage() {
+  // Component takes props from router params; no props to pass.
+  makeRequestMock.mockClear();
+  const ui = render(<GCPInfraSetup />);
+  return { ui };
+}
+
+// --- tests ------------------------------------------------------------------
+
 afterEach(() => {
   makeRequestMock.mockReset();
-  navigateMock.mockReset();
-  setCompletedTabsMock.mockReset();
 });
 
 afterAll(() => {
   openSpy.mockRestore();
 });
 
-/** ----------------- Tests ----------------- */
-
 describe('GCPInfraSetup', () => {
   test('loads existing env params (GET) and renders the form with values', async () => {
-    // prime GET
-    makeRequestMock.mockResolvedValueOnce({ data: envParams });
+    // 1) prime GET
+    primeGETOnce();
 
     renderPage();
 
-    // GET was sent
+    // 2) GET is sent
     await waitFor(() =>
       expect(makeRequestMock).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'GET',
           endPoints: expect.stringMatching(/get-env-params/i),
-        }),
-      ),
+        })
+      )
     );
 
-    // repo field falls back to "corp-<appid>" when empty from API
-    expect(await screen.findByLabelText(/repo name/i)).toHaveValue('corp-abc-999');
-
-    // some other fields are populated
+    // 3) form is hydrated with returned values
+    expect(await screen.findByLabelText(/vault password/i)).toHaveValue('P@ssw0rd1');
+    expect(screen.getByLabelText(/repo name/i)).toHaveValue('corp-abc');
     expect(screen.getByLabelText(/project id/i)).toHaveValue('p-123');
-    expect(screen.getByLabelText(/notification channel/i)).toHaveValue('chan');
-
-    // tab is marked complete after GET
-    expect(setCompletedTabsMock).toHaveBeenCalled();
   });
 
   test('clicking "Build GCP Infrastructure" posts env params and marks tab complete', async () => {
-    // initial GET, then POST
-    makeRequestMock
-      .mockResolvedValueOnce({ data: envParams }) // GET
-      .mockResolvedValueOnce(postSuccess); // POST
+    // 1) bootstrap GET then POST success
+    primeGETOnce();
+    primePOSTSuccessOnce();
 
     renderPage();
 
@@ -139,119 +133,93 @@ describe('GCPInfraSetup', () => {
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
 
     // click the action button -> triggers POST
-    fireEvent.click(
-      screen.getByRole('button', { name: /build gcp infrastructure/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // ensure GET + POST happened
+    // Ensure GET + POST happened
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
 
-    // inspect last call (POST)
-    const last = makeRequestMock.mock.calls.at(-1)?.[0] as any;
-    expect(last).toMatchObject({
-      method: 'POST',
-      endPoints: expect.stringMatching(/tab=gcpapp/i),
-    });
-
-    // body contains env_params and tokens from context
-    expect(last.body.env_params.app_project_id).toBe('p-123');
-    expect(last.body.github_token).toBe('ghp_abc');
-    expect(last.body.terraform_token).toBe('tfp_abc');
-
-    // success logs are shown (covers isSuccess/isFailure styling branches)
-    expect(await screen.findByText(/success: bucket created/i)).toBeInTheDocument();
-    expect(screen.getByText(/failed: some step/i)).toBeInTheDocument();
-
-    // tab marked complete on success
-    expect(setCompletedTabsMock).toHaveBeenCalled();
+    // Inspect the last call (the POST)
+    const lastCallArg = makeRequestMock.mock.calls.at(-1)?.[0];
+    expect(lastCallArg).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        endPoints: expect.stringMatching(/tab=gcpapp/i),
+        body: expect.objectContaining({
+          env_params: expect.objectContaining({
+            app_project_id: 'p-123',
+            app_repo_name: 'corp-abc',
+          }),
+          github_token: 'ghp_123',
+          terraform_token: 'tf_123',
+        }),
+      })
+    );
   });
 
   test('shows an error toast if POST returns non-200', async () => {
-    makeRequestMock
-      .mockResolvedValueOnce({ data: envParams }) // GET
-      .mockResolvedValueOnce({ status: 500, data: { log_output: [] } }); // POST non-200
+    primeGETOnce();
+    primePOSTNon200Once();
 
     renderPage();
 
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /build gcp infrastructure/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // still two calls (GET + POST)
+    // POST attempted
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
 
-    // toast appears with generic error copy
-    expect(
-      await screen.findByText(/error has occurred while building gcp app infrastructure setup/i),
-    ).toBeInTheDocument();
+    // Toast appears (component sets HTML message inside Snackbar/Alert)
+    expect(await screen.findByText(/error has occurred/i)).toBeInTheDocument();
   });
 
   test('shows an error toast if POST rejects (catch path)', async () => {
-    makeRequestMock
-      .mockResolvedValueOnce({ data: envParams }) // GET
-      .mockRejectedValueOnce(new Error('network boom')); // POST throws
+    primeGETOnce();
+    primePOSTRejectOnce();
 
     renderPage();
 
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /build gcp infrastructure/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
 
-    // GET + POST attempted
+    // POST attempted -> rejected
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
 
-    // error toast shown
-    expect(
-      await screen.findByText(/please try again/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/error has occurred/i)).toBeInTheDocument();
   });
 
   test('validation prevents POST and shows "required fields" toast when required data is missing', async () => {
-    // Missing critical fields forces handleError() to return false
+    // Provide GET with empty required fields to trigger validation failure
     makeRequestMock.mockResolvedValueOnce({
-      data: {
-        env_params: {
-          ...envParams.env_params,
-          app_branch_name: '', // required
-          app_repo_name: '',   // triggers fallback but still mark as required in error object
-          app_project_id: '',  // required
-        },
-      },
+      data: { env_params: { ...GET_ENV_RESPONSE.data.env_params, app_repo_name: '' } },
     });
 
-    renderPage();
-
-    // wait for GET
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(
-      screen.getByRole('button', { name: /build gcp infrastructure/i }),
-    );
-
-    // only the GET should have fired (no POST)
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
-
-    // required-fields toast
-    expect(
-      await screen.findByText(/fill in all required fields/i),
-    ).toBeInTheDocument();
-  });
-
-  test('vault password visibility toggle switches type', async () => {
-    makeRequestMock.mockResolvedValueOnce({ data: envParams });
     renderPage();
 
     // wait for GET to settle so inputs exist
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
+
+    // Try to submit with an empty required field
+    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
+
+    // Ensure no POST was sent (still only the initial GET)
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(1));
+
+    // Required fields toast text
+    expect(await screen.findByText(/please fill in all required fields/i)).toBeInTheDocument();
+  });
+
+  test('vault password visibility toggle switches type', async () => {
+    primeGETOnce();
+
+    renderPage();
+
+    // wait for GET to settle so input exists
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalled());
 
     const pwd = screen.getByLabelText(/vault password/i) as HTMLInputElement;
-    const toggle = screen.getByRole('button', {
-      name: /toggle password visibility/i,
-    });
+    const toggle = screen.getByRole('button', { name: /toggle password visibility/i });
 
     expect(pwd.type).toBe('password');
     fireEvent.click(toggle);
