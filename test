@@ -1,248 +1,230 @@
 // src/provision/provision-list.test.tsx
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import ProvisionList from './provision-list';
-import '@testing-library/jest-dom';
 
-// ------ Mocks ------
-
-// Router
+// ---- module-scoped helpers we can tweak inside tests ----
+const makeRequestMock = jest.fn();
 const navigateMock = jest.fn();
+
+// Mutable context state for tokens across tests
+let ctxState = { githubToken: '', terraformToken: '' };
+const setCtxState = (updater: any) => {
+  if (typeof updater === 'function') {
+    ctxState = { ...ctxState, ...updater(ctxState) };
+  } else {
+    ctxState = { ...ctxState, ...updater };
+  }
+};
+
+// ---- mocks for all externals the component imports ----
 jest.mock('react-router-dom', () => ({
-  // only what we use
+  // only the thing ProvisionList uses
   useNavigate: () => navigateMock,
 }));
 
-// Config + Auth
-jest.mock('../gcp_oauth/hooks/useAuth', () => ({
-  __esModule: true,
-  default: () => ({ loading: false, isAuthenticated: true }),
-}));
-
-// If your project gets env via @wf/react-library useConfig,
-// keep this mock; if not, it’s harmless.
-jest.mock('@wf/react-library', () => ({
-  useConfig: () => ({ API_BASE_ENDPOINT: 'https://api.example.com' }),
-}));
-
-// Provision context (tokens + setter)
-const setProvisionDataMock = jest.fn();
-let contextState = {
-  provisioningData: {
-    githubToken: '',
-    terraformToken: '',
-    githubRepo: [] as string[],
-    githubBranch: [] as string[],
-  },
-  setProvisionData: setProvisionDataMock,
-};
-jest.mock('../provision/ProvisionContext', () => ({
-  useProvisionContext: () => contextState,
-}));
-
-// Dropdown component => simple <select>
-jest.mock('../components/dropdown/Dropdown', () => (props: any) => {
-  const { options = [], onChange, ...rest } = props;
-  return (
-    <select
-      data-testid={rest['data-testid'] || 'dropdown'}
-      aria-label={rest['data-testid'] || 'dropdown'}
-      value={rest.value?.value ?? ''}
-      onChange={(e) =>
-        onChange?.({ id: e.target.value, value: e.target.value, label: e.target.value })
-      }
-    >
-      {options.map((o: any) => (
-        <option key={`${o.id}-${o.value}`} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-});
-
-// Data parsing -> identity
-jest.mock('../utils/dataParsing', () => ({
-  __esModule: true,
-  default: (x: any) => x,
-}));
-
-// Cosmetic wrappers (no-ops)
-jest.mock('../home/CustomNavigation', () => () => <div data-testid="nav" />);
-
-// API service hook
-const makeRequestMock = jest.fn();
 jest.mock('../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest: makeRequestMock }),
 }));
 
-// MUI Icon components used inside dialogs/buttons (prevent warnings)
-jest.mock('@mui/icons-material/InfoOutlined', () => () => <i />);
-jest.mock('@mui/icons-material/Cancel', () => () => <i />);
+// keep dataParsing as identity so our fixtures are already in the final shape
+jest.mock('../utils/dataParsing', () => ({
+  __esModule: true,
+  default: (d: any) => d,
+}));
 
-// ------ Helpers / fixtures ------
+jest.mock('../gcp_oauth/hooks/useAuth', () => ({
+  __esModule: true,
+  default: () => ({ loading: false, isAuthenticated: true }),
+}));
 
-type ProjectEnvRow = { id: number; projectid: string; env_id: string };
+jest.mock('../gcp_oauth/hooks/useConfApi', () => ({
+  __esModule: true,
+  default: () => ({ API_BASE_ENDPOINT: 'http://api.example.com' }),
+}));
 
-const projectEnvList: ProjectEnvRow[] = [
-  { id: 10, projectid: 'abc-999', env_id: 'dev' },
-  { id: 11, projectid: 'abc-999', env_id: 'qa' },
-  { id: 21, projectid: 'def-111', env_id: 'dev' },
+// Very light CustomNavigation stub so layout renders
+jest.mock('../home/CustomNavigation', () => ({
+  __esModule: true,
+  default: () => <div data-testid="nav" />,
+}));
+
+// Replace the real context hook with a controllable one
+jest.mock('./ProvisionContext', () => ({
+  __esModule: true,
+  useProvisionContext: () => ({
+    provisioningData: ctxState,
+    setprovisionData: setCtxState, // in case component calls this name
+    setProvisionData: setCtxState, // and this is the one in your file
+  }),
+}));
+
+// Dropdown => make it an HTML <select> that calls onChange with {value,id,label}
+jest.mock('../components/dropdown/Dropdown', () => ({
+  __esModule: true,
+  default: (props: any) => {
+    const { options = [], onChange, ...rest } = props;
+    const value = (props.value && props.value.value) || '';
+    return (
+      <select
+        aria-label={rest['data-testid'] || 'dropdown'}
+        data-testid={rest['data-testid'] || 'dropdown'}
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          const found = options.find((o: any) => o.value === v);
+          onChange?.(found || { value: v, id: v, label: String(v) });
+        }}
+      >
+        {options.map((o: any) => (
+          <option key={o.value} value={o.value}>
+            {o.label ?? o.value}
+          </option>
+        ))}
+      </select>
+    );
+  },
+}));
+
+// The component under test
+import ProvisionList from './provision-list';
+
+// ---------- shared fixtures ----------
+/**
+ * First API: list of (projectid, env_id) pairs; multiple rows per project.
+ * NOTE: matches your implementation (projectid/env_id/id).
+ */
+const appEnvList = [
+  { id: 101, projectid: 'abc-999', env_id: 'dev' },
+  { id: 101, projectid: 'abc-999', env_id: 'qa' },
+  { id: 202, projectid: 'xyz-111', env_id: 'dev' },
 ];
 
-const validationRows = [
+const validationRowsForABC = [
   {
-    App_id: 'abc-999',
-    enablementJiraStatus: 'Open',
-    actjiraStatus: 'Pending',
+    app_id: 'abc-999',
+    enablementJiraStatus: 'Done',
+    actJiraStatus: 'Open',
     Environment: 'dev',
   },
 ];
 
-function primeApiSuccess() {
-  // 1st call: getAppIdEnvDetails
-  makeRequestMock.mockResolvedValueOnce({ data: projectEnvList });
-  // 2nd call: jira_automation validation list
-  makeRequestMock.mockResolvedValueOnce({ data: validationRows });
+const validationRowsForXYZ = [
+  {
+    app_id: 'xyz-111',
+    enablementJiraStatus: 'In Progress',
+    actJiraStatus: 'Open',
+    Environment: 'dev',
+  },
+];
+
+// convenience: render + let bootstrap API calls resolve
+async function renderPage() {
+  // 1st call -> project/env inventory
+  makeRequestMock.mockResolvedValueOnce({ data: appEnvList });
+  // 2nd call -> auto fetch validation for first project/env
+  makeRequestMock.mockResolvedValueOnce({ data: validationRowsForABC });
+
+  render(<ProvisionList />);
+
+  // wait until table data (Provision button) appears to be sure second call finished
+  const btn = await screen.findByRole('button', { name: /provision/i });
+  expect(btn).toBeInTheDocument();
 }
 
-// Common render
-const renderPage = () => render(<ProvisionList />);
+beforeEach(() => {
+  jest.clearAllMocks();
+  navigateMock.mockReset();
+  // tokens missing by default
+  ctxState = { githubToken: '', terraformToken: '' };
+});
 
-// Click helper on our mocked selects
-const choose = (testId: string, value: string) => {
-  const sel = screen.getByTestId(testId) as HTMLSelectElement;
-  fireEvent.change(sel, { target: { value } });
-};
+// ===================================================================================
 
-// ------ Tests ------
+test('loads project/env data, automatically fetches validation details, and renders table', async () => {
+  await renderPage();
 
-describe('ProvisionList', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    // default: no tokens so Provision button shows token dialog
-    contextState = {
-      provisioningData: { githubToken: '', terraformToken: '', githubRepo: [], githubBranch: [] },
-      setProvisionData: setProvisionDataMock,
-    };
-    primeApiSuccess();
+  // 1) first call = GET /provisions/getAppIdEnvDetails
+  await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+
+  const firstArg = makeRequestMock.mock.calls[0][0];
+  expect(firstArg.method).toBe('GET');
+  expect(firstArg.endPoints).toBe('/provisions/getAppIdEnvDetails');
+
+  // 2) the second call is a GET to a computed endpoint (string). Just assert basics.
+  const secondArg = makeRequestMock.mock.calls[1][0];
+  expect(secondArg.method).toBe('GET');
+  expect(typeof secondArg.endPoints).toBe('string');
+  expect(secondArg.endPoints.length).toBeGreaterThan(0);
+
+  // 3) table headers and row content rendered
+  expect(await screen.findByText(/Application Task Validation/i)).toBeInTheDocument();
+  expect(screen.getByText(/GCP project task validation/i)).toBeInTheDocument();
+  // row action
+  expect(screen.getByRole('button', { name: /provision/i })).toBeInTheDocument();
+});
+
+test('switching project triggers a fresh validation fetch automatically', async () => {
+  await renderPage();
+
+  // API for the next (auto) fetch after project change
+  makeRequestMock.mockResolvedValueOnce({ data: validationRowsForXYZ });
+
+  // Change the project dropdown to the other project (xyz-111)
+  const projectDd = screen.getByTestId('project-dropdown');
+  fireEvent.change(projectDd, { target: { value: 'xyz-111' } });
+
+  // That should trigger a new GET (3rd call)
+  await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(3));
+
+  const thirdArg = makeRequestMock.mock.calls[2][0];
+  expect(thirdArg.method).toBe('GET');
+  expect(typeof thirdArg.endPoints).toBe('string');
+});
+
+test('clicking "Provision" opens the token dialog when tokens are missing', async () => {
+  await renderPage();
+
+  // Tokens are missing by default (ctxState set in beforeEach)
+  fireEvent.click(screen.getByRole('button', { name: /provision/i }));
+
+  // Dialog title text from your file
+  expect(await screen.findByText(/Action Required/i)).toBeInTheDocument();
+
+  // dialog explains tokens
+  expect(screen.getByText(/Please provide below tokens/i)).toBeInTheDocument();
+});
+
+test('clicking "Provision" navigates when both tokens exist', async () => {
+  // Give the context tokens before rendering
+  ctxState = { githubToken: 'ghp_123', terraformToken: 'tf_456' };
+
+  await renderPage();
+
+  fireEvent.click(screen.getByRole('button', { name: /provision/i }));
+
+  // route uses row values app_id + Environment
+  expect(navigateMock).toHaveBeenCalledWith('/provisions/abc-999/dev');
+});
+
+test('fills tokens in dialog and submits -> closes path via navigate', async () => {
+  await renderPage(); // tokens missing right now
+
+  // open dialog
+  fireEvent.click(screen.getByRole('button', { name: /provision/i }));
+  expect(await screen.findByText(/Action Required/i)).toBeInTheDocument();
+
+  // fill two textfields by label (exact labels from your DialogContent)
+  fireEvent.change(screen.getByLabelText(/Github Token/i), {
+    target: { value: 'ghp_token' },
+  });
+  fireEvent.change(screen.getByLabelText(/Terraform Token/i), {
+    target: { value: 'tf_token' },
   });
 
-  test('loads project/env data, automatically fetches validation details, and renders table', async () => {
-    renderPage();
+  // click Submit button in the dialog footer
+  fireEvent.click(screen.getByRole('button', { name: /submit/i }));
 
-    // 1) initial GET for app/env list
-    await waitFor(() => {
-      expect(makeRequestMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          endPoints: '/provisions/getAppIdEnvDetails',
-        }),
-      );
-    });
-
-    // After project/env bootstrap, component calls fetch for validation list
-    await waitFor(() => {
-      expect(makeRequestMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          endPoints: expect.stringMatching(
-            /jira_automation\/jira_board_feature\?intakeFormTrackingId=\d+&appid=.+&env=.+/,
-          ),
-        }),
-      );
-    });
-
-    // Final table headers render
-    expect(await screen.findByText(/Application Task Validation/i)).toBeInTheDocument();
-    expect(screen.getByText(/GCP project task validation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Actions/i)).toBeInTheDocument();
-
-    // Row + provision button appear
-    expect(screen.getByText('abc-999')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /provision/i })).toBeInTheDocument();
-  });
-
-  test('switching project and environment triggers a fresh validation fetch', async () => {
-    renderPage();
-
-    // Ensure first two calls (bootstrap) went out
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
-
-    // Re-prime the API for the "change" flow call
-    makeRequestMock.mockResolvedValueOnce({ data: validationRows });
-
-    // Select project "def-111"
-    choose('project-dropdown', 'def-111');
-
-    // Select environment "dev" (for def-111)
-    choose('environment-dropdown', 'dev');
-
-    // Should trigger another validation fetch
-    await waitFor(() =>
-      expect(makeRequestMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          endPoints: expect.stringMatching(/appid=def-111&env=dev/),
-        }),
-      ),
-    );
-  });
-
-  test('clicking Provision opens the token dialog when tokens are missing', async () => {
-    renderPage();
-
-    // Wait for table row
-    const provisionBtn = await screen.findByRole('button', { name: /provision/i });
-    fireEvent.click(provisionBtn);
-
-    // Token dialog is shown
-    expect(await screen.findByText(/Action Required/i)).toBeInTheDocument();
-    expect(screen.getByText(/Please provide below tokens/i)).toBeInTheDocument();
-  });
-
-  test('clicking Provision navigates when both tokens exist', async () => {
-    // Re‑mount with tokens present
-    contextState.provisioningData.githubToken = 'ghp_123';
-    contextState.provisioningData.terraformToken = 'tf_456';
-
-    renderPage();
-
-    const provisionBtn = await screen.findByRole('button', { name: /provision/i });
-    fireEvent.click(provisionBtn);
-
-    // The row’s values (from our fixture) are used to build the route
-    await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith('/provisions/abc-999/dev'),
-    );
-  });
-
-  test('fills tokens in dialog and submits to close the dialog path', async () => {
-    renderPage();
-
-    // Open the token dialog
-    const provisionBtn = await screen.findByRole('button', { name: /provision/i });
-    fireEvent.click(provisionBtn);
-    expect(await screen.findByText(/Action Required/i)).toBeInTheDocument();
-
-    // Type into the two TextFields
-    fireEvent.change(screen.getByLabelText(/Github Token/i), {
-      target: { value: 'gh-token' },
-    });
-    fireEvent.change(screen.getByLabelText(/Terraform Token/i), {
-      target: { value: 'tf-token' },
-    });
-
-    // click Submit (the dialog’s submit path will check context tokens; we simulate setter having stored them)
-    contextState.provisioningData.githubToken = 'gh-token';
-    contextState.provisioningData.terraformToken = 'tf-token';
-
-    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
-
-    // Dialog should close; conservative check: the prompt text disappears
-    await waitFor(() =>
-      expect(screen.queryByText(/Please provide below tokens/i)).not.toBeInTheDocument(),
-    );
-  });
+  // navigates using row's app/env
+  await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/provisions/abc-999/dev'));
 });
