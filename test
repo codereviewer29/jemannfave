@@ -2,34 +2,33 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import GCPInfraSetup from './gcp-infra-setup';
-import { vi } from 'vitest';
 
 // --- Mocks shared by tests ---------------------------------------------------
 
 // mock window.open used inside links
-vi.spyOn(window, 'open').mockImplementation(() => null as any);
+jest.spyOn(window, 'open').mockImplementation(() => null as any);
 
 // API client hook -> returns a function we can spy on
-const makeRequestMock = vi.fn();
-vi.mock('../services/useApiService', () => ({
+const makeRequestMock = jest.fn();
+jest.mock('../services/useApiService', () => ({
   __esModule: true,
   default: () => makeRequestMock,
 }));
 
-// react-router navigate
-const navigateMock = vi.fn();
-vi.mock('react-router-dom', async (og) => {
-  const real: any = await og();
+// react-router navigate/params
+const navigateMock = jest.fn();
+jest.mock('react-router-dom', () => {
+  const actual = jest.requireActual('react-router-dom');
   return {
-    ...real,
+    ...actual,
     useNavigate: () => navigateMock,
     useParams: () => ({ appid: 'abc-999', environment: 'dev' }),
   };
 });
 
 // Provision context (tokens, etc.)
-const setProvisionDataMock = vi.fn();
-vi.mock('../ProvisionContext', () => ({
+const setProvisionDataMock = jest.fn();
+jest.mock('../ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
     provisioningData: {
@@ -64,18 +63,17 @@ function renderPage(overrides: Partial<Props> = {}) {
     appid: 'abc-999',
     environment: 'dev',
     completedTabs: [],
-    setCompletedTabs: vi.fn(),
+    setCompletedTabs: jest.fn(),
     tabIndex: 2,
   };
   const props = { ...base, ...overrides };
 
-  // default GET -> env params
+  // default GET -> env params (1st call)
   makeRequestMock.mockResolvedValueOnce({
     data: { env_params: envParamsFixture },
   });
 
   const ui = render(<GCPInfraSetup {...props} />);
-
   return { ui, props };
 }
 
@@ -92,27 +90,25 @@ describe('GCPInfraSetup', () => {
   test('loads existing env params (GET) and renders the form with values', async () => {
     renderPage();
 
-    // initial GET was made
     await waitFor(() =>
       expect(makeRequestMock).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'GET',
-          // NOTE: correct key: endpoints (lowercase p)
+          // NOTE: correct key is "endpoints" (lowercase p)
           endpoints: expect.stringMatching(/get-env-params/i),
         }),
       ),
     );
 
-    // some values were populated on screen
     expect(await screen.findByLabelText(/Project ID/i)).toHaveValue('p-123');
     expect(screen.getByLabelText(/Repo Name/i)).toHaveValue('corp-abc');
   });
 
   test('clicking "Build GCP Infrastructure" posts env params and marks tab complete', async () => {
-    const setCompletedTabs = vi.fn();
+    const setCompletedTabs = jest.fn();
     renderPage({ setCompletedTabs });
 
-    // prime POST (2nd API call)
+    // prime POST (2nd call)
     makeRequestMock.mockResolvedValueOnce({
       status: 200,
       data: { log_output: ['success: repo created'] },
@@ -121,19 +117,18 @@ describe('GCPInfraSetup', () => {
     const btn = await screen.findByRole('button', { name: /Build GCP Infrastructure/i });
     fireEvent.click(btn);
 
-    // Ensure both calls were made: GET then POST
+    // Ensure GET + POST happened
     await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
 
-    // Inspect the LAST call which should be the POST
-    const lastCall = makeRequestMock.mock.calls.at(-1)?.[0];
-    expect(lastCall).toEqual(
+    // Inspect last call (POST)
+    const lastCallArg = makeRequestMock.mock.calls.at(-1)?.[0];
+    expect(lastCallArg).toEqual(
       expect.objectContaining({
         method: 'POST',
         endpoints: expect.stringMatching(/tab=gcpapp/i),
       }),
     );
-    // body carries env_params + tokens
-    expect(lastCall?.body).toEqual(
+    expect(lastCallArg?.body).toEqual(
       expect.objectContaining({
         env_params: expect.objectContaining({ app_project_id: 'p-123' }),
         github_token: 'ghp_123',
@@ -141,32 +136,24 @@ describe('GCPInfraSetup', () => {
       }),
     );
 
-    // tab marked complete
     await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
   });
 
-  test('shows an error toast if POST fails (non-200)', async () => {
+  test('shows an error toast if POST fails', async () => {
     renderPage();
 
-    // POST response -> error
     makeRequestMock.mockResolvedValueOnce({ status: 500 });
-
     fireEvent.click(await screen.findByRole('button', { name: /Build GCP Infrastructure/i }));
 
-    // The component shows a MUI <Snackbar><Alert severity="error" />
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
 
-  test('vault password visibility toggle switches from password to text', async () => {
+  test('vault password visibility toggle switches type', async () => {
     renderPage();
 
     const pwd = await screen.findByLabelText(/Vault Password/i);
-    // initial MUI TextField renders as type="password"
     expect(pwd).toHaveAttribute('type', 'password');
 
-    // click the little eye icon (the component sets aria-label like this)
     const toggle = screen.getByRole('button', { name: /toggle password visibility/i });
     fireEvent.click(toggle);
 
