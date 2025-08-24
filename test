@@ -1,94 +1,76 @@
-import { renderHook, act } from '@testing-library/react';
-import useApiService from './useApiService';
-import type { HttpRequest } from './types';
+import { renderHook, waitFor } from '@testing-library/react';
+import axios from 'axios';
 
-/* ---------- mock external deps ---------- */
-jest.mock('@wf/react-library', () => ({
-  __esModule: true,
-  useAppGlobalState: jest.fn(),
-  useConfig: jest.fn(),
-}));
-
-// mock the **named** export from ./processHttp
-jest.mock('./processHttp', () => ({
-  __esModule: true,
-  processHttpRequest: jest.fn(),
-}));
-
-/* ---------- typed handles to the mocks ---------- */
-import * as reactlib from '@wf/react-library';
-import { processHttpRequest } from './processHttp';
-
-const useAppGlobalStateMock = reactlib.useAppGlobalState as jest.Mock;
-const useConfigMock = reactlib.useConfig as jest.Mock;
-const processHttpRequestMock = processHttpRequest as unknown as jest.Mock;
-
-/* ---------- helpers ---------- */
+// ---- mock the JSON env exactly as the hook imports it ----
 const BASE = 'https://api.example.com';
+jest.mock('../../assets/json/env-properties.json', () => ({
+  API_BASE_ENDPOINT: BASE,
+}));
 
-// If your HttpRequest type requires more fields, add them here.
-const makeReq = (endpoint: string): HttpRequest =>
-  ({
-    method: 'GET',
-    endpoint,
-    // include any other required keys your project's HttpRequest expects
-    responseType: 'json',
-  } as unknown as HttpRequest);
+// ---- mock axios default export ----
+jest.mock('axios', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+  },
+}));
 
-beforeEach(() => {
-  jest.clearAllMocks();
+// import AFTER mocks so the hook uses the mocked modules
+import useAuth from './useAuth';
 
-  // IMPORTANT: useConfig() returns an object with an "env" key in your hook
-  useConfigMock.mockReturnValue({ env: { API_BASE_ENDPOINT: BASE } });
-});
+const axiosMock = axios as unknown as {
+  get: jest.Mock<Promise<unknown>, [string, { withCredentials: boolean }]>;
+};
 
-describe('useApiService', () => {
-  test('calls processHttpRequest with (request, access_token, baseEndpoint)', async () => {
-    useAppGlobalStateMock.mockReturnValue({ token: { access_token: 'TOK' } });
-    processHttpRequestMock.mockResolvedValue({ ok: true });
+describe('useAuth', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    const { result } = renderHook(() => useApiService());
-    const req = makeReq('/things');
+  test('calls GET {BASE}/auth/user withCredentials: true', async () => {
+    axiosMock.get.mockResolvedValueOnce({ data: { isAuthenticated: true } });
 
-    await act(async () => {
-      await result.current.makeRequest(req);
+    const { result } = renderHook(() => useAuth());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(axiosMock.get).toHaveBeenCalledTimes(1);
+    expect(axiosMock.get).toHaveBeenCalledWith(`${BASE}/auth/user`, {
+      withCredentials: true,
     });
-
-    expect(processHttpRequestMock).toHaveBeenCalledTimes(1);
-    expect(processHttpRequestMock).toHaveBeenCalledWith(req, 'TOK', BASE);
+    expect(result.current.isAuthenticated).toBe(true);
   });
 
-  test('passes undefined token when global state has no token', async () => {
-    useAppGlobalStateMock.mockReturnValue({ token: undefined });
-    processHttpRequestMock.mockResolvedValue({ ok: true });
+  test('sets isAuthenticated=false when API returns false', async () => {
+    axiosMock.get.mockResolvedValueOnce({ data: { isAuthenticated: false } });
 
-    const { result } = renderHook(() => useApiService());
-    const req = makeReq('/stuff');
+    const { result } = renderHook(() => useAuth());
 
-    await act(async () => {
-      await result.current.makeRequest(req);
-    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(processHttpRequestMock).toHaveBeenCalledWith(req, undefined, BASE);
+    expect(result.current.isAuthenticated).toBe(false);
   });
 
-  test('returns the resolved value from processHttpRequest', async () => {
-    useAppGlobalStateMock.mockReturnValue({ token: { access_token: 'TOK' } });
-    const payload = { id: 7, name: 'thing' };
-    processHttpRequestMock.mockResolvedValue(payload);
+  test('sets isAuthenticated=false when request rejects', async () => {
+    axiosMock.get.mockRejectedValueOnce(new Error('network'));
 
-    const { result } = renderHook(() => useApiService());
+    const { result } = renderHook(() => useAuth());
 
-    const value = await result.current.makeRequest(makeReq('/thing/7'));
-    expect(value).toBe(payload);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.isAuthenticated).toBe(false);
   });
 
-  test('propagates errors from processHttpRequest', async () => {
-    useAppGlobalStateMock.mockReturnValue({ token: { access_token: 'TOK' } });
-    const err = new Error('network down');
-    processHttpRequestMock.mockRejectedValue(err);
+  test('fires only once (useEffect has empty deps)', async () => {
+    axiosMock.get.mockResolvedValueOnce({ data: { isAuthenticated: true } });
 
-    const { result } = renderHook(() => useApiService());
-    await expect(result.current.makeRequest(makeReq('/oops'))).rejects.toThrow('network down');
+    const { result, rerender } = renderHook(() => useAuth());
+
+    // re-render should NOT trigger another call
+    rerender();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(axiosMock.get).toHaveBeenCalledTimes(1);
   });
 });
