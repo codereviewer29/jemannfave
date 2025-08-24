@@ -1,16 +1,14 @@
-// src/gcp_oauth/useAuth.test.tsx
 import { renderHook, waitFor } from '@testing-library/react';
 import useAuth from './hooks/useAuth';
 import axios from 'axios';
 
-// ---- mock the JSON env exactly as the hook imports it ----
-// NOTE: the module id must match the import inside useAuth.ts
+// ---- mock the JSON env relative to *this test file* ----
 const BASE = 'https://api.example.com';
-jest.mock('../../assets/json/env-properties.json', () => ({
+jest.mock('../assets/json/env-properties.json', () => ({
   API_BASE_ENDPOINT: BASE,
 }));
 
-// ---- mock axios ----
+// ---- mock axios default import ----
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -28,7 +26,7 @@ describe('useAuth', () => {
     expect(result.current.loading).toBe(true);
     expect(result.current.isAuthenticated).toBe(false);
 
-    // axios was called with the right URL + options
+    // axios called correctly
     await waitFor(() =>
       expect(mockedAxios.get).toHaveBeenCalledWith(
         `${BASE}/auth/user`,
@@ -43,7 +41,7 @@ describe('useAuth', () => {
     });
   });
 
-  test('sets isAuthenticated=false when API says false', async () => {
+  test('sets isAuthenticated=false when API returns false', async () => {
     mockedAxios.get.mockResolvedValueOnce({ data: { isAuthenticated: false } });
 
     const { result } = renderHook(() => useAuth());
