@@ -1,11 +1,257 @@
 /**
- * Stub ESM module "crypto-js" so Jest doesn't try to parse it.
- * Must be before other imports so the mock is hoisted first.
+ * ProvisionList tests – self-contained with all required mocks.
+ * IMPORTANT: keep these top-level mocks BEFORE other imports so they are hoisted.
  */
-jest.mock('crypto-js', () => ({
+
+/* ---- Block ESM module that Jest can't parse ---- */
+jest.mock('crypto-es', () => ({
   __esModule: true,
-  default: {},                 // some code `import default` — keep it harmless
-  SHA256: jest.fn((x: any) => String(x)),
-  HmacSHA256: jest.fn(() => 'stub-hmac'),
+  default: {},
+  SHA256: jest.fn(),
+  HmacSHA256: jest.fn(),
   enc: { Utf8: {} },
 }));
+
+/* ---- Library hooks / routing ---- */
+const navigateMock = jest.fn();
+
+jest.mock('react-router-dom', () => {
+  const actual = jest.requireActual('react-router-dom');
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
+jest.mock('@wf/react-library', () => ({
+  __esModule: true,
+  // Your app calls useConfig().API_BASE_ENDPOINT
+  useConfig: () => ({ API_BASE_ENDPOINT: 'http://api.example.com' }),
+}));
+
+/* ---- App-local mocks ---- */
+jest.mock('../gcp_oauth/hooks/useAuth', () => ({
+  __esModule: true,
+  default: () => ({ loading: false, isAuthenticated: true }),
+}));
+
+// Pass-through JSON parser for tests
+jest.mock('../utils/dataParsing', () => ({
+  __esModule: true,
+  dataParsing: (x: unknown) => x,
+}));
+
+// Keep a handle on Provision context setter so we can assert on it
+const setProvisionDataMock = jest.fn();
+let provisionCtxState: any = {
+  githubToken: '',
+  terraformToken: '',
+};
+
+jest.mock('./ProvisionContext', () => ({
+  __esModule: true,
+  useProvisionContext: () => ({
+    provisioningData: provisionCtxState,
+    setProvisionData: setProvisionDataMock,
+  }),
+}));
+
+// Minimal top nav
+jest.mock('../home/CustomNavigation', () => ({
+  __esModule: true,
+  default: () => <div data-testid="nav" />,
+}));
+
+// Replace custom Dropdown with a simple <select>
+jest.mock('../components/dropdown/Dropdown', () => ({
+  __esModule: true,
+  default: (props: any) => {
+    const { options = [], value, onChange, ...rest } = props;
+    const val = value?.value ?? '';
+    return (
+      <select
+        data-testid={rest['data-testid'] ?? 'dropdown'}
+        value={val}
+        onChange={(e) => {
+          const opt = options.find((o: any) => o.value === e.target.value);
+          onChange?.(opt);
+        }}
+      >
+        {options.map((o: any) => (
+          <option key={o.id ?? o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  },
+}));
+
+// API service mock
+const makeRequestMock = jest.fn();
+jest.mock('../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest: makeRequestMock }),
+}));
+
+/* ---- Imports AFTER mocks ---- */
+import React from 'react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import ProvisionList from './provision-list';
+
+/* -------- Fixtures -------- */
+
+// Data returned by GET /provisions/getAppIdEnvDetails
+// (component turns this into project and env dropdowns)
+const appEnvRows = [
+  { id: 1, projectid: 'abc-999', env_id: 'dev', env: 'dev' },
+  { id: 1, projectid: 'abc-999', env_id: 'qa', env: 'qa' },
+  { id: 2, projectid: 'xyz-111', env_id: 'dev', env: 'dev' },
+];
+
+// Data returned by GET createdEndpointUrl(appId, env, trackingId)
+const validationRows = [
+  {
+    App_id: 'abc-999',
+    Environment: 'dev',
+    enablementJiraStatus: 'Open',
+    actJiraStatus: 'Backlog',
+  },
+];
+
+/* Helper – render with sane defaults and prime API mock sequence */
+function renderPage() {
+  makeRequestMock.mockReset();
+
+  // 1) initial GET -> project/env list
+  makeRequestMock.mockResolvedValueOnce({ data: appEnvRows });
+
+  // 2) auto fetch validation details for the first project/env
+  makeRequestMock.mockResolvedValueOnce({ data: validationRows });
+
+  navigateMock.mockReset();
+  setProvisionDataMock.mockReset();
+
+  // Default context (no tokens)
+  provisionCtxState = { githubToken: '', terraformToken: '' };
+
+  return render(<ProvisionList />);
+}
+
+/* ========================= Tests ========================= */
+
+describe('ProvisionList', () => {
+  test('loads project/env data, auto-fetches validation details, and renders table', async () => {
+    renderPage();
+
+    // 1) initial GET for app/env list
+    await waitFor(() => {
+      expect(makeRequestMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'GET',
+          endPoints: '/provisions/getAppIdEnvDetails',
+          responseType: 'json',
+        })
+      );
+    });
+
+    // 2) follow-up fetch for validation details
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+
+    // table caption / heading present
+    expect(screen.getByText(/Provision List/i)).toBeInTheDocument();
+
+    // confirm we see the Provision button rendered from the row
+    expect(
+      await screen.findByRole('button', { name: /provision/i })
+    ).toBeInTheDocument();
+  });
+
+  test('switching project and environment triggers a fresh validation fetch', async () => {
+    renderPage();
+
+    // ensure the two bootstrap calls happened
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
+
+    // next call (for the change) should also resolve
+    makeRequestMock.mockResolvedValueOnce({
+      data: [
+        {
+          App_id: 'abc-999',
+          Environment: 'qa',
+          enablementJiraStatus: 'Open',
+          actJiraStatus: 'Backlog',
+        },
+      ],
+    });
+
+    // Change project (abc-999 already selected by default)
+    const projectDd = await screen.findByTestId('project-dropdown');
+    fireEvent.change(projectDd, { target: { value: 'abc-999' } });
+
+    // Change env to QA
+    const envDd = await screen.findByTestId('environment-dropdown');
+    fireEvent.change(envDd, { target: { value: 'qa' } });
+
+    // Should trigger one more fetch
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(3));
+  });
+
+  test('clicking Provision opens the token dialog when tokens are missing', async () => {
+    renderPage();
+
+    // Wait until the button is in the DOM
+    const provisionBtn = await screen.findByRole('button', {
+      name: /provision/i,
+    });
+    fireEvent.click(provisionBtn);
+
+    // Dialog appears asking for tokens
+    expect(
+      await screen.findByText(/Please provide below tokens/i)
+    ).toBeInTheDocument();
+  });
+
+  test('clicking Provision navigates when both tokens exist', async () => {
+    // Set tokens in context before render
+    provisionCtxState = {
+      githubToken: 'ghp_123',
+      terraformToken: 'tf_456',
+    };
+
+    renderPage();
+
+    const provisionBtn = await screen.findByRole('button', {
+      name: /provision/i,
+    });
+    fireEvent.click(provisionBtn);
+
+    // Navigates to /provisions/:appId/:env (from our fixture row)
+    expect(navigateMock).toHaveBeenCalledWith('/provisions/abc-999/dev');
+  });
+
+  test('fills tokens in dialog and submits to close the dialog path', async () => {
+    renderPage();
+
+    // Open dialog
+    const provisionBtn = await screen.findByRole('button', {
+      name: /provision/i,
+    });
+    fireEvent.click(provisionBtn);
+
+    // Enter both tokens and submit
+    fireEvent.change(await screen.findByLabelText(/Github Token/i), {
+      target: { value: 'ghp_abc' },
+    });
+    fireEvent.change(screen.getByLabelText(/Terraform Token/i), {
+      target: { value: 'tf_def' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /submit/i }));
+
+    // setter called with merged tokens
+    expect(setProvisionDataMock).toHaveBeenCalled();
+    const callArg = setProvisionDataMock.mock.calls.at(-1)?.[0];
+    expect(callArg).toMatchObject({
+      githubToken: 'ghp_abc',
+      terraformToken: 'tf_def',
+    });
+  });
+});
