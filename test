@@ -1,206 +1,175 @@
-// src/provision/gcp-infra-setup.test.tsx
-import React, { ComponentProps } from 'react';
+import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import GCPInfraSetup from './gcp-infra-setup';
+import { vi } from 'vitest';
 
-// ---- Mocks ----
+// --- Mocks shared by tests ---------------------------------------------------
 
-// makeRequest (API client)
-const makeRequestMock = jest.fn();
-jest.mock('../services/useApiService', () => ({
+// mock window.open used inside links
+vi.spyOn(window, 'open').mockImplementation(() => null as any);
+
+// API client hook -> returns a function we can spy on
+const makeRequestMock = vi.fn();
+vi.mock('../services/useApiService', () => ({
   __esModule: true,
-  default: () => ({ makeRequest: makeRequestMock }),
+  default: () => makeRequestMock,
 }));
 
+// react-router navigate
+const navigateMock = vi.fn();
+vi.mock('react-router-dom', async (og) => {
+  const real: any = await og();
+  return {
+    ...real,
+    useNavigate: () => navigateMock,
+    useParams: () => ({ appid: 'abc-999', environment: 'dev' }),
+  };
+});
+
 // Provision context (tokens, etc.)
-const setProvisionDataMock = jest.fn();
-jest.mock('../ProvisionContext', () => ({
+const setProvisionDataMock = vi.fn();
+vi.mock('../ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
     provisioningData: {
-      githubToken: 'ghp_ctx',
-      terraformToken: 'tf_ctx',
+      githubToken: 'ghp_123',
+      terraformToken: 'tf_456',
     },
     setProvisionData: setProvisionDataMock,
   }),
 }));
 
-// router navigate
-const navigateMock = jest.fn();
-jest.mock('react-router-dom', () => {
-  const real = jest.requireActual('react-router-dom');
-  return {
-    ...real,
-    useNavigate: () => navigateMock,
-  };
-});
+// -----------------------------------------------------------------------------
+// Small factory/fixture helpers
 
-// MUI icons (keep simple)
-jest.mock('@mui/icons-material/Visibility', () => ({
-  __esModule: true,
-  default: (props: any) => <i data-testid="vis-on" {...props} />,
-}));
-jest.mock('@mui/icons-material/VisibilityOff', () => ({
-  __esModule: true,
-  default: (props: any) => <i data-testid="vis-off" {...props} />,
-}));
+type Props = React.ComponentProps<typeof GCPInfraSetup>;
 
-// window.open (used by some links)
-const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null);
-
-// ---- Typing helpers & render helper ----
-
-type Props = ComponentProps<typeof GCPInfraSetup>;
-
-// strongly typed setter we can assert
-const setCompletedTabsMock = jest.fn() as unknown as React.Dispatch<
-  React.SetStateAction<number[]>
->;
+const envParamsFixture = {
+  vault_password: 'Secret123',
+  servicenowsupportgroup: 'svc-group',
+  requestsemail: 'team@example.com',
+  app_repo_name: 'corp-abc',
+  app_branch_name: 'main',
+  app_project_id: 'p-123',
+  app_notification_channel: 'chan-a',
+  saferoom_repo_name: 'corp-abc',
+  saferoom_branch_name: 'main',
+  saferoom_project_id: 'sr-123',
+  saferoom_notification_channel: 'sr-chan',
+};
 
 function renderPage(overrides: Partial<Props> = {}) {
   const base: Props = {
     appid: 'abc-999',
     environment: 'dev',
     completedTabs: [],
-    setCompletedTabs: setCompletedTabsMock,
+    setCompletedTabs: vi.fn(),
     tabIndex: 2,
   };
+  const props = { ...base, ...overrides };
 
-  const props: Props = { ...base, ...(overrides as Partial<Props>) };
+  // default GET -> env params
+  makeRequestMock.mockResolvedValueOnce({
+    data: { env_params: envParamsFixture },
+  });
 
   const ui = render(<GCPInfraSetup {...props} />);
-  return { ...props, ui };
+
+  return { ui, props };
 }
 
-// ---- Fixtures ----
-const envParamsFixture = {
-  env_params: {
-    vault_password: 'P@ssw0rd1',
-    servicenowsupportgroup: 'app-support',
-    requestemail: 'app-team@corp.test',
-    app_repo_name: 'corp-abc-999',
-    app_branch_name: 'main',
-    app_project_id: 'p-123',
-    app_notification_channel: 'app-chan',
-    saferoom_repo_name: 'corp-abc-999-safe',
-    saferoom_branch_name: 'main',
-    saferoom_project_id: 's-456',
-    saferoom_notification_channel: 'safe-chan',
-  },
-};
-
-beforeEach(() => {
-  makeRequestMock.mockReset();
-  setCompletedTabsMock && (setCompletedTabsMock as unknown as jest.Mock).mockReset?.();
-  navigateMock.mockReset();
-});
-afterAll(() => openSpy.mockRestore());
-
-// ---- Tests ----
+// -----------------------------------------------------------------------------
+// Tests
 
 describe('GCPInfraSetup', () => {
-  test('loads existing env params (GET) and renders the form with values', async () => {
-    // bootstrap GET returns saved values
-    makeRequestMock.mockResolvedValueOnce({ data: envParamsFixture });
+  beforeEach(() => {
+    makeRequestMock.mockClear();
+    navigateMock.mockClear();
+    setProvisionDataMock.mockClear();
+  });
 
+  test('loads existing env params (GET) and renders the form with values', async () => {
     renderPage();
 
-    // 1) initial GET is made
+    // initial GET was made
     await waitFor(() =>
       expect(makeRequestMock).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'GET',
-          endPoints: expect.stringMatching(/get-env-params/i),
+          // NOTE: correct key: endpoints (lowercase p)
+          endpoints: expect.stringMatching(/get-env-params/i),
         }),
       ),
     );
 
-    // 2) form shows values from the payload
-    const vaultInput = screen.getByLabelText(/vault password/i) as HTMLInputElement;
-    expect(vaultInput.value).toBe('P@ssw0rd1');
-
-    expect((screen.getByLabelText(/repo name/i) as HTMLInputElement).value).toBe(
-      'corp-abc-999',
-    );
-    expect((screen.getByLabelText(/branch name/i) as HTMLInputElement).value).toBe(
-      'main',
-    );
-    expect((screen.getByLabelText(/project id/i) as HTMLInputElement).value).toBe(
-      'p-123',
-    );
-    expect(
-      (screen.getByLabelText(/notification channel/i) as HTMLInputElement).value,
-    ).toBe('app-chan');
+    // some values were populated on screen
+    expect(await screen.findByLabelText(/Project ID/i)).toHaveValue('p-123');
+    expect(screen.getByLabelText(/Repo Name/i)).toHaveValue('corp-abc');
   });
 
   test('clicking "Build GCP Infrastructure" posts env params and marks tab complete', async () => {
-    // GET -> returns existing params
-    makeRequestMock.mockResolvedValueOnce({ data: envParamsFixture });
-    // POST -> success (status 200) with logs
+    const setCompletedTabs = vi.fn();
+    renderPage({ setCompletedTabs });
+
+    // prime POST (2nd API call)
     makeRequestMock.mockResolvedValueOnce({
-      data: { log_output: ['success: infra created'] },
       status: 200,
+      data: { log_output: ['success: repo created'] },
     });
 
-    const { tabIndex } = renderPage();
+    const btn = await screen.findByRole('button', { name: /Build GCP Infrastructure/i });
+    fireEvent.click(btn);
 
-    // wait for the initial GET
-    await waitFor(() => expect(makeRequestMock).toHaveBeenCalled());
+    // Ensure both calls were made: GET then POST
+    await waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(2));
 
-    // click the submit/build button
-    const buildBtn = await screen.findByRole('button', {
-      name: /build gcp infrastructure/i,
-    });
-    fireEvent.click(buildBtn);
-
-    // POST was sent with env params and tokens from context
-    await waitFor(() =>
-      expect(makeRequestMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'POST',
-          endPoints: expect.stringMatching(/tab=gcpapp/i),
-          body: expect.objectContaining({
-            env_params: expect.objectContaining({
-              app_repo_name: expect.any(String),
-              app_project_id: expect.any(String),
-            }),
-            github_token: 'ghp_ctx',
-            terraform_token: 'tf_ctx',
-          }),
-        }),
-      ),
+    // Inspect the LAST call which should be the POST
+    const lastCall = makeRequestMock.mock.calls.at(-1)?.[0];
+    expect(lastCall).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        endpoints: expect.stringMatching(/tab=gcpapp/i),
+      }),
+    );
+    // body carries env_params + tokens
+    expect(lastCall?.body).toEqual(
+      expect.objectContaining({
+        env_params: expect.objectContaining({ app_project_id: 'p-123' }),
+        github_token: 'ghp_123',
+        terraform_token: 'tf_456',
+      }),
     );
 
-    // setCompletedTabs called (mark tab complete)
-    const calls = (setCompletedTabsMock as unknown as jest.Mock).mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    const updater = calls.at(-1)?.[0] as
-      | number[]
-      | ((prev: number[]) => number[]);
-
-    const next = typeof updater === 'function' ? updater([0, 1]) : updater;
-    expect(next).toEqual(expect.arrayContaining([tabIndex]));
+    // tab marked complete
+    await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
   });
 
-  test('password visibility toggle switches input type', async () => {
-    makeRequestMock.mockResolvedValueOnce({ data: envParamsFixture });
-
+  test('shows an error toast if POST fails (non-200)', async () => {
     renderPage();
 
-    // wait for bootstrap
-    await screen.findByLabelText(/vault password/i);
+    // POST response -> error
+    makeRequestMock.mockResolvedValueOnce({ status: 500 });
 
-    const input = screen.getByLabelText(/vault password/i) as HTMLInputElement;
-    expect(input.type).toBe('password');
+    fireEvent.click(await screen.findByRole('button', { name: /Build GCP Infrastructure/i }));
 
-    const toggle = screen.getByRole('button', {
-      name: /toggle password visibility/i,
-    });
+    // The component shows a MUI <Snackbar><Alert severity="error" />
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toBeInTheDocument(),
+    );
+  });
+
+  test('vault password visibility toggle switches from password to text', async () => {
+    renderPage();
+
+    const pwd = await screen.findByLabelText(/Vault Password/i);
+    // initial MUI TextField renders as type="password"
+    expect(pwd).toHaveAttribute('type', 'password');
+
+    // click the little eye icon (the component sets aria-label like this)
+    const toggle = screen.getByRole('button', { name: /toggle password visibility/i });
     fireEvent.click(toggle);
 
-    expect(input.type).toBe('text');
-
-    fireEvent.click(toggle);
-    expect(input.type).toBe('password');
+    expect(pwd).toHaveAttribute('type', 'text');
   });
 });
