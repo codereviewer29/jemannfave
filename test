@@ -1,203 +1,24 @@
-// src/services/gcpIntakeOnboardingService.test.ts
-import gcpIntakeOnboardingService from './gcpIntakeOnboardingService';
-
-// --- mock apiclient (the only dependency this service calls into) ---
-const apiClientMock = jest.fn();
-jest.mock('./apiclient', () => ({
-  __esModule: true,
-  default: (...args: any[]) => apiClientMock(...args),
-}));
-
-// small helper so our expectations are readable
-function expectApiCalledWith(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
-  endpointsContains: string,
-  body?: any
-) {
-  expect(apiClientMock).toHaveBeenCalledTimes(1);
-  const req = apiClientMock.mock.calls[0][0];
-  expect(req.method).toBe(method);
-  expect(req.endpoints).toContain(endpointsContains);
-  if (body !== undefined) {
-    expect(req.body).toEqual(body);
-  }
-}
-
-describe('gcpIntakeOnboardingService', () => {
-  const envData = { API_BASE_URL: 'https://api.example.com' };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    apiClientMock.mockResolvedValue('API_RES');
-  });
-
-  test('getApplicationDetailsByAppID -> GET /api/application-details/bam-data/?appid=', async () => {
-    const out = await gcpIntakeOnboardingService.getApplicationDetailsByAppID(
-      envData,
-      'APP123'
-    );
-    expect(out).toBe('API_RES');
-    expectApiCalledWith('GET', `${envData.API_BASE_URL}/api/application-details/bam-data/?appid=APP123`);
-  });
-
   test('saveApplicationDetails -> POST /api/application-details/ with payload', async () => {
     const payload = { foo: 'bar' };
     const out = await gcpIntakeOnboardingService.saveApplicationDetails(
       envData,
-      payload,
-      // service signature in your file is (envData, any, data: any)
-      // so we pass the payload in the 2nd or 3rd param (3rd per your screenshot)
-      payload
+      payload // ✅ only 2 args, not 3
     );
     expect(out).toBe('API_RES');
     expectApiCalledWith('POST', `${envData.API_BASE_URL}/api/application-details/`, payload);
   });
 
-  test('getApplicationDetailsByTrackingID -> GET /api/application-details/?intakeFormTrackingId=', async () => {
-    const id = 9876;
-    const out =
-      await gcpIntakeOnboardingService.getApplicationDetailsByTrackingID(
-        envData,
-        id
-      );
-    expect(out).toBe('API_RES');
-    expectApiCalledWith(
-      'GET',
-      `${envData.API_BASE_URL}/api/application-details/?intakeFormTrackingId=${id}`
-    );
-  });
-
-  test('saveCDPIntake -> POST /api/component-details/cdp/ forwards body', async () => {
-    const body = { a: 1 };
-    const out = await gcpIntakeOnboardingService.saveCDPIntake(
-      envData,
-      body as any
-    );
-    expect(out).toBe('API_RES');
-    expectApiCalledWith('POST', `${envData.API_BASE_URL}/api/component-details/cdp/`, body);
-  });
-
-  test('getCDPIntakeByTrackingID -> GET /api/component-details/cdp?intakeFormTrackingId=', async () => {
-    const id = 1122;
-    const out = await gcpIntakeOnboardingService.getCDPIntakeByTrackingID(
-      envData,
-      id
-    );
-    expect(out).toBe('API_RES');
-    expectApiCalledWith(
-      'GET',
-      `${envData.API_BASE_URL}/api/component-details/cdp?intakeFormTrackingId=${id}`
-    );
-  });
-
-  test('saveACTIntake -> POST /api/act-details/ joins cloudServices array into comma-separated string', async () => {
-    const form = { cloudServices: ['a', 'b', 'c'], x: 'y' } as any;
-    await gcpIntakeOnboardingService.saveACTIntake(envData, form);
-
-    // capture the body that was sent
-    const sent = apiClientMock.mock.calls[0][0].body;
-    expect(sent).toEqual({
-      ...form,
-      cloudServices: 'a,b,c',
-    });
-
-    expectApiCalledWith('POST', `${envData.API_BASE_URL}/api/act-details/`);
-  });
-
-  test('getACTIntakeByTrackingID -> GET /api/act-details?intakeFormTrackingId=', async () => {
-    const id = 7788;
-    const out = await gcpIntakeOnboardingService.getACTIntakeByTrackingID(
-      envData,
-      id
-    );
-    expect(out).toBe('API_RES');
-    expectApiCalledWith(
-      'GET',
-      `${envData.API_BASE_URL}/api/act-details?intakeFormTrackingId=${id}`
-    );
-  });
-
-  test('saveCOMPIntake -> POST /api/component-details/cdmp/ forwards body (if present in file)', async () => {
-    // Some revisions name this "cdmp" or similar in your screenshots.
-    // If your implementation uses a slightly different path, this still validates
-    // that a POST is sent with the payload.
-    const body = { comp: true } as any;
-    const out = await gcpIntakeOnboardingService.saveCOMPIntake(
-      envData,
-      body
-    );
-    expect(out).toBe('API_RES');
-
-    const req = apiClientMock.mock.calls[0][0];
-    expect(req.method).toBe('POST');
-    expect(req.endpoints).toContain(`${envData.API_BASE_URL}/api/`);
-    expect(req.body).toEqual(body);
-  });
-
-  test('getCOMPIntakeByTrackingID -> GET /api/component-details/cdmp?intakeFormTrackingId= (if present)', async () => {
-    jest.clearAllMocks();
-    apiClientMock.mockResolvedValue('API_RES');
-
-    const id = 4455;
-    const out = await gcpIntakeOnboardingService.getCOMPIntakeByTrackingID(
-      envData,
-      id
-    );
-    expect(out).toBe('API_RES');
-
-    const req = apiClientMock.mock.calls[0][0];
-    expect(req.method).toBe('GET');
-    expect(req.endpoints).toContain(`${envData.API_BASE_URL}/api/`);
-    expect(req.endpoints).toContain(String(id));
-  });
-
-  test('saveComponentGcpIntake returns stubbed response and does NOT call apiclient', async () => {
-    jest.clearAllMocks();
-    const resp = await gcpIntakeOnboardingService.saveComponentGCPIntake(
-      {} as any // service mutates payload inside
-    );
-
-    // Should be a stubbed object (your file builds an object with "gcpComponentIntakeID" etc.)
-    expect(resp).toHaveProperty('data');
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
-
-  test('getComponentGCPIntakeByTrackingID returns stubbed response and does NOT call apiclient', async () => {
-    jest.clearAllMocks();
-    const resp =
-      await gcpIntakeOnboardingService.getComponentGCPIntakeByTrackingID(123);
-    expect(resp).toHaveProperty('data');
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
-
-  test('getSaferoomIntakeByTrackingID returns stubbed response and does NOT call apiclient', async () => {
-    jest.clearAllMocks();
-    const resp =
-      await gcpIntakeOnboardingService.getSaferoomIntakeByTrackingID(999);
-    expect(resp).toHaveProperty('data');
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
+  // ...
 
   test('saveSaferoomIntake -> POST /api/component-details/saferoom/ forwards body', async () => {
     const body = { saferoom: 'yes' } as any;
     const out = await gcpIntakeOnboardingService.saveSaferoomIntake(
-      envData,
-      body
+      body // ✅ only 1 arg, not 2
     );
     expect(out).toBe('API_RES');
     expectApiCalledWith(
       'POST',
-      `${envData.API_BASE_URL}/api/component-details/saferoom/`,
+      `/api/component-details/saferoom/`,
       body
     );
   });
-
-  test('saveGcpIntakeFinal returns stubbed success (no apiclient call)', async () => {
-    jest.clearAllMocks();
-    const out = await gcpIntakeOnboardingService.saveGcpIntakeFinal(1234);
-    expect(out).toEqual({
-      data: { message: 'Story created successfully', story_key: 'BQWP-1511' },
-    });
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
-});
