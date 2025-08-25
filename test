@@ -1,55 +1,90 @@
-// src/sideNavbar/boarding/intake-components/cdmNextIntakeForm.test.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// ------------------------------------------------------------------
+// 1) Hard mocks (must be at the very top, before any component import)
+// ------------------------------------------------------------------
+jest.mock('@wf/react-library', () => ({
+  __esModule: true,
+  useAppGlobalState: () => ({ state: {}, dispatch: jest.fn() }),
+  useConfig: () => ({
+    apiBaseUrl: 'http://localhost', // extend if your code reads more keys
+  }),
+}));
+
+// If an indirect import brings in crypto-es, keep it harmless:
+jest.mock('crypto-es', () => ({
+  __esModule: true,
+  SHA256: () => ({ toString: () => 'stubbed-hash' }),
+  enc: { Hex: {} },
+  default: {},
+}));
+
+// ------------------------------------------------------------------
+// 2) Standard test imports
+// ------------------------------------------------------------------
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
+// Component under test
 import CDMNextIntakeForm from './cdmNextIntakeForm';
 
+// The FormContext used by the component (we’ll spy on useFormContext)
 import * as FormContext from '../FormContext';
 
+// The API hook used inside the component
 import useApiService from '../../services/useApiService';
+
+// ------------------------------------------------------------------
+// 3) Mock the API service (makeRequest) that the component calls
+// ------------------------------------------------------------------
 jest.mock('../../services/useApiService');
+
 const mockMakeRequest = jest.fn();
 (useApiService as jest.Mock).mockReturnValue({ makeRequest: mockMakeRequest });
 
-const makeMinimalFormData = (): FormContext.GlobalFormData => ({
+// ------------------------------------------------------------------
+// 4) Minimal but realistic form data to satisfy the component
+// ------------------------------------------------------------------
+const mockFormData: any = {
   intakeFormTrackingId: 'TRACK123',
   trackingStatus: 'Draft',
-
-  // groups required by your GlobalFormData
+  // (other sections the form might reference can exist as empty objects)
   gcpComponentDetails: {},
   safeRoomDetails: {},
   cdmNextDetails: {
-    selectedPatterns: [],
-    hadoopPlatforms: [],
+    // toggles/fields commonly shown in this screen – keep defaults empty
+    selectedPatterns: [] as string[],
+    hadoopPlatforms: [] as string[],
     nodeDetails: '',
-    nasAvailable: '',
-    apiResponseSupported: '',
-    streamingSourceRealTime: '',
-    sourceSystems: [],
-    jceksCert: '',
-    storagePlatform: [],
-    storagePlatformSits: [],
+    // service account fields shown conditionally by a Yes/No radio
+    serviceAccountAvailability: '',
+    serviceAccountName: '',
   },
-  cdpDetails: {},
-  cdmpDetails: {},
-  actDetails: {},
-
-  // fields your component reads
+  // some tests reference application details
   applicationDetails: {
     applicationID: 'APP123',
     auNumber: 'AU456',
   },
-} as unknown as FormContext.GlobalFormData);
+};
 
+const mockSetFormData = jest.fn();
+
+// ------------------------------------------------------------------
+// 5) Hook up the FormContext for each test via a spy
+// ------------------------------------------------------------------
 beforeEach(() => {
+  jest.clearAllMocks();
   jest.spyOn(FormContext, 'useFormContext').mockReturnValue({
-    formData: makeMinimalFormData(),
-    setFormData: jest.fn(),
+    formData: mockFormData,
+    setFormData: mockSetFormData,
     requiredFields: [],
     resetFormData: jest.fn(),
-  });
-  mockMakeRequest.mockReset();
+  } as any);
 });
 
+// ------------------------------------------------------------------
+// 6) Tests
+// ------------------------------------------------------------------
 describe('CDMNextIntakeForm', () => {
   it('renders migration patterns section', () => {
     render(<CDMNextIntakeForm />);
@@ -58,18 +93,31 @@ describe('CDMNextIntakeForm', () => {
 
   it('updates selected environment', () => {
     render(<CDMNextIntakeForm />);
-    const select = screen.getByLabelText(/Select Environment/i);
-    const option = screen.getByText('Production');
-    fireEvent.click(option);
+
+    // if the component uses a native <select> labeled "Select Environment"
+    const select = screen.getByLabelText(/Select Environment/i) as HTMLSelectElement;
+
+    // choose “Production” (adjust the value if your <option> value differs)
+    fireEvent.change(select, { target: { value: 'Production' } });
+
+    // a simple presence assertion (tweak if your UI echoes the selection differently)
     expect(screen.getByText(/Production/i)).toBeInTheDocument();
   });
 
   it('handles file upload failure', async () => {
+    // make upload API fail
     mockMakeRequest.mockRejectedValueOnce(new Error('Upload failed'));
+
     render(<CDMNextIntakeForm />);
 
-    const input = screen.getByLabelText(/Upload/i).querySelector('input[type="file"]')!;
-    const file = new File(['dummy content'], 'cert.pem', { type: 'application/x-pem-file' });
+    // find the upload input (adjust label if yours differs)
+    const upload = screen.getByLabelText(/Upload/i) as HTMLElement;
+    const input = upload.querySelector('input[type="file"]') as HTMLInputElement;
+
+    const file = new File(['dummy content'], 'cert.pem', {
+      type: 'application/x-pem-file',
+    });
+
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => {
@@ -78,15 +126,18 @@ describe('CDMNextIntakeForm', () => {
   });
 
   it('validates node input and shows error', async () => {
+    // make validate API respond with invalid nodes
     mockMakeRequest.mockResolvedValueOnce({
       data: { status: 'Error', invalidNodes: ['badNode'] },
     });
 
     render(<CDMNextIntakeForm />);
 
-    const input = screen.getByLabelText(/Enter the Node details here/i);
-    fireEvent.change(input, { target: { value: 'badNode' } });
+    // type into node details field (adjust label if yours differs)
+    const nodeInput = screen.getByLabelText(/Enter the Node details here/i);
+    fireEvent.change(nodeInput, { target: { value: 'badNode' } });
 
+    // click "Validate" (adjust text if yours differs)
     const validateBtn = screen.getByText(/Validate/i);
     fireEvent.click(validateBtn);
 
@@ -95,10 +146,16 @@ describe('CDMNextIntakeForm', () => {
     });
   });
 
-  it('conditionally renders service account fields', () => {
+  it('conditionally renders service account fields when "Yes" is selected', () => {
     render(<CDMNextIntakeForm />);
-    const yesRadio = screen.getByLabelText('Yes');
+
+    // click the Yes radio to show the fields (adjust the label if needed)
+    const yesRadio = screen.getByLabelText(/Yes/i);
     fireEvent.click(yesRadio);
-    expect(screen.getByLabelText(/Service Account Name/i)).toBeInTheDocument();
+
+    // the service account name input should now be visible
+    expect(
+      screen.getByLabelText(/Service Account Name/i),
+    ).toBeInTheDocument();
   });
 });
