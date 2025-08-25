@@ -3,9 +3,9 @@
 // ====================================================================
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import Home from './Home'; // default export
+import Home from './Home';
 
-// ---------- DOM-first MUI stubs (why: simple & deterministic) ----------
+// ---- Default-path MUI mocks ----
 jest.mock('@mui/material/Box', () => ({
   __esModule: true,
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
@@ -17,67 +17,54 @@ jest.mock('@mui/material/Typography', () => ({
 jest.mock('@mui/material/Card', () => ({
   __esModule: true,
   default: ({ children, ...rest }: any) => (
-    <div role="article" {...rest}>
-      {children}
-    </div>
+    <div role="article" {...rest}>{children}</div>
   ),
 }));
 jest.mock('@mui/material/CardContent', () => ({
   __esModule: true,
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
-jest.mock('@mui/material/CardActionArea', () => ({
+
+// ---- MUI barrel mock (why: Home imports these from '@mui/material') ----
+jest.mock('@mui/material', () => ({
   __esModule: true,
-  default: ({ children, onClick, ...rest }: any) => (
-    // button helps with a11y querying and click semantics
-    <button type="button" onClick={onClick} {...rest}>
-      {children}
-    </button>
+  CardActionArea: ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>{children}</button>
   ),
+  Container: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+  Grid: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
-jest.mock('@mui/material/Container', () => ({
-  __esModule: true,
-  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
-}));
-jest.mock('@mui/material/Grid', () => ({
-  __esModule: true,
-  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
-}));
+
+// Toolpad
 jest.mock('@toolpad/core/PageContainer', () => ({
   __esModule: true,
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
 
-// ---------- Router / Config / Service / CustomNavigation ----------
+// Router / Config / Service / CustomNavigation
 const navigateMock = jest.fn();
 jest.mock('react-router-dom', () => ({
   __esModule: true,
   useNavigate: () => navigateMock,
   Link: ({ children, ...p }: any) => <a {...p}>{children}</a>,
 }));
-
 jest.mock('@wf/react-library', () => ({
   __esModule: true,
   useConfig: () => ({ env: 'test' }),
 }));
-
 jest.mock('../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest: jest.fn() }),
 }));
-
 jest.mock('./CustomNavigation', () => ({
   __esModule: true,
   default: () => <nav data-testid="custom-nav">nav</nav>,
 }));
 
-// ---------- Helpers ----------
+// Helper
 const getCardBtn = (title: RegExp) =>
   screen.getByRole('button', { name: title });
 
-// ====================================================================
-// Tests
-// ====================================================================
 describe('Home', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -90,11 +77,8 @@ describe('Home', () => {
       screen.getByText(/Welcome to the GCP Tenant Environment Provisioning homepage/i),
     ).toBeInTheDocument();
 
-    // Titles + descriptions
     expect(screen.getByText(/Launch Your Journey in GCP/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/GCP Environment Provision Request/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/GCP Environment Provision Request/i)).toBeInTheDocument();
 
     expect(screen.getByText(/GCP Environment Provisioning/i)).toBeInTheDocument();
     expect(screen.getByText(/Provision GCP Infrastructure/i)).toBeInTheDocument();
@@ -104,10 +88,7 @@ describe('Home', () => {
       screen.getByText(/Explore details of environment build inventory/i),
     ).toBeInTheDocument();
 
-    // images per card (alt="icon" from component)
     expect(screen.getAllByAltText('icon')).toHaveLength(3);
-
-    // custom nav rendered
     expect(screen.getByTestId('custom-nav')).toBeInTheDocument();
   });
 
@@ -121,21 +102,19 @@ describe('Home', () => {
     fireEvent.click(card1);
 
     expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding');
-    expect(card1).toHaveAttribute('data-active', ''); // presence is enough
+    expect(card1).toHaveAttribute('data-active', '');
     expect(card2).not.toHaveAttribute('data-active');
     expect(card3).not.toHaveAttribute('data-active');
   });
 
   test('clicking second card navigates to /provision', () => {
     render(<Home />);
-
     fireEvent.click(getCardBtn(/GCP Environment Provisioning/i));
     expect(navigateMock).toHaveBeenCalledWith('/provision');
   });
 
   test('clicking third card navigates to /inventory-dashboard', () => {
     render(<Home />);
-
     fireEvent.click(getCardBtn(/Environment Build Inventory/i));
     expect(navigateMock).toHaveBeenCalledWith('/inventory-dashboard');
   });
