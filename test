@@ -1,130 +1,124 @@
-// src/home/CustomNavigation.test.tsx
+// src/projects/Projects.test.tsx
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import CustomNavigation from './CustomNavigation';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import Projects from './Projects';
+import type { AxiosStatic } from 'axios';
 
-// Spy navigate
-const navigateMock = jest.fn();
-jest.mock('react-router-dom', () => {
-  const actual = jest.requireActual('react-router-dom');
-  return {
-    __esModule: true,
-    ...actual,
-    useNavigate: () => navigateMock,
-  };
+// --- mocks (why: control auth + network + env) ---
+const axiosGet = jest.fn();
+jest.mock('axios', () => {
+  const m: Partial<AxiosStatic> = { get: jest.fn() };
+  return m;
 });
 
-const renderAt = (path: string) =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <CustomNavigation />
-    </MemoryRouter>
-  );
+const useAuthMock = jest.fn();
+jest.mock('../hooks/useAuth', () => ({
+  __esModule: true,
+  default: () => useAuthMock(),
+}));
 
-// anchor query (why: <a> has no href, so no "link" role)
-const getA = (label: RegExp) => screen.getByText(label, { selector: 'a' });
+jest.mock('../assets/json/env-properties.json', () => ({
+  __esModule: true,
+  default: { API_BASE_ENDPOINT: 'http://api.example.test' },
+}));
 
-describe('CustomNavigation', () => {
+const getAxios = () => require('axios') as unknown as { get: jest.Mock };
+
+// --- helpers ---
+const renderProjects = () => render(<Projects />);
+
+describe('Projects', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  test('home route shows only Home link and marks it active', () => {
-    renderAt('/home');
+  test('auth is loading → shows auth spinner text', () => {
+    useAuthMock.mockReturnValue({ loading: true, isAuthenticated: false });
 
-    const home = getA(/^home$/i);
-    expect(home).toBeInTheDocument();
-    expect(home).toHaveClass('nav-link');
-    expect(home).toHaveClass('nav-link-active');
-    // exactly one nav anchor
-    expect(document.querySelectorAll('a.nav-link').length).toBe(1);
+    renderProjects();
 
-    fireEvent.click(home);
-    expect(navigateMock).toHaveBeenCalledWith('/home');
+    expect(
+      screen.getByText(/checking login status/i),
+    ).toBeInTheDocument();
   });
 
-  test('/provision shows Home + Environment Provisioning; active is /provision', () => {
-    renderAt('/provision');
+  test('not authenticated → shows message and login link', () => {
+    useAuthMock.mockReturnValue({ loading: false, isAuthenticated: false });
 
-    const home = getA(/^home$/i);
-    const envProv = getA(/environment provisioning/i);
+    renderProjects();
 
-    expect(home).toBeInTheDocument();
-    expect(envProv).toBeInTheDocument();
+    expect(
+      screen.getByText(/you are not logged in/i),
+    ).toBeInTheDocument();
 
-    expect(envProv).toHaveClass('nav-link-active');
-    expect(home).not.toHaveClass('nav-link-active');
-
-    fireEvent.click(home);
-    fireEvent.click(envProv);
-    expect(navigateMock).toHaveBeenCalledWith('/home');
-    expect(navigateMock).toHaveBeenCalledWith('/provision');
+    const login = screen.getByRole('link', { name: /login with google/i });
+    expect(login).toHaveAttribute(
+      'href',
+      'http://api.example.test/auth/login',
+    );
   });
 
-  test('/gcpOnboarding shows Home + Onboarding Form + Onboarding Request; active is Onboarding Form', () => {
-    renderAt('/gcpOnboarding');
+  test('authenticated → list loads then renders projects (success path)', async () => {
+    useAuthMock.mockReturnValue({ loading: false, isAuthenticated: true });
 
-    const home = getA(/^home$/i);
-    const form = getA(/onboarding form/i);
-    const request = getA(/onboarding request/i);
+    const projects = [
+      { projectId: 'p-1', name: 'Alpha' },
+      { projectId: 'p-2' }, // no name → fall back to id
+    ];
+    axiosGet.mockResolvedValueOnce({ data: projects });
+    (getAxios().get as jest.Mock) = axiosGet;
 
-    expect(home).toBeInTheDocument();
-    expect(form).toBeInTheDocument();
-    expect(request).toBeInTheDocument();
+    renderProjects();
 
-    expect(form).toHaveClass('nav-link-active');
-    expect(home).not.toHaveClass('nav-link-active');
-    expect(request).not.toHaveClass('nav-link-active');
+    // initial list loading
+    expect(
+      screen.getByText(/loading your gcp projects/i),
+    ).toBeInTheDocument();
 
-    fireEvent.click(form);
-    fireEvent.click(request);
-    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding');
-    expect(navigateMock).toHaveBeenCalledWith('/inbox');
+    // list appears
+    const select = await screen.findByRole('combobox');
+    const options = screen.getAllByRole('option');
+    expect(select).toBeInTheDocument();
+    expect(options).toHaveLength(2);
+
+    // labels & values
+    expect(options[0]).toHaveTextContent('Alpha');
+    expect(options[0]).toHaveValue('p-1');
+    expect(options[1]).toHaveTextContent('p-2'); // fallback label
+    expect(options[1]).toHaveValue('p-2');
+
+    // user can change selection
+    await userEvent.selectOptions(select, 'p-2');
+    expect(
+      (select as HTMLSelectElement).value,
+    ).toBe('p-2');
+
+    // axios call details
+    expect(axiosGet).toHaveBeenCalledTimes(1);
+    const [url, opts] = axiosGet.mock.calls[0];
+    expect(url).toBe(
+      'http://api.example.test/api/gcp-projects/',
+    );
+    expect(opts).toMatchObject({ withCredentials: true });
   });
 
-  test('/inbox shows Home + Onboarding Form + Onboarding Request; active is Onboarding Request', () => {
-    renderAt('/inbox');
+  test('authenticated → shows error when request fails', async () => {
+    useAuthMock.mockReturnValue({ loading: false, isAuthenticated: true });
 
-    const home = getA(/^home$/i);
-    const form = getA(/onboarding form/i);
-    const request = getA(/onboarding request/i);
+    axiosGet.mockRejectedValueOnce(new Error('boom'));
+    (getAxios().get as jest.Mock) = axiosGet;
 
-    expect(home).toBeInTheDocument();
-    expect(form).toBeInTheDocument();
-    expect(request).toBeInTheDocument();
+    renderProjects();
 
-    expect(request).toHaveClass('nav-link-active');
-    expect(form).not.toHaveClass('nav-link-active');
+    expect(
+      screen.getByText(/loading your gcp projects/i),
+    ).toBeInTheDocument();
 
-    fireEvent.click(home);
-    fireEvent.click(request);
-    expect(navigateMock).toHaveBeenCalledWith('/home');
-    expect(navigateMock).toHaveBeenCalledWith('/inbox');
-  });
-
-  test('/inventory-dashboard shows Home + Environment Build Inventory; active is inventory', () => {
-    renderAt('/inventory-dashboard');
-
-    const home = getA(/^home$/i);
-    const inv = getA(/environment build inventory/i);
-
-    expect(home).toBeInTheDocument();
-    expect(inv).toBeInTheDocument();
-
-    expect(inv).toHaveClass('nav-link-active');
-    expect(home).not.toHaveClass('nav-link-active');
-
-    fireEvent.click(inv);
-    expect(navigateMock).toHaveBeenCalledWith('/inventory-dashboard');
-  });
-
-  test('unknown route falls back to default (no nav links) and still renders image', () => {
-    renderAt('/unknown/path');
-
-    expect(document.querySelectorAll('a.nav-link').length).toBe(0);
-    expect(document.querySelector('.nav-container')).toBeTruthy();
-    // alt="" image is still present
-    expect(screen.getByRole('img', { name: '' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/error: boom/i),
+      ).toBeInTheDocument(),
+    );
   });
 });
