@@ -1,26 +1,104 @@
-// --- stub MUI X date pickers correctly (named + default) ---
-jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
-  __esModule: true,
-  default: ({ children }: any) => <>{children}</>,
-}));
+// src/sideNavbar/boarding/intake-components/cdmNextIntakeForm.test.tsx
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import CDMNextIntakeForm from './cdmNextIntakeForm';
 
-jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
-  __esModule: true,
-  default: function AdapterDayjs() {},
-}));
+import * as FormContext from '../FormContext';
 
-jest.mock('@mui/x-date-pickers/DatePicker', () => {
-  const DatePicker = ({ label, value, onChange, name, slotProps }: any) => (
-    <input
-      aria-label={label || name}
-      value={value ?? ''}
-      onChange={(e) => onChange?.(e.target.value)}
-      {...(slotProps?.textField ?? {})}
-    />
-  );
-  return {
-    __esModule: true,
-    DatePicker,       // named export (what your component imports)
-    default: DatePicker, // default too, for safety
-  };
+import useApiService from '../../services/useApiService';
+jest.mock('../../services/useApiService');
+const mockMakeRequest = jest.fn();
+(useApiService as jest.Mock).mockReturnValue({ makeRequest: mockMakeRequest });
+
+const makeMinimalFormData = (): FormContext.GlobalFormData => ({
+  intakeFormTrackingId: 'TRACK123',
+  trackingStatus: 'Draft',
+
+  // groups required by your GlobalFormData
+  gcpComponentDetails: {},
+  safeRoomDetails: {},
+  cdmNextDetails: {
+    selectedPatterns: [],
+    hadoopPlatforms: [],
+    nodeDetails: '',
+    nasAvailable: '',
+    apiResponseSupported: '',
+    streamingSourceRealTime: '',
+    sourceSystems: [],
+    jceksCert: '',
+    storagePlatform: [],
+    storagePlatformSits: [],
+  },
+  cdpDetails: {},
+  cdmpDetails: {},
+  actDetails: {},
+
+  // fields your component reads
+  applicationDetails: {
+    applicationID: 'APP123',
+    auNumber: 'AU456',
+  },
+} as unknown as FormContext.GlobalFormData);
+
+beforeEach(() => {
+  jest.spyOn(FormContext, 'useFormContext').mockReturnValue({
+    formData: makeMinimalFormData(),
+    setFormData: jest.fn(),
+    requiredFields: [],
+    resetFormData: jest.fn(),
+  });
+  mockMakeRequest.mockReset();
+});
+
+describe('CDMNextIntakeForm', () => {
+  it('renders migration patterns section', () => {
+    render(<CDMNextIntakeForm />);
+    expect(screen.getByText(/Migration Patterns/i)).toBeInTheDocument();
+  });
+
+  it('updates selected environment', () => {
+    render(<CDMNextIntakeForm />);
+    const select = screen.getByLabelText(/Select Environment/i);
+    const option = screen.getByText('Production');
+    fireEvent.click(option);
+    expect(screen.getByText(/Production/i)).toBeInTheDocument();
+  });
+
+  it('handles file upload failure', async () => {
+    mockMakeRequest.mockRejectedValueOnce(new Error('Upload failed'));
+    render(<CDMNextIntakeForm />);
+
+    const input = screen.getByLabelText(/Upload/i).querySelector('input[type="file"]')!;
+    const file = new File(['dummy content'], 'cert.pem', { type: 'application/x-pem-file' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Upload failed/i)).toBeInTheDocument();
+    });
+  });
+
+  it('validates node input and shows error', async () => {
+    mockMakeRequest.mockResolvedValueOnce({
+      data: { status: 'Error', invalidNodes: ['badNode'] },
+    });
+
+    render(<CDMNextIntakeForm />);
+
+    const input = screen.getByLabelText(/Enter the Node details here/i);
+    fireEvent.change(input, { target: { value: 'badNode' } });
+
+    const validateBtn = screen.getByText(/Validate/i);
+    fireEvent.click(validateBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid nodes: badNode/i)).toBeInTheDocument();
+    });
+  });
+
+  it('conditionally renders service account fields', () => {
+    render(<CDMNextIntakeForm />);
+    const yesRadio = screen.getByLabelText('Yes');
+    fireEvent.click(yesRadio);
+    expect(screen.getByLabelText(/Service Account Name/i)).toBeInTheDocument();
+  });
 });
