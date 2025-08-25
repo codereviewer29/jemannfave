@@ -4,7 +4,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-// -------------------- MOCKS FIRST (critical) --------------------
+// -------------------- 1) MOCKS (before requiring Home) --------------------
 
 // Deep-path MUI mocks used by Home.tsx
 jest.mock('@mui/material/Box', () => ({
@@ -26,7 +26,7 @@ jest.mock('@mui/material/CardContent', () => ({
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
 
-// Barrel MUI mock because Home imports { CardActionArea, Container, Grid } from '@mui/material'
+// Barrel MUI mock (Home uses named imports from '@mui/material')
 jest.mock('@mui/material', () => ({
   __esModule: true,
   CardActionArea: ({ children, onClick, ...rest }: any) => (
@@ -36,7 +36,7 @@ jest.mock('@mui/material', () => ({
   Grid: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
 
-// Toolpad
+// Toolpad PageContainer
 jest.mock('@toolpad/core/PageContainer', () => ({
   __esModule: true,
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
@@ -49,26 +49,24 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
   Link: ({ children, ...p }: any) => <a {...p}>{children}</a>,
 }));
-
 jest.mock('@wf/react-library', () => ({
   __esModule: true,
   useConfig: () => ({ env: 'test' }),
 }));
-
 jest.mock('../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest: jest.fn() }),
 }));
-
+// 🔒 mock CustomNavigation super-early and trivially
 jest.mock('./CustomNavigation', () => ({
   __esModule: true,
   default: () => <nav data-testid="custom-nav">nav</nav>,
 }));
 
-// -------------------- IMPORT AFTER MOCKS --------------------
-/* eslint-disable import/first */
-import Home from './Home';
-/* eslint-enable import/first */
+// -------------------- 2) REQUIRE Home after mocks --------------------
+/* eslint-disable @typescript-eslint/no-var-requires, import/first */
+const Home: React.ComponentType = require('./Home').default;
+/* eslint-enable @typescript-eslint/no-var-requires, import/first */
 
 // -------------------- Helpers --------------------
 const getCardBtn = (title: RegExp) =>
