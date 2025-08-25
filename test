@@ -1,57 +1,74 @@
-// src/services/__tests__/gcpIntakeInboxService.test.ts
-import gcpIntakeInboxService from '../gcpIntakeInboxService';
+// src/__tests__/apiClient.test.ts
+/**
+ * Tests for apiClient.ts
+ * - Ensures correct axios method/args per HttpRequestModel.method
+ * - Propagates axios errors
+ */
 
-// Mock api client (why: avoid real HTTP)
-const apiClientMock = jest.fn();
-jest.mock('../../apiClient', () => ({
-  __esModule: true,
-  default: (...args: any[]) => (apiClientMock as any)(...args),
-}));
+import axios from 'axios';
+import apiClient from '../apiClient';
+import type { HttpRequestModel } from '../model/httpRequestModel';
 
-describe('gcpIntakeInboxService.getAllGCPIntakeRequests', () => {
-  const envA = { API_BASE_URL: 'https://api.example.test' };
-  const envB = { API_BASE_URL: 'http://localhost:3000' };
+// Note: apiClient only uses axios.get/post/put; mocking those is enough.
+jest.mock('axios');
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+const makeReq = (
+  method: HttpRequestModel['method'],
+  endpoints = 'https://api.test.local/path',
+  body?: unknown,
+): HttpRequestModel =>
+  ({
+    method,
+    endpoints,
+    body,
+  } as HttpRequestModel);
+
+describe('apiClient', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('builds the HttpRequestModel and returns apiClient result (envA)', async () => {
-    const payload = [{ id: 1 }, { id: 2 }];
-    apiClientMock.mockResolvedValueOnce(payload);
+  it('issues GET with url and returns response', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: 'GET_OK' });
 
-    const out = await gcpIntakeInboxService.getAllGCPIntakeRequests(envA);
+    const out = await apiClient(makeReq('GET'));
 
-    expect(apiClientMock).toHaveBeenCalledTimes(1);
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envA.API_BASE_URL}/api/inbox`,
-      method: 'GET',
-    });
-    expect(out).toBe(payload);
+    expect(out).toEqual({ data: 'GET_OK' });
+    expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+    expect(mockedAxios.get).toHaveBeenCalledWith('https://api.test.local/path');
   });
 
-  it('uses the provided base URL (envB)', async () => {
-    apiClientMock.mockResolvedValueOnce({ ok: true });
+  it('issues POST with url + body and returns response', async () => {
+    const body = { a: 1 };
+    mockedAxios.post.mockResolvedValueOnce({ data: 'POST_OK' });
 
-    await gcpIntakeInboxService.getAllGCPIntakeRequests(envB);
+    const out = await apiClient(makeReq('POST', 'https://api/p', body));
 
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envB.API_BASE_URL}/api/inbox`,
-      method: 'GET',
-    });
+    expect(out).toEqual({ data: 'POST_OK' });
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(mockedAxios.post).toHaveBeenCalledWith('https://api/p', body);
   });
 
-  it('propagates apiClient error', async () => {
-    const err = new Error('network down');
-    apiClientMock.mockRejectedValueOnce(err);
+  it('issues PUT with url + body and returns response', async () => {
+    const body = { b: 2 };
+    mockedAxios.put.mockResolvedValueOnce({ data: 'PUT_OK' });
+
+    const out = await apiClient(makeReq('PUT', 'https://api/u', body));
+
+    expect(out).toEqual({ data: 'PUT_OK' });
+    expect(mockedAxios.put).toHaveBeenCalledTimes(1);
+    expect(mockedAxios.put).toHaveBeenCalledWith('https://api/u', body);
+  });
+
+  it('propagates axios errors', async () => {
+    const err = new Error('network boom');
+    mockedAxios.post.mockRejectedValueOnce(err);
 
     await expect(
-      gcpIntakeInboxService.getAllGCPIntakeRequests(envA),
-    ).rejects.toThrow('network down');
+      apiClient(makeReq('POST', 'https://api/p', { x: 1 })),
+    ).rejects.toThrow('network boom');
 
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envA.API_BASE_URL}/api/inbox`,
-      method: 'GET',
-    });
+    expect(mockedAxios.post).toHaveBeenCalledWith('https://api/p', { x: 1 });
   });
 });
