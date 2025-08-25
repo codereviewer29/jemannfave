@@ -1,11 +1,11 @@
 // ====================================================================
-// File: src/provision/__tests__/gcp-infra-setup.test.tsx
+// File: src/provision/__tests__/build-saferoom-infra.test.tsx
 // ====================================================================
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import GCPInfraSetup from '../gcp-infra-setup';
+import BuildSaferoomInfra from '../build-saferoom-infra';
 
-// ---- Lightweight MUI mocks (DOM-first) ----
+// ---------- Lightweight MUI mocks (why: deterministic, aria-friendly) ----------
 jest.mock('@mui/material', () => {
   const React = require('react');
 
@@ -29,7 +29,6 @@ jest.mock('@mui/material', () => {
   );
   const InputAdornment = ({ children }: any) => <span>{children}</span>;
 
-  // Why: expose helper when `error` true; keep label/value/required wiring.
   const TextField = ({
     label,
     name,
@@ -61,7 +60,15 @@ jest.mock('@mui/material', () => {
   const FormControl = ({ children }: any) => <div>{children}</div>;
   const InputLabel = ({ children, id }: any) => <label id={id}>{children}</label>;
   const MenuItem = ({ value, children }: any) => <option value={value}>{children}</option>;
-  const Select = ({ labelId, label, name, value, onChange, children, required }: any) => (
+  const Select = ({
+    labelId,
+    label,
+    name,
+    value,
+    onChange,
+    children,
+    required,
+  }: any) => (
     <label>
       {label}
       <select
@@ -104,13 +111,19 @@ jest.mock('@mui/material', () => {
   };
 });
 
-// ---- Icons stub ----
+// ---------- Icons as inert spans ----------
 jest.mock('@mui/icons-material', () => {
   const I = ({ 'data-testid': id, ...p }: any) => <span data-testid={id || 'icon'} {...p} />;
-  return { __esModule: true, InfoOutlined: I, Visibility: I, VisibilityOff: I, InfoOutlinedIcon: I };
+  return {
+    __esModule: true,
+    InfoOutlined: I,
+    Visibility: I,
+    VisibilityOff: I,
+    InfoOutlinedIcon: I,
+  };
 });
 
-// ---- API & Context ----
+// ---------- Service & Context ----------
 const makeRequest = jest.fn();
 
 jest.mock('../../services/useApiService', () => ({
@@ -121,39 +134,41 @@ jest.mock('../../services/useApiService', () => ({
 jest.mock('../ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
-    provisioningData: { github_token: 'gh-token', terraform_token: 'tf-token' },
+    provisioningData: {
+      github_token: 'gh-token',
+      terraform_token: 'tf-token',
+      // Why: repo list feeds the "Select Repo Name" <Select>
+      githubRepo: ['corp-appid', 'corp-appid-alt'],
+    },
   }),
 }));
 
-// ---- Helpers / fixtures ----
+// ---------- Fixtures / helpers ----------
 const GET_ENV = {
   data: {
     env_params: {
       vault_password: '',
-      serviceonwrsupportgroup: 'svc-group',
-      requesteremail: 'user@example.com',
-      app_repo_name: '', // derived in component as 'corp-' + appId
-      app_branch_name: 'sandbox',
-      app_project_id: 'prj-123',
-      app_notification_channel: 'chan',
-      saferoom_repo_name: '',
+      requesteremail: 'owner@example.com',
+      servicenowsupportgroup: 'svc-group',
+      // saferoom-* are the primary fields for this component
+      saferoom_repo_name: '', // component derives 'corp-' + appId if falsy
       saferoom_branch_name: 'sandbox',
-      saferoom_project_id: 'sprj-1',
-      saferoom_notification_channel: 'schan',
+      saferoom_project_id: 's-prj-1',
+      saferoom_notification_channel: 's-chan',
     },
   },
 };
 
-function renderSut(props?: Partial<React.ComponentProps<typeof GCPInfraSetup>>) {
+function renderSut(props?: Partial<React.ComponentProps<typeof BuildSaferoomInfra>>) {
   const defaultProps = {
     appId: 'APPID',
-    environment: 'Sandbox', // Why: options render only for 'Sandbox'
+    environment: 'Sandbox',
     completedTabs: [] as number[],
     setCompletedTabs: jest.fn(),
-    tabIndex: 2,
+    tabIndex: 4,
   };
   return {
-    ...render(<GCPInfraSetup {...defaultProps} {...props} />),
+    ...render(<BuildSaferoomInfra {...defaultProps} {...props} />),
     setCompletedTabs:
       (props?.setCompletedTabs as jest.Mock) || (defaultProps.setCompletedTabs as jest.Mock),
   };
@@ -162,7 +177,7 @@ function renderSut(props?: Partial<React.ComponentProps<typeof GCPInfraSetup>>) 
 // ====================================================================
 // Tests
 // ====================================================================
-describe('GCPInfraSetup', () => {
+describe('BuildSaferoomInfra', () => {
   beforeEach(() => jest.clearAllMocks());
 
   test('GET on mount populates fields and marks tab completed', async () => {
@@ -170,61 +185,93 @@ describe('GCPInfraSetup', () => {
 
     const { setCompletedTabs } = renderSut();
 
-    expect(await screen.findByLabelText(/Repo Name/i)).toHaveValue('corp-appid');
-    expect(screen.getByLabelText(/Project ID/i)).toHaveValue('prj-123');
-    expect(screen.getByLabelText(/Email Address/i)).toHaveValue('user@example.com');
+    // Derived default repo name from appId
+    const repoSelect = await screen.findByLabelText(/Select Repo Name/i);
+    expect(repoSelect).toHaveValue('corp-appid');
+
+    // Disabled informational fields
+    expect(screen.getByLabelText(/Project ID/i)).toHaveValue('s-prj-1');
+    expect(screen.getByLabelText(/Email Address/i)).toHaveValue('owner@example.com');
+    expect(screen.getByLabelText(/Assignment Group/i)).toHaveValue('svc-group');
+    expect(screen.getByLabelText(/Notification Channel/i)).toHaveValue('s-chan');
 
     await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
   });
 
-  test('invalid password shows helper only after submit; then valid clears; toggle works', async () => {
+  test('invalid password shows helper after submit; then valid clears; toggle works', async () => {
     makeRequest.mockResolvedValueOnce(GET_ENV);
+
     renderSut();
 
     const pwd = await screen.findByLabelText(/Vault Password/i);
-
-    // Submit with invalid password → helper appears via handleError()
     fireEvent.change(pwd, { target: { value: 'short' } });
-    fireEvent.click(screen.getByRole('button', { name: /Build GCP Infrastructure/i }));
-    expect(await screen.findByTestId('vault_password-helper')).toHaveTextContent(/Password must have 8/i);
 
-    // Enter valid password → helper disappears
+    fireEvent.click(
+      screen.getByRole('button', { name: /Build GCP CDM Next Infrastructure/i }),
+    );
+
+    expect(
+      await screen.findByTestId('vault_password-helper'),
+    ).toHaveTextContent(/Password must have 8/i);
+
     fireEvent.change(pwd, { target: { value: 'abcde123' } });
-    await waitFor(() => expect(screen.queryByTestId('vault_password-helper')).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId('vault_password-helper')).toBeNull(),
+    );
 
-    // Toggle visibility
-    fireEvent.click(screen.getByRole('button', { name: /toggle password visibility/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /toggle password visibility/i }),
+    );
     expect(screen.getByLabelText(/Vault Password/i)).toBeInTheDocument();
+  });
+
+  test('repo select uses ProvisionContext.githubRepo and accepts change', async () => {
+    makeRequest.mockResolvedValueOnce(GET_ENV);
+    renderSut();
+
+    const repoSelect = await screen.findByLabelText(/Select Repo Name/i);
+    // default derived
+    expect(repoSelect).toHaveValue('corp-appid');
+
+    // change to another option from context list
+    fireEvent.change(repoSelect, { target: { value: 'corp-appid-alt' } });
+    await waitFor(() => expect(repoSelect).toHaveValue('corp-appid-alt'));
   });
 
   test('branch select renders Sandbox options and accepts change', async () => {
     makeRequest.mockResolvedValueOnce(GET_ENV);
     renderSut({ environment: 'Sandbox' });
 
-    const select = await screen.findByLabelText(/Branch Name/i);
-    expect(select).toHaveValue('sandbox');
-    fireEvent.change(select, { target: { value: 'sandboxdev' } });
-    expect(select).toHaveValue('sandboxdev');
+    const branchSelect = await screen.findByLabelText(/Select Branch Name/i);
+    expect(branchSelect).toHaveValue('sandbox');
+
+    fireEvent.change(branchSelect, { target: { value: 'sandboxdev' } });
+    await waitFor(() => expect(branchSelect).toHaveValue('sandboxdev'));
   });
 
   test('POST success shows logs and sets tab completed', async () => {
     makeRequest.mockResolvedValueOnce(GET_ENV); // GET
     makeRequest.mockResolvedValueOnce({
       status: 200,
-      data: { log_output: ['success: created bucket', 'failed: skipped rule'] },
+      data: { log_output: ['success: created topic', 'failed: policy skip'] },
     }); // POST
 
     const { setCompletedTabs } = renderSut();
 
-    // Provide valid password to pass handleError
-    const pwd = await screen.findByLabelText(/Vault Password/i);
-    fireEvent.change(pwd, { target: { value: 'valid123' } });
+    // Provide valid password to pass handleError()
+    fireEvent.change(await screen.findByLabelText(/Vault Password/i), {
+      target: { value: 'valid123' },
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Build GCP Infrastructure/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /Build GCP CDM Next Infrastructure/i }),
+    );
 
-    expect(await screen.findByText(/created bucket/i)).toBeInTheDocument();
-    expect(screen.getByText(/skipped rule/i)).toBeInTheDocument();
-    expect(screen.getByText(/Once GCP Infrastructure Setup is completed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/created topic/i)).toBeInTheDocument();
+    expect(screen.getByText(/policy skip/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Once GCP CDM Next Infrastructure Setup is completed/i),
+    ).toBeInTheDocument();
 
     await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
   });
@@ -235,11 +282,13 @@ describe('GCPInfraSetup', () => {
 
     renderSut();
 
-    // Provide valid password so submit actually fires POST
     fireEvent.change(await screen.findByLabelText(/Vault Password/i), {
       target: { value: 'valid123' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Build GCP Infrastructure/i }));
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Build GCP CDM Next Infrastructure/i }),
+    );
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
