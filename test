@@ -3,9 +3,10 @@
 // ====================================================================
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import Home from './Home';
 
-// ---- Default-path MUI mocks ----
+// -------------------- MOCKS FIRST (critical) --------------------
+
+// Deep-path MUI mocks used by Home.tsx
 jest.mock('@mui/material/Box', () => ({
   __esModule: true,
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
@@ -25,7 +26,7 @@ jest.mock('@mui/material/CardContent', () => ({
   default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
 
-// ---- MUI barrel mock (why: Home imports these from '@mui/material') ----
+// Barrel MUI mock because Home imports { CardActionArea, Container, Grid } from '@mui/material'
 jest.mock('@mui/material', () => ({
   __esModule: true,
   CardActionArea: ({ children, onClick, ...rest }: any) => (
@@ -48,23 +49,32 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
   Link: ({ children, ...p }: any) => <a {...p}>{children}</a>,
 }));
+
 jest.mock('@wf/react-library', () => ({
   __esModule: true,
   useConfig: () => ({ env: 'test' }),
 }));
+
 jest.mock('../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest: jest.fn() }),
 }));
+
 jest.mock('./CustomNavigation', () => ({
   __esModule: true,
   default: () => <nav data-testid="custom-nav">nav</nav>,
 }));
 
-// Helper
+// -------------------- IMPORT AFTER MOCKS --------------------
+/* eslint-disable import/first */
+import Home from './Home';
+/* eslint-enable import/first */
+
+// -------------------- Helpers --------------------
 const getCardBtn = (title: RegExp) =>
   screen.getByRole('button', { name: title });
 
+// -------------------- Tests --------------------
 describe('Home', () => {
   beforeEach(() => {
     jest.clearAllMocks();
