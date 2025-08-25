@@ -1,36 +1,12 @@
-/* -------------------------- ART Request Details -------------------------- */
-
-{/* ... earlier UI ... */}
-
-</Grid>
-
-{/* BEFORE (crashes when artRequestDetails is null/undefined)
-{Object.entries(formData.applicationDetails.artRequestDetails).map(([category, details]) => (
-  <Accordion key={category} defaultExpanded={category === 'Sandbox'}>
-    ...
-  </Accordion>
-))}
-*/}
-
-{/* AFTER (safe if value is null/undefined) */}
-{Object.entries(formData.applicationDetails.artRequestDetails || {}).map(
-  ([category, details]) => (
-    <Accordion key={category} defaultExpanded={category === 'Sandbox'}>
-      {/* ... existing content stays the same ... */}
-    </Accordion>
-  ),
-)}
-
 // src/sideNavbar/boarding/applicationDetails.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 
-// === import the real component and the real context ===
+// real component + real context
 import ApplicationDetails from './applicationDetails';
 import { FormContext } from '../FormContext';
 
-// ---- minimal stubs you might already have (keep or remove as needed) ----
-// If your suite already mocks MUI or date pickers globally, you can delete this block.
+/* ---------- light MUI stubs so the tree renders deterministically ---------- */
 jest.mock('@mui/material/Box', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
 jest.mock('@mui/material/Container', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
 jest.mock('@mui/material/Grid', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
@@ -40,12 +16,12 @@ jest.mock('@mui/material/AccordionDetails', () => ({ __esModule: true, default: 
 jest.mock('@mui/material/TextField', () => ({ __esModule: true, default: ({ label, value, ...p }: any) => <input aria-label={label} defaultValue={value} {...p} /> }));
 jest.mock('@mui/material/Select', () => ({ __esModule: true, default: ({ children, label, ...p }: any) => <select aria-label={label} {...p}>{children}</select> }));
 jest.mock('@mui/material/MenuItem', () => ({ __esModule: true, default: ({ children, ...p }: any) => <option {...p}>{children}</option> }));
-jest.mock('@mui/material/Checkbox', () => ({ __esModule: true, default: ({ ...p }: any) => <input type="checkbox" {...p} /> }));
+jest.mock('@mui/material/Checkbox', () => ({ __esModule: true, default: (p: any) => <input type="checkbox" {...p} /> }));
 jest.mock('@mui/material/Tooltip', () => ({ __esModule: true, default: ({ children }: any) => <>{children}</> }));
 jest.mock('@mui/material/Snackbar', () => ({ __esModule: true, default: ({ children }: any) => <div data-testid="snackbar">{children}</div> }));
 jest.mock('@mui/material/Alert', () => ({ __esModule: true, default: ({ children }: any) => <div role="alert">{children}</div> }));
 
-// date picker scaffolding – simple pass-through so the render doesn't fail
+/* ---------- date pickers: inert pass-throughs ---------- */
 jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
   __esModule: true,
   default: ({ children }: any) => <>{children}</>,
@@ -60,14 +36,14 @@ jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
   default: class AdapterDayjs {},
 }));
 
-// ---- stub the API hook used inside the component ----
+/* ---------- stub the API hook used by the component ---------- */
 const makeRequestMock = jest.fn();
 jest.mock('../../services/useApiService', () => ({
   __esModule: true,
   default: () => ({ makeRequest: makeRequestMock }),
 }));
 
-// ---- base form data with ALL needed fields present ----
+/* ---------- base context value: NEVER null artRequestDetails ---------- */
 const baseFormData = {
   applicationDetails: {
     applicationID: '',
@@ -94,46 +70,31 @@ const baseFormData = {
     timelineSandbox: null as any,
     timelineNonProd: null as any,
     timelineProd: null as any,
-    // <<< important: never null/undefined
+    // IMPORTANT: this is what prevents the crash
     artRequestDetails: {} as Record<string, Array<{ label: string; value: string; isCustom?: boolean }>>,
   },
 };
 
-// ---- context value + setter stub ----
 const formCtxValue = {
   formData: baseFormData,
   setFormData: jest.fn(),
 };
 
-// ---- helper to render SUT with provider ----
 const renderSut = () =>
   render(
     <FormContext.Provider value={formCtxValue as any}>
-      <ApplicationDetails
-        validationErrors={{} as any}
-        setValidationErrors={jest.fn()}
-      />
+      <ApplicationDetails validationErrors={{} as any} setValidationErrors={jest.fn()} />
     </FormContext.Provider>,
   );
 
-// ===================================================================
-// Tests (keep adding your detailed tests under this same harness)
-// ===================================================================
+/* ============================== Tests ============================== */
 
 describe('ApplicationDetails (harnessed)', () => {
   test('renders without crashing (smoke)', () => {
     renderSut();
-    // Pick something inexpensive that always exists in your layout
-    // e.g., one of your section headings or a known input label:
-    // If your labels differ, change the query text accordingly.
+    // The page has several sections as accordions; just assert at least one exists.
     expect(screen.getAllByTestId('accordion').length).toBeGreaterThan(0);
   });
 
-  // Example: keep your existing tests below; they’ll now run past render:
-  // test('email validation shows and clears error message', async () => { ... });
-  // test('App ID search (valid) fills fields and clears invalid error', async () => { ... });
-  // test('duplicate AppID+Env validation: shows snackbar ...', async () => { ... });
-  // test('multi-select Environments Needed renders comma-separated summary', async () => { ... });
-  // test('Add Other Field and Remove (ART Request Details) updates via setFormData', async () => { ... });
-  // test('Date pickers accept values and trigger ISO logic', async () => { ... });
+  // Keep/add your detailed tests under the same harness below.
 });
