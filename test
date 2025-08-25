@@ -1,24 +1,177 @@
-  test('saveApplicationDetails -> POST /api/application-details/ with payload', async () => {
-    const payload = { foo: 'bar' };
-    const out = await gcpIntakeOnboardingService.saveApplicationDetails(
+import gcpIntakeOnboardingService from './gcpIntakeOnboardingService';
+import apiClient from '../apiClient';
+
+jest.mock('../apiClient');
+const apiClientMock = apiClient as jest.MockedFunction<typeof apiClient>;
+
+const envData = { API_BASE_URL: 'http://base' } as const;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+describe('gcpIntakeOnboardingService', () => {
+  test('getApplicationDetailsByAppID -> GET /api/application-details/bam-data/?appid=', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+
+    const out = await (gcpIntakeOnboardingService as any).getApplicationDetailsByAppID(
       envData,
-      payload // ✅ only 2 args, not 3
+      'APP123'
     );
+
     expect(out).toBe('API_RES');
-    expectApiCalledWith('POST', `${envData.API_BASE_URL}/api/application-details/`, payload);
+    expect(apiClientMock).toHaveBeenCalledTimes(1);
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/application-details/bam-data/?appid=APP123`,
+      method: 'GET',
+    });
   });
 
-  // ...
+  test('saveApplicationDetails -> POST /api/application-details/ (forwards body)', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+    const payload = { foo: 'bar' };
 
-  test('saveSaferoomIntake -> POST /api/component-details/saferoom/ forwards body', async () => {
-    const body = { saferoom: 'yes' } as any;
-    const out = await gcpIntakeOnboardingService.saveSaferoomIntake(
-      body // ✅ only 1 arg, not 2
-    );
+    // TS signature noise in your project shows 3 params; call via any to avoid TS2554
+    const out = await (gcpIntakeOnboardingService as any).saveApplicationDetails(envData, payload);
+
     expect(out).toBe('API_RES');
-    expectApiCalledWith(
-      'POST',
-      `/api/component-details/saferoom/`,
-      body
-    );
+    expect(apiClientMock).toHaveBeenCalledTimes(1);
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/application-details/`,
+      method: 'POST',
+      body: payload,
+    });
   });
+
+  test('getApplicationDetailsByTrackingID -> GET /api/application-details/?intakeFormTrackingId=', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+    const id = 9876;
+
+    const out = await (gcpIntakeOnboardingService as any).getApplicationDetailsByTrackingID(
+      envData,
+      id
+    );
+
+    expect(out).toBe('API_RES');
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/application-details/?intakeFormTrackingId=${id}`,
+      method: 'GET',
+    });
+  });
+
+  test('saveCDPIntake -> POST /api/component-details/cdp/ (forwards body)', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+    const body = { some: 'cdp' };
+
+    const out = await (gcpIntakeOnboardingService as any).saveCDPIntake(envData, body);
+
+    expect(out).toBe('API_RES');
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/component-details/cdp/`,
+      method: 'POST',
+      body,
+    });
+  });
+
+  test('getCDPIntakeByTrackingID -> GET /api/component-details/cdp?intakeFormTrackingId=', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+
+    const out = await (gcpIntakeOnboardingService as any).getCDPIntakeByTrackingID(envData, 111);
+
+    expect(out).toBe('API_RES');
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/component-details/cdp?intakeFormTrackingId=111`,
+      method: 'GET',
+    });
+  });
+
+  test('saveCDMPIntake -> POST /api/component-details/cdmp/ (forwards body)', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+    const body = { some: 'cdmp' };
+
+    const out = await (gcpIntakeOnboardingService as any).saveCDMPIntake(envData, body);
+
+    expect(out).toBe('API_RES');
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/component-details/cdmp/`,
+      method: 'POST',
+      body,
+    });
+  });
+
+  test('getComponentGCPIntakeByTrackingID -> returns stubbed response (does NOT call apiClient)', async () => {
+    const resp = await (gcpIntakeOnboardingService as any).getComponentGCPIntakeByTrackingID(123);
+
+    expect(resp).toHaveProperty('data');
+    expect(apiClientMock).not.toHaveBeenCalled();
+  });
+
+  test('saveSaferoomIntake -> POST /api/component-details/saferoom/ (forwards body)', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+    const body = { saferoom: 'yes' };
+
+    const out = await (gcpIntakeOnboardingService as any).saveSaferoomIntake(envData, body);
+
+    expect(out).toBe('API_RES');
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/component-details/saferoom/`,
+      method: 'POST',
+      body,
+    });
+  });
+
+  test('getSaferoomIntakeByTrackingID -> returns stubbed response (does NOT call apiClient)', async () => {
+    const resp = await (gcpIntakeOnboardingService as any).getSaferoomIntakeByTrackingID(99);
+    expect(resp).toHaveProperty('data');
+    expect(apiClientMock).not.toHaveBeenCalled();
+  });
+
+  test('getCDPIntakeByTrackingID (again) -> GET path + no body', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+
+    await (gcpIntakeOnboardingService as any).getCDPIntakeByTrackingID(envData, 222);
+
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/component-details/cdp?intakeFormTrackingId=222`,
+      method: 'GET',
+    });
+  });
+
+  test('getACTIntakeByTrackingID -> GET /api/act-details?intakeFormTrackingId=', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+
+    await (gcpIntakeOnboardingService as any).getACTIntakeByTrackingID(envData, 333);
+
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/act-details?intakeFormTrackingId=333`,
+      method: 'GET',
+    });
+  });
+
+  test('saveACTIntake -> POST /api/act-details (cloudServices array joined)', async () => {
+    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+    const body = { cloudServices: ['a', 'b', 'c'], other: 1 };
+
+    await (gcpIntakeOnboardingService as any).saveACTIntake(envData, body);
+
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envData.API_BASE_URL}/api/act-details/`,
+      method: 'POST',
+      body: { cloudServices: 'a,b,c', other: 1 },
+    });
+  });
+
+  test('getGCPIntakeByTrackingID -> GET /api/component-details/gcp-component/?intakeFormTrackingId=', async () => {
+    const resp = await (gcpIntakeOnboardingService as any).getComponentGCPIntakeByTrackingID(123);
+    expect(resp).toHaveProperty('data');
+    expect(apiClientMock).not.toHaveBeenCalled();
+  });
+
+  test('saveGcpIntakeFinal -> returns stubbed success without calling apiClient', async () => {
+    const out = await (gcpIntakeOnboardingService as any).saveGcpIntakeFinal(777);
+    expect(out).toEqual({
+      data: { message: 'Story created successfully', story_key: expect.any(String) },
+    });
+    expect(apiClientMock).not.toHaveBeenCalled();
+  });
+});
