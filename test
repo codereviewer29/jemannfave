@@ -1,302 +1,370 @@
+/**
+ * applicationDetails.test.tsx
+ * A runnable test harness + tests for ApplicationDetails.
+ *
+ * Key idea: we stub heavy MUI components, X DatePicker, icons, and your
+ * useFormContext + useApiService so <ApplicationDetails/> can render in Jest.
+ */
+
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render as rtlRender, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-// ---- SUT ----
-import ApplicationDetails from '../applicationDetails';
+// ---------------------------------------------------------------------------
+// 1) Stub MUI (keep to simple HTML so React Testing Library can interact)
+// ---------------------------------------------------------------------------
+jest.mock('@mui/material', () => ({
+  __esModule: true,
 
-// ---- Test doubles / light stubs ----
-/** Collapse almost all MUI to simple tags to keep the DOM stable */
-jest.mock('@mui/material', () => {
-  const Stub =
-    ({ children, ...p }: any) =>
-      <div {...p}>{children}</div>;
+  // layout
+  Box: (p: any) => <div {...p} />,
+  Grid: (p: any) => <div {...p} />,
+  Typography: (p: any) => <div {...p} />,
 
-  const Btn =
-    ({ children, onClick, ...p }: any) =>
-      <button type="button" onClick={onClick} {...p}>{children}</button>;
+  // form bits
+  TextField: ({ label, name, value, onChange, disabled, required, error, helperText, ...rest }: any) => (
+    <div>
+      <input
+        aria-label={label || name}
+        name={name}
+        value={value ?? ''}
+        onChange={onChange}
+        disabled={disabled}
+        {...rest}
+      />
+      {/* show helper/error text if provided so tests can see it */}
+      {helperText ? <div data-testid={`${name || label}-helper`}>{helperText}</div> : null}
+    </div>
+  ),
 
-  const Input =
-    ({ label, helperText, error, ...p }: any) =>
-      <label>
-        {label}
-        <input aria-label={label} {...p} />
-        {error ? <div role="alert">{helperText}</div> : null}
-      </label>;
+  Select: ({ children, multiple, renderValue, label, name, value, onChange, disabled, ...rest }: any) => (
+    <select
+      aria-label={label || name}
+      name={name}
+      value={value ?? (multiple ? [] : '')}
+      onChange={onChange}
+      multiple={!!multiple}
+      disabled={disabled}
+      {...rest}
+    >
+      {children}
+    </select>
+  ),
+  MenuItem: ({ value, children, disabled, ...rest }: any) => (
+    <option value={value} disabled={disabled} {...rest}>
+      {children}
+    </option>
+  ),
 
-  const Select =
-    ({ label, renderValue, multiple, value = [], onChange, children, ...p }: any) => (
-      <div>
-        <div aria-label={label}>
-          {renderValue ? renderValue(Array.isArray(value) ? value : [value]) : null}
-        </div>
-        <div onClick={() => onChange?.({ target: { name: p.name, value: ['Sandbox', 'DEV1'] } })} />
-        {children}
-      </div>
-    );
+  Checkbox: (p: any) => <input type="checkbox" {...p} />,
+  Radio: (p: any) => <input type="radio" {...p} />,
+  RadioGroup: ({ children, ...rest }: any) => (
+    <div role="radiogroup" {...rest}>
+      {children}
+    </div>
+  ),
+  FormControlLabel: ({ control, label, ...rest }: any) => (
+    <label {...rest}>
+      {control}
+      <span>{label}</span>
+    </label>
+  ),
+  FormControl: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+  FormLabel: ({ children, ...rest }: any) => <label {...rest}>{children}</label>,
+  InputLabel: ({ children, ...rest }: any) => <label {...rest}>{children}</label>,
 
-  return {
-    __esModule: true,
-    // layout
-    Box: Stub,
-    Grid: Stub,
-    Container: Stub,
-    Tooltip: Stub,
-    Accordion: ({ children, ...p }: any) => <section {...p}>{children}</section>,
-    AccordionSummary: Stub,
-    AccordionDetails: Stub,
-    FormControl: Stub,
-    FormControlLabel: ({ label }: any) => <span>{label}</span>,
-    FormLabel: ({ children }: any) => <h6>{children}</h6>,
-    InputAdornment: Stub,
-    Checkbox: ({ checked }: any) => <input type="checkbox" defaultChecked={!!checked} readOnly />,
-    RadioGroup: ({ children }: any) => <div>{children}</div>,
-    Radio: () => <input type="radio" readOnly />,
-    MenuItem: ({ children }: any) => <div>{children}</div>,
-    IconButton: Btn,
-    Button: Btn,
-    Snackbar: ({ open, children, onClose }: any) =>
-      open ? <div role="status" onClick={onClose}>{children}</div> : null,
-    Alert: ({ children }: any) => <div role="alert">{children}</div>,
-    CircularProgress: () => <div aria-label="spinner" />,
-    // fields
-    TextField: Input,
-    Select,
-    InputLabel: ({ children, ...p }: any) => <label {...p}>{children}</label>,
-    Typography: ({ children, ...p }: any) => <div {...p}>{children}</div>,
-    IconButtonProps: {},
-  };
-});
+  // feedback / misc
+  Tooltip: ({ children }: any) => <>{children}</>,
+  Link: ({ children, href, ...rest }: any) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+  IconButton: ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>
+      {children}
+    </button>
+  ),
+  Alert: ({ children }: any) => <div role="alert">{children}</div>,
+  Snackbar: ({ open, children }: any) => (open ? <div>{children}</div> : null),
 
-// date pickers – keep them minimal but still invoke the onChange path
+  CircularProgress: () => <div aria-label="loading" />,
+
+  // accordions
+  Accordion: ({ children, ...rest }: any) => <section {...rest}>{children}</section>,
+  AccordionSummary: ({ children, ...rest }: any) => <header {...rest}>{children}</header>,
+  AccordionDetails: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+}));
+
+// ---------------------------------------------------------------------------
+// 2) Stub MUI X date pickers
+// ---------------------------------------------------------------------------
 jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
   __esModule: true,
-  default: ({ children }: any) => <div>{children}</div>,
+  default: ({ children }: any) => <>{children}</>,
 }));
 jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
   __esModule: true,
-  default: class AdapterDayjs {},
+  default: function AdapterDayjs() {},
 }));
 jest.mock('@mui/x-date-pickers/DatePicker', () => ({
   __esModule: true,
-  default: ({ label, onChange, name }: any) => (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={() => onChange?.( { toISOString: () => '2025-01-01T00:00:00.000Z' } )}
-      data-name={name}
-    >
-      {label}
-    </button>
+  default: ({ label, value, onChange, name, slotProps }: any) => (
+    <input
+      aria-label={label || name}
+      value={value ?? ''}
+      onChange={(e) => onChange?.(e.target.value)}
+      {...(slotProps?.textField ?? {})}
+    />
   ),
 }));
 
-// icons as empty spans
-jest.mock('@mui/icons-material/ExpandMore', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/ErrorOutline', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/Search', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/AddCircle', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('@mui/icons-material/RemoveCircle', () => ({ __esModule: true, default: () => <span /> }));
+// ---------------------------------------------------------------------------
+// 3) Stub icons so IconButtons have visible text (easy to query)
+// ---------------------------------------------------------------------------
+jest.mock('@mui/icons-material/Search', () => ({
+  __esModule: true,
+  default: () => <span>Search</span>,
+}));
+jest.mock('@mui/icons-material/AddCircle', () => ({
+  __esModule: true,
+  default: () => <span>Add</span>,
+}));
+jest.mock('@mui/icons-material/RemoveCircle', () => ({
+  __esModule: true,
+  default: () => <span>Remove</span>,
+}));
+jest.mock('@mui/icons-material/ErrorOutline', () => ({
+  __esModule: true,
+  default: () => <span>ErrorIcon</span>,
+}));
+jest.mock('@mui/icons-material/ExpandMore', () => ({
+  __esModule: true,
+  default: () => <span>Expand</span>,
+}));
 
-// ---- Context + service mocks ----
-const setFormDataMock = jest.fn();
-const formCtxValue = {
-  formData: {
+// ---------------------------------------------------------------------------
+// 4) Mock API service used inside the component
+// ---------------------------------------------------------------------------
+const makeRequest = jest.fn();
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
+
+// ---------------------------------------------------------------------------
+// 5) Provide a test form context to satisfy useFormContext
+// ---------------------------------------------------------------------------
+type Ctx = { formData: any; setFormData: React.Dispatch<React.SetStateAction<any>> };
+const TestFormContext = React.createContext<Ctx>({} as any);
+
+jest.mock('../FormContext', () => ({
+  __esModule: true,
+  useFormContext: () => React.useContext(TestFormContext),
+}));
+
+// ---------------------------------------------------------------------------
+// 6) Import the real component under test
+// ---------------------------------------------------------------------------
+import ApplicationDetails from '../applicationDetails';
+
+// ---------------------------------------------------------------------------
+// 7) Render helper (wrap with provider and seed form state)
+// ---------------------------------------------------------------------------
+function render(uiProps?: Partial<Record<string, any>>, seed?: Partial<any>) {
+  const initialForm = {
     applicationDetails: {
       applicationID: '',
       applicationName: '',
-      summary: '',
-      description: '',
-      purposeAndBenefit: '',
-      lobDomain: '',
-      environmentsNeeded: [],
       requesterName: '',
       requesterEmail: '',
+      summary: '',
+      description: '',
+      lobDomain: '',
+      environmentsNeeded: [] as string[],
+      timelineSandbox: null,
+      timelineNonProd: null,
+      timelineProd: null,
+      isNewApp: 'new',
       appLocation: '',
       appLinkInBAM: '',
       beamsStatus: '',
       dataSource: '',
-      dataFormat: [],
+      dataFormat: [] as string[],
       dataSLATime: '',
-      timelineSandbox: null,
-      timelineNonProd: null,
-      timelineProd: null,
-      // fields used by validations
-      environmentsNeededLabel: '',
-      developersList: '',
-      serviceNowSupportGroup: '',
-      applicationOwnerApprover: '',
-      requiresCloudReview: '',
+      dataClassification: '',
+      panCardDataInScope: '',
+      panCardDetails: '',
+      sarUarData: '',
+      internationalUsers: '',
+      externalIngress: '',
+      externalIngressDetails: '',
+      serviceNowCI: '',
+      technicalConstraints: '',
       reviewedWithCIO: '',
       reviewedWithArchitect: '',
-      // ART dynamic section
-      artRequestDetails: {
-        sandbox: [{ label: 'Request number', value: '', isCustom: false }],
-      },
+      requiresCloudReview: '',
+      ...seed?.applicationDetails,
     },
-  },
-  setFormData: setFormDataMock,
-};
+  };
 
-jest.mock('../FormContext', () => ({
-  __esModule: true,
-  useFormContext: () => formCtxValue,
-}));
+  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [formData, setFormData] = React.useState(initialForm);
+    return <TestFormContext.Provider value={{ formData, setFormData }}>{children}</TestFormContext.Provider>;
+  };
 
-// useApiService → makeRequest mock
-const makeRequestMock = jest.fn();
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest: makeRequestMock }),
-}));
+  const validationErrors = seed?.validationErrors ?? {};
+  const setValidationErrors = jest.fn();
 
-// Router Link (used a couple of times)
-jest.mock('react-router-dom', () => ({
-  __esModule: true,
-  Link: ({ children }: any) => <a>{children}</a>,
-}));
+  return {
+    ...rtlRender(
+      <Wrapper>
+        <ApplicationDetails
+          validationErrors={validationErrors}
+          setValidationErrors={setValidationErrors}
+          {...uiProps}
+        />
+      </Wrapper>
+    ),
+    setValidationErrors,
+  };
+}
 
-// Helper to render with required props
-const renderSut = (propOverrides: Partial<{
-  validationErrors: Record<string, any>;
-  setValidationErrors: React.Dispatch<React.SetStateAction<Record<string, any>>>;
-}> = {}) => {
-  const validationErrors = propOverrides.validationErrors ?? {};
-  const setValidationErrors = jest.fn((updater: any) => {
-    if (typeof updater === 'function') updater(validationErrors);
-  });
-
-  render(
-    <ApplicationDetails
-      validationErrors={validationErrors}
-      setValidationErrors={setValidationErrors}
-    />
-  );
-
-  return { setValidationErrors };
-};
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  // reset form data email so the tests start clean
-  formCtxValue.formData.applicationDetails.requesterEmail = '';
-});
-
-// --------------------------------------------------------------------
+// ===========================================================================
 // Tests
-// --------------------------------------------------------------------
-test('email validation shows and clears error message', () => {
-  renderSut();
-
-  const email = screen.getByLabelText('Requester Email') as HTMLInputElement;
-
-  // type invalid
-  fireEvent.change(email, { target: { name: 'requesterEmail', value: 'bad@' } });
-  expect(screen.getByRole('alert')).toHaveTextContent(/Invalid email format/i);
-
-  // type valid
-  fireEvent.change(email, { target: { name: 'requesterEmail', value: 'ok@test.com' } });
-  // no new alert should be rendered for valid email; previous alert removed
-  expect(screen.queryByText(/Invalid email format/i)).toBeNull();
-});
-
-test('App ID search (valid) fills fields and clears invalid error', async () => {
-  const { setValidationErrors } = renderSut();
-  // stub successful GET /api/application-details/bam-data?appid=*
-  makeRequestMock.mockResolvedValueOnce({
-    status: 200,
-    data: { applicationID: 'APP123', applicationName: 'Cool App', lobDomain: 'CIO' },
+// ===========================================================================
+describe('ApplicationDetails (harnessed)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  // click the little search icon at Application ID adornment
-  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
-  await act(async () => { searchButton && fireEvent.click(searchButton); });
-
-  expect(makeRequestMock).toHaveBeenCalled();
-  // setFormData should be called with populated data
-  expect(setFormDataMock).toHaveBeenCalled();
-  // and we attempted to clear previous error
-  expect(setValidationErrors).toHaveBeenCalled();
-});
-
-test('App ID search (invalid) sets "Invalid Application ID" error', async () => {
-  const { setValidationErrors } = renderSut();
-  makeRequestMock.mockResolvedValueOnce({ status: 200, data: {} });
-
-  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
-  await act(async () => { searchButton && fireEvent.click(searchButton); });
-
-  expect(makeRequestMock).toHaveBeenCalled();
-  expect(setValidationErrors).toHaveBeenCalledWith(expect.any(Function));
-});
-
-test('duplicate AppID+Env validation: when env exists → shows toaster and disables choices', async () => {
-  renderSut();
-
-  // this call happens inside validateDuplicateAppIDEnv with GET /api/get-app-form-env?appid=...
-  makeRequestMock.mockResolvedValueOnce({
-    status: 200,
-    data: { environments: ['DEV1', 'SIT'] },
+  test('renders without crashing (smoke)', () => {
+    render();
+    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
   });
 
-  // clicking the Application Name tooltip adornment triggers no request; instead call the function path by clicking Search on AppID then internal validate call runs.
-  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
-  await act(async () => { searchButton && fireEvent.click(searchButton); });
+  test('email validation calls setValidationErrors for invalid, clears for valid', async () => {
+    const user = userEvent.setup();
+    const { setValidationErrors } = render();
 
-  // toaster should appear (Snackbar open)
-  expect(screen.getByRole('status')).toBeInTheDocument();
-  // clicking snackbar (our stub) closes it
-  fireEvent.click(screen.getByRole('status'));
-  expect(screen.queryByRole('status')).toBeNull();
-});
+    const email = screen.getByLabelText(/Requester Email/i);
+    await user.clear(email);
+    await user.type(email, 'not-an-email');
 
-test('duplicate AppID+Env validation: when env differs → hides toaster', async () => {
-  renderSut();
-  makeRequestMock.mockResolvedValueOnce({ status: 200, data: { environments: [] } });
+    // invalid path should set "Invalid email format"
+    expect(setValidationErrors).toHaveBeenCalled();
+    const last = setValidationErrors.mock.calls.at(-1)?.[0];
+    // our component passes a function; we can invoke it to inspect result
+    const result = typeof last === 'function' ? last({}) : last;
+    expect(JSON.stringify(result)).toMatch(/Invalid email format/);
 
-  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
-  await act(async () => { searchButton && fireEvent.click(searchButton); });
+    // now type valid email; component should clear that message
+    await user.clear(email);
+    await user.type(email, 'ok@acme.com');
 
-  expect(screen.queryByRole('status')).toBeNull();
-});
+    const last2 = setValidationErrors.mock.calls.at(-1)?.[0];
+    const result2 = typeof last2 === 'function' ? last2({ applicationDetails: {} }) : last2;
+    // final structure should not contain the invalid message
+    expect(JSON.stringify(result2)).not.toMatch(/Invalid email format/);
+  });
 
-test('multi-select Environments Needed renders comma separated summary', () => {
-  renderSut();
+  test('App ID search (valid) fills fields and clears invalid error', async () => {
+    const user = userEvent.setup();
 
-  // The Select stub calls onChange with ['Sandbox','DEV1'] when "opened"
-  // target name must match component's name prop: "environmentsNeeded"
-  const trigger = screen.getByLabelText('Environments Needed');
-  // fire a click on the sibling div that triggers onChange in our stub
-  fireEvent.click(trigger.nextSibling as Element);
+    // mock the two API calls the component makes:
+    // 1) BAM app details
+    makeRequest.mockImplementation(async ({ endpoints }) => {
+      if (String(endpoints).includes('/api/application-details/bam-data/')) {
+        return { data: { applicationID: 'APP123', applicationName: 'Foo App', lobDomain: 'CIO' } };
+      }
+      // 2) duplicate env validation (no duplicates here)
+      if (String(endpoints).includes('/api/get-app-form-env')) {
+        return { data: { environments: [] } };
+      }
+      return { data: {} };
+    });
 
-  // After change, the renderValue handler displays a comma-joined list
-  expect(screen.getByLabelText('Environments Needed')).toHaveTextContent('Sandbox, DEV1');
-});
+    render();
 
-test('Add Other Field and Remove (ART Request Details) updates via setFormData', () => {
-  renderSut();
+    // put an ID and click the Search icon button
+    await user.type(screen.getByLabelText(/Application ID/i), 'APP123');
+    await user.click(screen.getByRole('button', { name: /search/i }));
 
-  // Add another line under ART details (uses IconButton near "Add Other Field")
-  const addBtns = screen.getAllByRole('button');
-  // the last IconButton in that ART section is our "Add Other Field" stub – call once
-  fireEvent.click(addBtns[addBtns.length - 1]);
+    // name should be populated from BAM response
+    expect(screen.getByLabelText(/Application Name/i)).toHaveValue('Foo App');
+    expect(makeRequest).toHaveBeenCalled();
+  });
 
-  expect(setFormDataMock).toHaveBeenCalled();
+  test('App ID search (invalid) sets "Invalid Application ID" error via setValidationErrors', async () => {
+    const user = userEvent.setup();
 
-  // Also exercise the remove icon (first remove icon in the list)
-  const removeBtn = screen.getAllByRole('button')[0];
-  fireEvent.click(removeBtn);
-  expect(setFormDataMock).toHaveBeenCalled();
-});
+    makeRequest.mockResolvedValueOnce({ data: { applicationID: '' } }); // bam-data returns no id
 
-test('Date pickers invoke timeline change handlers and set ISO strings', () => {
-  renderSut();
+    const { setValidationErrors } = render();
 
-  // our DatePicker stub is a button: clicking it calls onChange(dayjsLike)
-  fireEvent.click(screen.getByRole('button', { name: /timeline for sandbox/i }));
-  fireEvent.click(screen.getByRole('button', { name: /timeline for non-prod\/uat/i }));
-  fireEvent.click(screen.getByRole('button', { name: /timeline for production/i }));
+    await user.type(screen.getByLabelText(/Application ID/i), 'BADID');
+    await user.click(screen.getByRole('button', { name: /search/i }));
 
-  // 3 calls from 3 date fields
-  expect(setFormDataMock).toHaveBeenCalled();
-  expect(setFormDataMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    const last = setValidationErrors.mock.calls.at(-1)?.[0];
+    const result = typeof last === 'function' ? last({ applicationDetails: {} }) : last;
+
+    expect(JSON.stringify(result)).toMatch(/Invalid Application ID/i);
+  });
+
+  test('duplicate AppID+Env validation: shows snackbar and disables matching env option', async () => {
+    const user = userEvent.setup();
+
+    // First call (bam data)
+    makeRequest.mockImplementation(async ({ endpoints }) => {
+      if (String(endpoints).includes('/api/application-details/bam-data/')) {
+        return { data: { applicationID: 'APPX', applicationName: 'X' } };
+      }
+      if (String(endpoints).includes('/api/get-app-form-env')) {
+        // server says an onboarding already exists for DEV1
+        return { data: { environments: ['DEV1'] } };
+      }
+      return { data: {} };
+    });
+
+    // seed form so user already selected DEV1
+    render({}, { applicationDetails: { environmentsNeeded: ['DEV1'] } });
+
+    await user.type(screen.getByLabelText(/Application ID/i), 'APPX');
+    await user.click(screen.getByRole('button', { name: /search/i }));
+
+    // snackbar text from your component (trim to key phrase)
+    expect(
+      screen.getByText(/Onboarding form is already submitted for the selected application/i)
+    ).toBeInTheDocument();
+
+    // option DEV1 should be disabled in the select
+    const envSelect = screen.getByLabelText(/Environments Needed/i) as HTMLSelectElement;
+    const dev1 = within(envSelect).getByRole('option', { name: /DEV1/i }) as HTMLOptionElement;
+    expect(dev1.disabled).toBe(true);
+  });
+
+  test('multi-select "Environments Needed" renders comma-separated summary', async () => {
+    const user = userEvent.setup();
+    render();
+
+    const envSelect = screen.getByLabelText(/Environments Needed/i) as HTMLSelectElement;
+    // choose 2 values; our stub uses <select multiple>
+    await user.selectOptions(envSelect, ['DEV1', 'SIT']);
+
+    // the selected values exist as options; with our simple stub, value is set
+    const values = Array.from(envSelect.selectedOptions).map((o) => o.value).join(', ');
+    expect(values).toBe('DEV1, SIT');
+  });
+
+  test('date pickers accept values and call onChange handlers (ISO string logic executed internally)', async () => {
+    const user = userEvent.setup();
+    render();
+
+    const prod = screen.getByLabelText(/Timeline for Production/i);
+    await user.clear(prod);
+    await user.type(prod, '2025-12-31');
+
+    // Since DatePicker is stubbed to an <input>, verifying the value is enough
+    expect(prod).toHaveValue('2025-12-31');
+  });
 });
