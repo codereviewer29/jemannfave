@@ -1,124 +1,57 @@
-// src/projects/Projects.test.tsx
-import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import Projects from './Projects';
-import type { AxiosStatic } from 'axios';
+// src/services/__tests__/gcpIntakeInboxService.test.ts
+import gcpIntakeInboxService from '../gcpIntakeInboxService';
 
-// --- mocks (why: control auth + network + env) ---
-const axiosGet = jest.fn();
-jest.mock('axios', () => {
-  const m: Partial<AxiosStatic> = { get: jest.fn() };
-  return m;
-});
-
-const useAuthMock = jest.fn();
-jest.mock('../hooks/useAuth', () => ({
+// Mock api client (why: avoid real HTTP)
+const apiClientMock = jest.fn();
+jest.mock('../../apiClient', () => ({
   __esModule: true,
-  default: () => useAuthMock(),
+  default: (...args: any[]) => (apiClientMock as any)(...args),
 }));
 
-jest.mock('../assets/json/env-properties.json', () => ({
-  __esModule: true,
-  default: { API_BASE_ENDPOINT: 'http://api.example.test' },
-}));
+describe('gcpIntakeInboxService.getAllGCPIntakeRequests', () => {
+  const envA = { API_BASE_URL: 'https://api.example.test' };
+  const envB = { API_BASE_URL: 'http://localhost:3000' };
 
-const getAxios = () => require('axios') as unknown as { get: jest.Mock };
-
-// --- helpers ---
-const renderProjects = () => render(<Projects />);
-
-describe('Projects', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  test('auth is loading → shows auth spinner text', () => {
-    useAuthMock.mockReturnValue({ loading: true, isAuthenticated: false });
+  it('builds the HttpRequestModel and returns apiClient result (envA)', async () => {
+    const payload = [{ id: 1 }, { id: 2 }];
+    apiClientMock.mockResolvedValueOnce(payload);
 
-    renderProjects();
+    const out = await gcpIntakeInboxService.getAllGCPIntakeRequests(envA);
 
-    expect(
-      screen.getByText(/checking login status/i),
-    ).toBeInTheDocument();
+    expect(apiClientMock).toHaveBeenCalledTimes(1);
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envA.API_BASE_URL}/api/inbox`,
+      method: 'GET',
+    });
+    expect(out).toBe(payload);
   });
 
-  test('not authenticated → shows message and login link', () => {
-    useAuthMock.mockReturnValue({ loading: false, isAuthenticated: false });
+  it('uses the provided base URL (envB)', async () => {
+    apiClientMock.mockResolvedValueOnce({ ok: true });
 
-    renderProjects();
+    await gcpIntakeInboxService.getAllGCPIntakeRequests(envB);
 
-    expect(
-      screen.getByText(/you are not logged in/i),
-    ).toBeInTheDocument();
-
-    const login = screen.getByRole('link', { name: /login with google/i });
-    expect(login).toHaveAttribute(
-      'href',
-      'http://api.example.test/auth/login',
-    );
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envB.API_BASE_URL}/api/inbox`,
+      method: 'GET',
+    });
   });
 
-  test('authenticated → list loads then renders projects (success path)', async () => {
-    useAuthMock.mockReturnValue({ loading: false, isAuthenticated: true });
+  it('propagates apiClient error', async () => {
+    const err = new Error('network down');
+    apiClientMock.mockRejectedValueOnce(err);
 
-    const projects = [
-      { projectId: 'p-1', name: 'Alpha' },
-      { projectId: 'p-2' }, // no name → fall back to id
-    ];
-    axiosGet.mockResolvedValueOnce({ data: projects });
-    (getAxios().get as jest.Mock) = axiosGet;
+    await expect(
+      gcpIntakeInboxService.getAllGCPIntakeRequests(envA),
+    ).rejects.toThrow('network down');
 
-    renderProjects();
-
-    // initial list loading
-    expect(
-      screen.getByText(/loading your gcp projects/i),
-    ).toBeInTheDocument();
-
-    // list appears
-    const select = await screen.findByRole('combobox');
-    const options = screen.getAllByRole('option');
-    expect(select).toBeInTheDocument();
-    expect(options).toHaveLength(2);
-
-    // labels & values
-    expect(options[0]).toHaveTextContent('Alpha');
-    expect(options[0]).toHaveValue('p-1');
-    expect(options[1]).toHaveTextContent('p-2'); // fallback label
-    expect(options[1]).toHaveValue('p-2');
-
-    // user can change selection
-    await userEvent.selectOptions(select, 'p-2');
-    expect(
-      (select as HTMLSelectElement).value,
-    ).toBe('p-2');
-
-    // axios call details
-    expect(axiosGet).toHaveBeenCalledTimes(1);
-    const [url, opts] = axiosGet.mock.calls[0];
-    expect(url).toBe(
-      'http://api.example.test/api/gcp-projects/',
-    );
-    expect(opts).toMatchObject({ withCredentials: true });
-  });
-
-  test('authenticated → shows error when request fails', async () => {
-    useAuthMock.mockReturnValue({ loading: false, isAuthenticated: true });
-
-    axiosGet.mockRejectedValueOnce(new Error('boom'));
-    (getAxios().get as jest.Mock) = axiosGet;
-
-    renderProjects();
-
-    expect(
-      screen.getByText(/loading your gcp projects/i),
-    ).toBeInTheDocument();
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(/error: boom/i),
-      ).toBeInTheDocument(),
-    );
+    expect(apiClientMock).toHaveBeenCalledWith({
+      endpoints: `${envA.API_BASE_URL}/api/inbox`,
+      method: 'GET',
+    });
   });
 });
