@@ -1,72 +1,139 @@
-// put this in your applicationDetails.test.tsx BEFORE importing ApplicationDetails
-jest.mock('@mui/material', () => ({
+/* -------------------------- ART Request Details -------------------------- */
+
+{/* ... earlier UI ... */}
+
+</Grid>
+
+{/* BEFORE (crashes when artRequestDetails is null/undefined)
+{Object.entries(formData.applicationDetails.artRequestDetails).map(([category, details]) => (
+  <Accordion key={category} defaultExpanded={category === 'Sandbox'}>
+    ...
+  </Accordion>
+))}
+*/}
+
+{/* AFTER (safe if value is null/undefined) */}
+{Object.entries(formData.applicationDetails.artRequestDetails || {}).map(
+  ([category, details]) => (
+    <Accordion key={category} defaultExpanded={category === 'Sandbox'}>
+      {/* ... existing content stays the same ... */}
+    </Accordion>
+  ),
+)}
+
+// src/sideNavbar/boarding/applicationDetails.test.tsx
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+
+// === import the real component and the real context ===
+import ApplicationDetails from './applicationDetails';
+import { FormContext } from '../FormContext';
+
+// ---- minimal stubs you might already have (keep or remove as needed) ----
+// If your suite already mocks MUI or date pickers globally, you can delete this block.
+jest.mock('@mui/material/Box', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
+jest.mock('@mui/material/Container', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
+jest.mock('@mui/material/Grid', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
+jest.mock('@mui/material/Accordion', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div data-testid="accordion" {...p}>{children}</div> }));
+jest.mock('@mui/material/AccordionSummary', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
+jest.mock('@mui/material/AccordionDetails', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
+jest.mock('@mui/material/TextField', () => ({ __esModule: true, default: ({ label, value, ...p }: any) => <input aria-label={label} defaultValue={value} {...p} /> }));
+jest.mock('@mui/material/Select', () => ({ __esModule: true, default: ({ children, label, ...p }: any) => <select aria-label={label} {...p}>{children}</select> }));
+jest.mock('@mui/material/MenuItem', () => ({ __esModule: true, default: ({ children, ...p }: any) => <option {...p}>{children}</option> }));
+jest.mock('@mui/material/Checkbox', () => ({ __esModule: true, default: ({ ...p }: any) => <input type="checkbox" {...p} /> }));
+jest.mock('@mui/material/Tooltip', () => ({ __esModule: true, default: ({ children }: any) => <>{children}</> }));
+jest.mock('@mui/material/Snackbar', () => ({ __esModule: true, default: ({ children }: any) => <div data-testid="snackbar">{children}</div> }));
+jest.mock('@mui/material/Alert', () => ({ __esModule: true, default: ({ children }: any) => <div role="alert">{children}</div> }));
+
+// date picker scaffolding – simple pass-through so the render doesn't fail
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
   __esModule: true,
-
-  // layout & basics
-  Box: (p: any) => <div {...p} />,
-  Container: (p: any) => <div {...p} />,            // <-- add
-  Grid: (p: any) => <div {...p} />,
-  Typography: (p: any) => <div {...p} />,
-
-  // text inputs
-  TextField: ({ label, name, value, onChange, disabled, helperText, ...rest }: any) => (
-    <div>
-      <input
-        aria-label={label || name}
-        name={name}
-        value={value ?? ''}
-        onChange={onChange}
-        disabled={disabled}
-        {...rest}
-      />
-      {helperText ? <div data-testid={`${name || label}-helper`}>{helperText}</div> : null}
-    </div>
-  ),
-
-  // selects
-  Select: ({ children, multiple, label, name, value, onChange, disabled, ...rest }: any) => (
-    <select
-      aria-label={label || name}
-      name={name}
-      value={value ?? (multiple ? [] : '')}
-      onChange={onChange}
-      multiple={!!multiple}
-      disabled={disabled}
-      {...rest}
-    >
-      {children}
-    </select>
-  ),
-  MenuItem: ({ value, children, disabled, ...rest }: any) => (
-    <option value={value} disabled={disabled} {...rest}>
-      {children}
-    </option>
-  ),
-
-  // adornments & buttons
-  InputAdornment: ({ children, ...rest }: any) => <span {...rest}>{children}</span>, // <-- add
-  IconButton: ({ children, onClick, ...rest }: any) => (
-    <button type="button" onClick={onClick} {...rest}>{children}</button>
-  ),
-
-  // form helpers
-  Checkbox: (p: any) => <input type="checkbox" {...p} />,
-  Radio: (p: any) => <input type="radio" {...p} />,
-  RadioGroup: ({ children, ...rest }: any) => <div role="radiogroup" {...rest}>{children}</div>,
-  FormControlLabel: ({ control, label, ...rest }: any) => <label {...rest}>{control}<span>{label}</span></label>,
-  FormControl: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
-  FormLabel: ({ children, ...rest }: any) => <label {...rest}>{children}</label>,
-  InputLabel: ({ children, ...rest }: any) => <label {...rest}>{children}</label>,
-
-  // misc
-  Tooltip: ({ children }: any) => <>{children}</>,
-  Link: ({ children, href, ...rest }: any) => <a href={href} {...rest}>{children}</a>,
-  Alert: ({ children }: any) => <div role="alert">{children}</div>,
-  Snackbar: ({ open, children }: any) => (open ? <div>{children}</div> : null),
-  CircularProgress: () => <div aria-label="loading" />,
-
-  // accordions
-  Accordion: ({ children, ...rest }: any) => <section {...rest}>{children}</section>,
-  AccordionSummary: ({ children, ...rest }: any) => <header {...rest}>{children}</header>,
-  AccordionDetails: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+  default: ({ children }: any) => <>{children}</>,
 }));
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  __esModule: true,
+  DatePicker: ({ label }: any) => <input aria-label={label} />,
+  default: ({ label }: any) => <input aria-label={label} />,
+}));
+jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
+  __esModule: true,
+  default: class AdapterDayjs {},
+}));
+
+// ---- stub the API hook used inside the component ----
+const makeRequestMock = jest.fn();
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest: makeRequestMock }),
+}));
+
+// ---- base form data with ALL needed fields present ----
+const baseFormData = {
+  applicationDetails: {
+    applicationID: '',
+    applicationName: '',
+    requesterName: '',
+    requesterEmail: '',
+    summary: '',
+    description: '',
+    purposeAndBenefit: '',
+    lobDomain: '',
+    environmentsNeeded: [] as string[],
+    dataSource: '',
+    dataFormat: [] as string[],
+    dataSLATime: '',
+    dataClassification: '',
+    panCardDataInScope: '',
+    panCardDetails: '',
+    sarUarData: '',
+    internationalUsers: '',
+    externalIngress: '',
+    externalIngressDetails: '',
+    serviceNowCI: '',
+    technicalConstraints: '',
+    timelineSandbox: null as any,
+    timelineNonProd: null as any,
+    timelineProd: null as any,
+    // <<< important: never null/undefined
+    artRequestDetails: {} as Record<string, Array<{ label: string; value: string; isCustom?: boolean }>>,
+  },
+};
+
+// ---- context value + setter stub ----
+const formCtxValue = {
+  formData: baseFormData,
+  setFormData: jest.fn(),
+};
+
+// ---- helper to render SUT with provider ----
+const renderSut = () =>
+  render(
+    <FormContext.Provider value={formCtxValue as any}>
+      <ApplicationDetails
+        validationErrors={{} as any}
+        setValidationErrors={jest.fn()}
+      />
+    </FormContext.Provider>,
+  );
+
+// ===================================================================
+// Tests (keep adding your detailed tests under this same harness)
+// ===================================================================
+
+describe('ApplicationDetails (harnessed)', () => {
+  test('renders without crashing (smoke)', () => {
+    renderSut();
+    // Pick something inexpensive that always exists in your layout
+    // e.g., one of your section headings or a known input label:
+    // If your labels differ, change the query text accordingly.
+    expect(screen.getAllByTestId('accordion').length).toBeGreaterThan(0);
+  });
+
+  // Example: keep your existing tests below; they’ll now run past render:
+  // test('email validation shows and clears error message', async () => { ... });
+  // test('App ID search (valid) fills fields and clears invalid error', async () => { ... });
+  // test('duplicate AppID+Env validation: shows snackbar ...', async () => { ... });
+  // test('multi-select Environments Needed renders comma-separated summary', async () => { ... });
+  // test('Add Other Field and Remove (ART Request Details) updates via setFormData', async () => { ... });
+  // test('Date pickers accept values and trigger ISO logic', async () => { ... });
+});
