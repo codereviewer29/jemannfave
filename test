@@ -1,127 +1,39 @@
 // ====================================================================
-// File: src/provision/__tests__/build-saferoom-infra.test.tsx
+// File: src/provision/__tests__/act-task-validation.test.tsx
 // ====================================================================
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import BuildSaferoomInfra from '../build-saferoom-infra';
+import ActTaskValidation from '../act-task-validation';
 
-// ---------- Lightweight MUI mocks (why: deterministic, aria-friendly) ----------
+// ---------- Lightweight MUI mocks (DOM-first, aria-friendly) ----------
 jest.mock('@mui/material', () => {
   const React = require('react');
 
   const Box = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
-  const Grid = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
   const Typography = ({ children }: any) => <div>{children}</div>;
-  const Link = ({ children, ...p }: any) => <a {...p}>{children}</a>;
-  const Tooltip = ({ children }: any) => <>{children}</>;
-  const CircularProgress = () => <div aria-label="loading" />;
-  const Alert = ({ children, ...p }: any) => (
-    <div role="alert" {...p}>
-      {children}
-    </div>
-  );
-  const Snackbar = ({ open, children }: any) => (open ? <div>{children}</div> : null);
-
-  const IconButton = ({ children, onClick, ...rest }: any) => (
-    <button type="button" onClick={onClick} {...rest}>
-      {children}
-    </button>
-  );
-  const InputAdornment = ({ children }: any) => <span>{children}</span>;
-
-  const TextField = ({
-    label,
-    name,
-    value,
-    onChange,
-    type = 'text',
-    required,
-    disabled,
-    error,
-    helperText,
-    InputProps,
-  }: any) => (
-    <label>
-      {label}
-      <input
-        aria-label={label}
-        name={name}
-        value={value ?? ''}
-        onChange={onChange}
-        type={type}
-        required={required}
-        disabled={disabled}
-      />
-      {InputProps?.endAdornment}
-      {error ? <div data-testid={`${name}-helper`}>{helperText}</div> : null}
-    </label>
-  );
-
-  const FormControl = ({ children }: any) => <div>{children}</div>;
-  const InputLabel = ({ children, id }: any) => <label id={id}>{children}</label>;
-  const MenuItem = ({ value, children }: any) => <option value={value}>{children}</option>;
-  const Select = ({
-    labelId,
-    label,
-    name,
-    value,
-    onChange,
-    children,
-    required,
-  }: any) => (
-    <label>
-      {label}
-      <select
-        aria-labelledby={labelId}
-        aria-label={label}
-        name={name}
-        value={value ?? ''}
-        onChange={onChange}
-        required={required}
-      >
-        {children}
-      </select>
-    </label>
-  );
-
   const Button = ({ children, onClick, ...rest }: any) => (
     <button type="button" onClick={onClick} {...rest}>
       {children}
     </button>
   );
+  const CircularProgress = () => <div aria-label="loading" />;
+  const Link = ({ children, ...p }: any) => <a {...p}>{children}</a>;
 
   return {
     __esModule: true,
-    Alert,
     Box,
     Button,
     CircularProgress,
-    Grid,
-    IconButton,
-    InputAdornment,
-    InputLabel,
-    Link,
-    MenuItem,
-    Select,
-    Snackbar,
-    TextField,
-    Tooltip,
     Typography,
-    FormControl,
+    Link,
   };
 });
 
 // ---------- Icons as inert spans ----------
-jest.mock('@mui/icons-material', () => {
-  const I = ({ 'data-testid': id, ...p }: any) => <span data-testid={id || 'icon'} {...p} />;
-  return {
-    __esModule: true,
-    InfoOutlined: I,
-    Visibility: I,
-    VisibilityOff: I,
-    InfoOutlinedIcon: I,
-  };
-});
+jest.mock('@mui/icons-material/InfoOutlined', () => ({
+  __esModule: true,
+  default: ({ 'data-testid': id, ...p }: any) => <span data-testid={id || 'info-icon'} {...p} />,
+}));
 
 // ---------- Service & Context ----------
 const makeRequest = jest.fn();
@@ -131,165 +43,131 @@ jest.mock('../../services/useApiService', () => ({
   default: () => ({ makeRequest }),
 }));
 
+const setProvisionData = jest.fn();
 jest.mock('../ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
     provisioningData: {
       github_token: 'gh-token',
       terraform_token: 'tf-token',
-      // Why: repo list feeds the "Select Repo Name" <Select>
-      githubRepo: ['corp-appid', 'corp-appid-alt'],
+      githubRepo: ['corp-appid', 'misc-repo', 'corp-appid-extra'],
     },
+    setProvisionData: (...args: any[]) => setProvisionData(...args),
   }),
 }));
 
-// ---------- Fixtures / helpers ----------
-const GET_ENV = {
-  data: {
-    env_params: {
-      vault_password: '',
-      requesteremail: 'owner@example.com',
-      servicenowsupportgroup: 'svc-group',
-      // saferoom-* are the primary fields for this component
-      saferoom_repo_name: '', // component derives 'corp-' + appId if falsy
-      saferoom_branch_name: 'sandbox',
-      saferoom_project_id: 's-prj-1',
-      saferoom_notification_channel: 's-chan',
-    },
-  },
-};
+// ---------- Child component ----------
+jest.mock('../Provision-logs', () => ({
+  __esModule: true,
+  default: ({ provisioningLogs }: any) => (
+    <div data-testid="provision-logs">overall: {provisioningLogs?.overall_status ?? ''}</div>
+  ),
+}));
 
-function renderSut(props?: Partial<React.ComponentProps<typeof BuildSaferoomInfra>>) {
+// ---------- Helpers ----------
+function renderSut(props?: Partial<React.ComponentProps<typeof ActTaskValidation>>) {
   const defaultProps = {
     appId: 'APPID',
     environment: 'Sandbox',
     completedTabs: [] as number[],
     setCompletedTabs: jest.fn(),
-    tabIndex: 4,
+    tabIndex: 7,
   };
   return {
-    ...render(<BuildSaferoomInfra {...defaultProps} {...props} />),
+    ...render(<ActTaskValidation {...defaultProps} {...props} />),
     setCompletedTabs:
       (props?.setCompletedTabs as jest.Mock) || (defaultProps.setCompletedTabs as jest.Mock),
   };
 }
 
+const successPayload = (overall = 'success') => ({
+  status: 200,
+  data: {
+    overall_status: overall,
+    validation_results: {
+      gcpapp_validation: { status: 'ok', details: [] },
+      gcpcdm_validation: { status: 'ok', details: [] },
+      github_repos_validation: {
+        status: 'ok',
+        details: ['corp-appid', 'misc-repo', 'corp-appid-extra'],
+      },
+      secondary_ranges_validation: { status: 'ok', details: [] },
+      workspace_validation: { status: 'ok', details: [] },
+    },
+  },
+});
+
 // ====================================================================
 // Tests
 // ====================================================================
-describe('BuildSaferoomInfra', () => {
-  beforeEach(() => jest.clearAllMocks());
+describe('ActTaskValidation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-  test('GET on mount populates fields and marks tab completed', async () => {
-    makeRequest.mockResolvedValueOnce(GET_ENV);
+  test('mount: success fetch shows logs, next-step text, filters repos, and marks tab complete', async () => {
+    makeRequest.mockResolvedValueOnce(successPayload('success'));
 
     const { setCompletedTabs } = renderSut();
 
-    // Derived default repo name from appId
-    const repoSelect = await screen.findByLabelText(/Select Repo Name/i);
-    expect(repoSelect).toHaveValue('corp-appid');
+    // Logs component rendered with overall status
+    expect(await screen.findByTestId('provision-logs')).toHaveTextContent(/overall: success/i);
 
-    // Disabled informational fields
-    expect(screen.getByLabelText(/Project ID/i)).toHaveValue('s-prj-1');
-    expect(screen.getByLabelText(/Email Address/i)).toHaveValue('owner@example.com');
-    expect(screen.getByLabelText(/Assignment Group/i)).toHaveValue('svc-group');
-    expect(screen.getByLabelText(/Notification Channel/i)).toHaveValue('s-chan');
-
-    await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
-  });
-
-  test('invalid password shows helper after submit; then valid clears; toggle works', async () => {
-    makeRequest.mockResolvedValueOnce(GET_ENV);
-
-    renderSut();
-
-    const pwd = await screen.findByLabelText(/Vault Password/i);
-    fireEvent.change(pwd, { target: { value: 'short' } });
-
-    fireEvent.click(
-      screen.getByRole('button', { name: /Build GCP CDM Next Infrastructure/i }),
-    );
-
+    // "Next Step" guidance visible
     expect(
-      await screen.findByTestId('vault_password-helper'),
-    ).toHaveTextContent(/Password must have 8/i);
-
-    fireEvent.change(pwd, { target: { value: 'abcde123' } });
-    await waitFor(() =>
-      expect(screen.queryByTestId('vault_password-helper')).toBeNull(),
-    );
-
-    fireEvent.click(
-      screen.getByRole('button', { name: /toggle password visibility/i }),
-    );
-    expect(screen.getByLabelText(/Vault Password/i)).toBeInTheDocument();
-  });
-
-  test('repo select uses ProvisionContext.githubRepo and accepts change', async () => {
-    makeRequest.mockResolvedValueOnce(GET_ENV);
-    renderSut();
-
-    const repoSelect = await screen.findByLabelText(/Select Repo Name/i);
-    // default derived
-    expect(repoSelect).toHaveValue('corp-appid');
-
-    // change to another option from context list
-    fireEvent.change(repoSelect, { target: { value: 'corp-appid-alt' } });
-    await waitFor(() => expect(repoSelect).toHaveValue('corp-appid-alt'));
-  });
-
-  test('branch select renders Sandbox options and accepts change', async () => {
-    makeRequest.mockResolvedValueOnce(GET_ENV);
-    renderSut({ environment: 'Sandbox' });
-
-    const branchSelect = await screen.findByLabelText(/Select Branch Name/i);
-    expect(branchSelect).toHaveValue('sandbox');
-
-    fireEvent.change(branchSelect, { target: { value: 'sandboxdev' } });
-    await waitFor(() => expect(branchSelect).toHaveValue('sandboxdev'));
-  });
-
-  test('POST success shows logs and sets tab completed', async () => {
-    makeRequest.mockResolvedValueOnce(GET_ENV); // GET
-    makeRequest.mockResolvedValueOnce({
-      status: 200,
-      data: { log_output: ['success: created topic', 'failed: policy skip'] },
-    }); // POST
-
-    const { setCompletedTabs } = renderSut();
-
-    // Provide valid password to pass handleError()
-    fireEvent.change(await screen.findByLabelText(/Vault Password/i), {
-      target: { value: 'valid123' },
-    });
-
-    fireEvent.click(
-      screen.getByRole('button', { name: /Build GCP CDM Next Infrastructure/i }),
-    );
-
-    expect(await screen.findByText(/created topic/i)).toBeInTheDocument();
-    expect(screen.getByText(/policy skip/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Once GCP CDM Next Infrastructure Setup is completed/i),
+      screen.getByText(/Once GCP Project Task Validation is completed/i),
     ).toBeInTheDocument();
 
+    // Repo filter invoked (we don't execute the updater fn here; we just ensure it's called)
+    await waitFor(() => expect(setProvisionData).toHaveBeenCalled());
+
+    // Tab marked as complete
     await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
   });
 
-  test('POST non-200 shows snackbar error', async () => {
-    makeRequest.mockResolvedValueOnce(GET_ENV); // GET
-    makeRequest.mockResolvedValueOnce({ status: 500, data: { log_output: [] } }); // POST
+  test('mount: failure fetch shows logs and displays Run Validation button', async () => {
+    makeRequest.mockResolvedValueOnce(successPayload('failure'));
 
     renderSut();
 
-    fireEvent.change(await screen.findByLabelText(/Vault Password/i), {
-      target: { value: 'valid123' },
+    expect(await screen.findByTestId('provision-logs')).toHaveTextContent(/overall: failure/i);
+    expect(
+      screen.getByRole('button', { name: /Run GCP Project Task Validation/i }),
+    ).toBeInTheDocument();
+  });
+
+  test('clicking Run Validation posts again, shows logs, hides button, and marks tab complete', async () => {
+    // First call → failure to show the button
+    makeRequest.mockResolvedValueOnce(successPayload('failure'));
+    // Second call → success after clicking button
+    makeRequest.mockResolvedValueOnce(successPayload('success'));
+
+    const { setCompletedTabs } = renderSut();
+
+    const runBtn = await screen.findByRole('button', {
+      name: /Run GCP Project Task Validation/i,
     });
+    fireEvent.click(runBtn);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Build GCP CDM Next Infrastructure/i }),
-    );
+    // After POST success, logs show success and button hidden
+    expect(await screen.findByTestId('provision-logs')).toHaveTextContent(/overall: success/i);
+    expect(
+      screen.queryByRole('button', { name: /Run GCP Project Task Validation/i }),
+    ).toBeNull();
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
+  });
+
+  test('request rejection is handled (no crash), spinner turns off and logs not shown', async () => {
+    // Reject on mount
+    makeRequest.mockRejectedValueOnce(new Error('network'));
+
+    renderSut();
+
+    // Spinner gone and no logs present
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/loading/i)).toBeNull();
+      expect(screen.queryByTestId('provision-logs')).toBeNull();
+    });
   });
 });
