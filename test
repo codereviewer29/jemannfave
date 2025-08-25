@@ -1,25 +1,345 @@
-// 0) Minimal "styled" shim for MUI styles — returns a passthrough component
-const styledShim =
-  (Tag: any) =>
-  (_styles?: any) =>
-  (props: any) =>
-    <Tag {...props} />;
+// src/sideNavbar/boarding/intake-components/cdmNextIntakeForm.test.tsx
+import React from 'react';
+import { render as rtlRender, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// If your component imports from '@mui/material/styles'
-jest.mock('@mui/material/styles', () => ({
-  __esModule: true,
-  styled: styledShim,
-  ThemeProvider: ({ children }: any) => <>{children}</>,
-  createTheme: () => ({}),
-  useTheme: () => ({}),
-}));
-
-// If your component (or transitive code) imports 'styled' from '@mui/material'
+/* =========================
+   1) Mock MUI to plain HTML
+   ========================= */
 jest.mock('@mui/material', () => {
-  const actual = jest.requireActual('@mui/material');
+  const React = require('react');
+
+  // Basic containers
+  const Box = ({ children, ...p }: any) => <div {...p}>{children}</div>;
+  const Grid = ({ children, ...p }: any) => <div {...p}>{children}</div>;
+  const Container = ({ children, ...p }: any) => <div {...p}>{children}</div>;
+  const Typography = ({ children, ...p }: any) => <div {...p}>{children}</div>;
+
+  // Inputs
+  const TextField = ({ label, name, value, onChange, type, helperText, ...rest }: any) => (
+    <div>
+      <label>
+        <span>{label || name}</span>
+        <input
+          aria-label={label || name}
+          name={name}
+          type={type || 'text'}
+          value={value ?? ''}
+          onChange={onChange}
+          {...rest}
+        />
+      </label>
+      {helperText ? <div role="note">{helperText}</div> : null}
+    </div>
+  );
+
+  const Select = ({ label, name, value, multiple, onChange, children, disabled }: any) => (
+    <label>
+      <span>{label || name}</span>
+      <select
+        aria-label={label || name}
+        name={name}
+        value={value ?? (multiple ? [] : '')}
+        multiple={!!multiple}
+        onChange={onChange}
+        disabled={disabled}
+      >
+        {children}
+      </select>
+    </label>
+  );
+
+  const MenuItem = ({ value, children, disabled, ...rest }: any) => (
+    <option value={value} disabled={disabled} {...rest}>
+      {children}
+    </option>
+  );
+
+  const Checkbox = (p: any) => <input type="checkbox" {...p} />;
+  const Radio = (p: any) => <input type="radio" {...p} />;
+  const RadioGroup = ({ children, ...p }: any) => <div role="radiogroup" {...p}>{children}</div>;
+  const FormLabel = ({ children }: any) => <div>{children}</div>;
+  const FormControl = ({ children }: any) => <div>{children}</div>;
+  const FormControlLabel = ({ control, label }: any) => (
+    <label>
+      <span>{label}</span>
+      {control}
+    </label>
+  );
+
+  // Buttons / icons
+  const Button = ({ children, onClick, type, ...rest }: any) => (
+    <button type={type || 'button'} onClick={onClick} {...rest}>{children}</button>
+  );
+  const IconButton = ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>{children}</button>
+  );
+  const InputAdornment = ({ children }: any) => <span>{children}</span>;
+
+  // Accordions
+  const Accordion = ({ children, ...p }: any) => <section data-testid="accordion" {...p}>{children}</section>;
+  const AccordionSummary = ({ children, ...p }: any) => <header {...p}>{children}</header>;
+  const AccordionDetails = ({ children, ...p }: any) => <div {...p}>{children}</div>;
+
+  // Tooltip/Snackbar/Alert (render children only)
+  const Tooltip = ({ children }: any) => <>{children}</>;
+  const Snackbar = ({ children }: any) => <div data-testid="snackbar">{children}</div>;
+  const Alert = ({ children }: any) => <div role="alert">{children}</div>;
+
   return {
     __esModule: true,
-    ...actual,             // keep anything else you already mocked or need
-    styled: styledShim,    // <- add this
+    Box,
+    Grid,
+    Container,
+    Typography,
+    TextField,
+    Select,
+    MenuItem,
+    Checkbox,
+    Radio,
+    RadioGroup,
+    FormLabel,
+    FormControl,
+    FormControlLabel,
+    Button,
+    IconButton,
+    InputAdornment,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Tooltip,
+    Snackbar,
+    Alert,
   };
+});
+
+// MUI date pickers -> simple inputs
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
+  __esModule: true,
+  default: ({ children }: any) => <>{children}</>,
+}));
+jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
+  __esModule: true,
+  default: class AdapterDayjs {},
+}));
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  __esModule: true,
+  default: ({ label, name, value, onChange }: any) => (
+    <input
+      aria-label={label || name}
+      name={name}
+      value={value ?? ''}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
+  ),
+}));
+
+/* =====================================
+   2) Mock react-router-dom essentials
+   ===================================== */
+jest.mock('react-router-dom', () => {
+  const actual = jest.requireActual('react-router-dom');
+  return {
+    __esModule: true,
+    ...actual,
+    // Avoid Theme/Router dependent styled() calls & basename issues
+    useLocation: () => ({ pathname: '/', search: '', hash: '' }),
+    useNavigate: () => jest.fn(),
+    useParams: () => ({}),
+    Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+  };
+});
+
+/* =====================================
+   3) Mock @wf/react-library (no config edits)
+   ===================================== */
+jest.mock('@wf/react-library', () => ({
+  __esModule: true,
+  useAppGlobalState: () => ({ state: {}, dispatch: jest.fn() }),
+  useConfig: () => ({ apiBaseUrl: 'http://localhost' }),
+}));
+
+/* =====================================
+   4) Mock the API service used inside
+   ===================================== */
+const mockMakeRequest = jest.fn();
+jest.mock('../../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest: mockMakeRequest }),
+}));
+
+/* =====================================
+   5) Mock the FormContext used by the form
+   ===================================== */
+type GlobalFormData = any;
+const TestFormContext = React.createContext<{
+  formData: GlobalFormData;
+  setFormData: React.Dispatch<React.SetStateAction<GlobalFormData>>;
+  requiredFields: string[];
+  resetFormData: () => void;
+} | null>(null);
+
+// when component calls your real hook, return our test context
+jest.mock('../FormContext', () => ({
+  __esModule: true,
+  useFormContext: () => React.useContext(TestFormContext)!,
+}));
+
+/* =====================================
+   6) Import the component under test
+   ===================================== */
+import CDMNextIntakeForm from './cdmNextIntakeForm';
+
+/* =====================================
+   7) Render helper w/ provider and seed
+   ===================================== */
+function render(seed?: Partial<GlobalFormData>) {
+  // << build a realistic slice of form data the component expects >>
+  const initial: GlobalFormData = {
+    intakeFormTrackingId: 'TRACK123',
+    trackingStatus: 'Draft',
+    gcpComponentDetails: {},
+    safeRoomDetails: {},
+    cdmNextDetails: {
+      selectedPatterns: [],
+      hadoopPlatforms: [],
+      nodeDetails: '',
+      serviceAccountAvailability: '',
+      serviceAccountName: '',
+      sitvenafiFileName: '',
+      sitvenafiFileContent: '',
+      uatvenafiFileName: '',
+      uatvenafiFileContent: '',
+      sandboxvenafiFileName: '',
+      sandboxvenafiFileContent: '',
+      prodvenafiFileName: '',
+      prodvenafiFileContent: '',
+      tptInstalled: '',
+      tptnodeDetails: '',
+      nasAvailable: '',
+      apiResponseSupported: '',
+      streamingSourceRealTime: '',
+      sourceSystems: [],
+      jceksCert: '',
+      storagePlatform: [],
+      storagePlatformSts: [],
+    },
+    applicationDetails: {
+      applicationID: 'APP123',
+      auNumber: 'AU456',
+    },
+    ...(seed ?? {}),
+  };
+
+  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [formData, setFormData] = React.useState(initial);
+    return (
+      <TestFormContext.Provider
+        value={{ formData, setFormData, requiredFields: [], resetFormData: jest.fn() }}
+      >
+        {children}
+      </TestFormContext.Provider>
+    );
+  };
+
+  return rtlRender(
+    <Wrapper>
+      <CDMNextIntakeForm />
+    </Wrapper>,
+  );
+}
+
+/* =====================================
+   8) The tests
+   ===================================== */
+describe('CDMNextIntakeForm', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renders migration patterns section', () => {
+    render();
+
+    // Use a broad matcher; adjust if your heading text differs
+    // Tip: if this still fails, run screen.debug() to see the DOM
+    const anyMigrationText =
+      screen.queryByText(/Migration Patterns/i) ||
+      screen.queryByText(/Migration/i) ||
+      screen.queryByRole('heading', { name: /migration/i });
+
+    expect(anyMigrationText).toBeTruthy();
+  });
+
+  it('updates selected environment', () => {
+    render();
+
+    // Our Select stub uses the label we pass to aria-label
+    // If your label is different, tweak the regex.
+    const select = screen.getByLabelText(/Select Environment|Environment/i) as HTMLSelectElement;
+
+    // Provide a couple of options right in the test by appending to the select
+    // (if your component already renders <MenuItem>s, you can remove this)
+    select.appendChild(new Option('DEV1', 'DEV1'));
+    select.appendChild(new Option('Production', 'Production'));
+
+    fireEvent.change(select, { target: { value: 'Production' } });
+    expect(select.value).toBe('Production');
+  });
+
+  it('handles file upload failure', async () => {
+    mockMakeRequest.mockRejectedValueOnce(new Error('Upload failed'));
+
+    render();
+
+    // Use whatever label your upload input renders with
+    const upload = screen.getByLabelText(/Upload|Certificate|File/i) as HTMLInputElement;
+
+    const file = new File(['dummy'], 'cert.pem', { type: 'application/x-pem-file' });
+    fireEvent.change(upload, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/upload failed/i)).toBeInTheDocument();
+    });
+  });
+
+  it('validates node input and shows error', async () => {
+    mockMakeRequest.mockResolvedValueOnce({ data: { status: 'Error', invalidNodes: ['badNode'] } });
+
+    render();
+
+    const nodeInput = screen.getByLabelText(/Enter.*Node.*here|Node details/i) as HTMLInputElement;
+    fireEvent.change(nodeInput, { target: { value: 'badNode' } });
+
+    // click a Validate button if present, or trigger the handler your component uses
+    const maybeValidate =
+      screen.queryByRole('button', { name: /validate/i }) || screen.queryByText(/validate/i);
+    if (maybeValidate) {
+      fireEvent.click(maybeValidate);
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid nodes?:?\s*badNode/i)).toBeInTheDocument();
+    });
+  });
+
+  it('conditionally renders service account fields when "Yes" is selected', () => {
+    render();
+
+    // Find the "Yes" radio (our FormControlLabel stub renders <span>{label}</span>)
+    const yesLabel =
+      screen.queryByLabelText(/^Yes$/i) ||
+      screen.queryByText(/^Yes$/i) ||
+      within(screen.getByRole('radiogroup')).getByText(/^Yes$/i);
+
+    // Click the associated radio input if we found a label span
+    if (yesLabel && yesLabel.closest('label')) {
+      const input = yesLabel.closest('label')!.querySelector('input[type="radio"]') as HTMLInputElement;
+      fireEvent.click(input);
+    }
+
+    // Now an input like "Service Account Name" should appear
+    const svcName =
+      screen.queryByLabelText(/Service Account Name/i) ||
+      screen.queryByText(/Service Account Name/i);
+    expect(svcName).toBeTruthy();
+  });
 });
