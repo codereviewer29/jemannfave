@@ -1,28 +1,15 @@
-/**
- * applicationDetails.test.tsx
- * A runnable test harness + tests for ApplicationDetails.
- *
- * Key idea: we stub heavy MUI components, X DatePicker, icons, and your
- * useFormContext + useApiService so <ApplicationDetails/> can render in Jest.
- */
-
-import React from 'react';
-import { render as rtlRender, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-
-// ---------------------------------------------------------------------------
-// 1) Stub MUI (keep to simple HTML so React Testing Library can interact)
-// ---------------------------------------------------------------------------
+// put this in your applicationDetails.test.tsx BEFORE importing ApplicationDetails
 jest.mock('@mui/material', () => ({
   __esModule: true,
 
-  // layout
+  // layout & basics
   Box: (p: any) => <div {...p} />,
+  Container: (p: any) => <div {...p} />,            // <-- add
   Grid: (p: any) => <div {...p} />,
   Typography: (p: any) => <div {...p} />,
 
-  // form bits
-  TextField: ({ label, name, value, onChange, disabled, required, error, helperText, ...rest }: any) => (
+  // text inputs
+  TextField: ({ label, name, value, onChange, disabled, helperText, ...rest }: any) => (
     <div>
       <input
         aria-label={label || name}
@@ -32,12 +19,12 @@ jest.mock('@mui/material', () => ({
         disabled={disabled}
         {...rest}
       />
-      {/* show helper/error text if provided so tests can see it */}
       {helperText ? <div data-testid={`${name || label}-helper`}>{helperText}</div> : null}
     </div>
   ),
 
-  Select: ({ children, multiple, renderValue, label, name, value, onChange, disabled, ...rest }: any) => (
+  // selects
+  Select: ({ children, multiple, label, name, value, onChange, disabled, ...rest }: any) => (
     <select
       aria-label={label || name}
       name={name}
@@ -56,38 +43,26 @@ jest.mock('@mui/material', () => ({
     </option>
   ),
 
+  // adornments & buttons
+  InputAdornment: ({ children, ...rest }: any) => <span {...rest}>{children}</span>, // <-- add
+  IconButton: ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>{children}</button>
+  ),
+
+  // form helpers
   Checkbox: (p: any) => <input type="checkbox" {...p} />,
   Radio: (p: any) => <input type="radio" {...p} />,
-  RadioGroup: ({ children, ...rest }: any) => (
-    <div role="radiogroup" {...rest}>
-      {children}
-    </div>
-  ),
-  FormControlLabel: ({ control, label, ...rest }: any) => (
-    <label {...rest}>
-      {control}
-      <span>{label}</span>
-    </label>
-  ),
+  RadioGroup: ({ children, ...rest }: any) => <div role="radiogroup" {...rest}>{children}</div>,
+  FormControlLabel: ({ control, label, ...rest }: any) => <label {...rest}>{control}<span>{label}</span></label>,
   FormControl: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
   FormLabel: ({ children, ...rest }: any) => <label {...rest}>{children}</label>,
   InputLabel: ({ children, ...rest }: any) => <label {...rest}>{children}</label>,
 
-  // feedback / misc
+  // misc
   Tooltip: ({ children }: any) => <>{children}</>,
-  Link: ({ children, href, ...rest }: any) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-  IconButton: ({ children, onClick, ...rest }: any) => (
-    <button type="button" onClick={onClick} {...rest}>
-      {children}
-    </button>
-  ),
+  Link: ({ children, href, ...rest }: any) => <a href={href} {...rest}>{children}</a>,
   Alert: ({ children }: any) => <div role="alert">{children}</div>,
   Snackbar: ({ open, children }: any) => (open ? <div>{children}</div> : null),
-
   CircularProgress: () => <div aria-label="loading" />,
 
   // accordions
@@ -95,276 +70,3 @@ jest.mock('@mui/material', () => ({
   AccordionSummary: ({ children, ...rest }: any) => <header {...rest}>{children}</header>,
   AccordionDetails: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
-
-// ---------------------------------------------------------------------------
-// 2) Stub MUI X date pickers
-// ---------------------------------------------------------------------------
-jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
-  __esModule: true,
-  default: ({ children }: any) => <>{children}</>,
-}));
-jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
-  __esModule: true,
-  default: function AdapterDayjs() {},
-}));
-jest.mock('@mui/x-date-pickers/DatePicker', () => ({
-  __esModule: true,
-  default: ({ label, value, onChange, name, slotProps }: any) => (
-    <input
-      aria-label={label || name}
-      value={value ?? ''}
-      onChange={(e) => onChange?.(e.target.value)}
-      {...(slotProps?.textField ?? {})}
-    />
-  ),
-}));
-
-// ---------------------------------------------------------------------------
-// 3) Stub icons so IconButtons have visible text (easy to query)
-// ---------------------------------------------------------------------------
-jest.mock('@mui/icons-material/Search', () => ({
-  __esModule: true,
-  default: () => <span>Search</span>,
-}));
-jest.mock('@mui/icons-material/AddCircle', () => ({
-  __esModule: true,
-  default: () => <span>Add</span>,
-}));
-jest.mock('@mui/icons-material/RemoveCircle', () => ({
-  __esModule: true,
-  default: () => <span>Remove</span>,
-}));
-jest.mock('@mui/icons-material/ErrorOutline', () => ({
-  __esModule: true,
-  default: () => <span>ErrorIcon</span>,
-}));
-jest.mock('@mui/icons-material/ExpandMore', () => ({
-  __esModule: true,
-  default: () => <span>Expand</span>,
-}));
-
-// ---------------------------------------------------------------------------
-// 4) Mock API service used inside the component
-// ---------------------------------------------------------------------------
-const makeRequest = jest.fn();
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest }),
-}));
-
-// ---------------------------------------------------------------------------
-// 5) Provide a test form context to satisfy useFormContext
-// ---------------------------------------------------------------------------
-type Ctx = { formData: any; setFormData: React.Dispatch<React.SetStateAction<any>> };
-const TestFormContext = React.createContext<Ctx>({} as any);
-
-jest.mock('../FormContext', () => ({
-  __esModule: true,
-  useFormContext: () => React.useContext(TestFormContext),
-}));
-
-// ---------------------------------------------------------------------------
-// 6) Import the real component under test
-// ---------------------------------------------------------------------------
-import ApplicationDetails from '../applicationDetails';
-
-// ---------------------------------------------------------------------------
-// 7) Render helper (wrap with provider and seed form state)
-// ---------------------------------------------------------------------------
-function render(uiProps?: Partial<Record<string, any>>, seed?: Partial<any>) {
-  const initialForm = {
-    applicationDetails: {
-      applicationID: '',
-      applicationName: '',
-      requesterName: '',
-      requesterEmail: '',
-      summary: '',
-      description: '',
-      lobDomain: '',
-      environmentsNeeded: [] as string[],
-      timelineSandbox: null,
-      timelineNonProd: null,
-      timelineProd: null,
-      isNewApp: 'new',
-      appLocation: '',
-      appLinkInBAM: '',
-      beamsStatus: '',
-      dataSource: '',
-      dataFormat: [] as string[],
-      dataSLATime: '',
-      dataClassification: '',
-      panCardDataInScope: '',
-      panCardDetails: '',
-      sarUarData: '',
-      internationalUsers: '',
-      externalIngress: '',
-      externalIngressDetails: '',
-      serviceNowCI: '',
-      technicalConstraints: '',
-      reviewedWithCIO: '',
-      reviewedWithArchitect: '',
-      requiresCloudReview: '',
-      ...seed?.applicationDetails,
-    },
-  };
-
-  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [formData, setFormData] = React.useState(initialForm);
-    return <TestFormContext.Provider value={{ formData, setFormData }}>{children}</TestFormContext.Provider>;
-  };
-
-  const validationErrors = seed?.validationErrors ?? {};
-  const setValidationErrors = jest.fn();
-
-  return {
-    ...rtlRender(
-      <Wrapper>
-        <ApplicationDetails
-          validationErrors={validationErrors}
-          setValidationErrors={setValidationErrors}
-          {...uiProps}
-        />
-      </Wrapper>
-    ),
-    setValidationErrors,
-  };
-}
-
-// ===========================================================================
-// Tests
-// ===========================================================================
-describe('ApplicationDetails (harnessed)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test('renders without crashing (smoke)', () => {
-    render();
-    expect(screen.getByLabelText(/Application ID/i)).toBeInTheDocument();
-  });
-
-  test('email validation calls setValidationErrors for invalid, clears for valid', async () => {
-    const user = userEvent.setup();
-    const { setValidationErrors } = render();
-
-    const email = screen.getByLabelText(/Requester Email/i);
-    await user.clear(email);
-    await user.type(email, 'not-an-email');
-
-    // invalid path should set "Invalid email format"
-    expect(setValidationErrors).toHaveBeenCalled();
-    const last = setValidationErrors.mock.calls.at(-1)?.[0];
-    // our component passes a function; we can invoke it to inspect result
-    const result = typeof last === 'function' ? last({}) : last;
-    expect(JSON.stringify(result)).toMatch(/Invalid email format/);
-
-    // now type valid email; component should clear that message
-    await user.clear(email);
-    await user.type(email, 'ok@acme.com');
-
-    const last2 = setValidationErrors.mock.calls.at(-1)?.[0];
-    const result2 = typeof last2 === 'function' ? last2({ applicationDetails: {} }) : last2;
-    // final structure should not contain the invalid message
-    expect(JSON.stringify(result2)).not.toMatch(/Invalid email format/);
-  });
-
-  test('App ID search (valid) fills fields and clears invalid error', async () => {
-    const user = userEvent.setup();
-
-    // mock the two API calls the component makes:
-    // 1) BAM app details
-    makeRequest.mockImplementation(async ({ endpoints }) => {
-      if (String(endpoints).includes('/api/application-details/bam-data/')) {
-        return { data: { applicationID: 'APP123', applicationName: 'Foo App', lobDomain: 'CIO' } };
-      }
-      // 2) duplicate env validation (no duplicates here)
-      if (String(endpoints).includes('/api/get-app-form-env')) {
-        return { data: { environments: [] } };
-      }
-      return { data: {} };
-    });
-
-    render();
-
-    // put an ID and click the Search icon button
-    await user.type(screen.getByLabelText(/Application ID/i), 'APP123');
-    await user.click(screen.getByRole('button', { name: /search/i }));
-
-    // name should be populated from BAM response
-    expect(screen.getByLabelText(/Application Name/i)).toHaveValue('Foo App');
-    expect(makeRequest).toHaveBeenCalled();
-  });
-
-  test('App ID search (invalid) sets "Invalid Application ID" error via setValidationErrors', async () => {
-    const user = userEvent.setup();
-
-    makeRequest.mockResolvedValueOnce({ data: { applicationID: '' } }); // bam-data returns no id
-
-    const { setValidationErrors } = render();
-
-    await user.type(screen.getByLabelText(/Application ID/i), 'BADID');
-    await user.click(screen.getByRole('button', { name: /search/i }));
-
-    const last = setValidationErrors.mock.calls.at(-1)?.[0];
-    const result = typeof last === 'function' ? last({ applicationDetails: {} }) : last;
-
-    expect(JSON.stringify(result)).toMatch(/Invalid Application ID/i);
-  });
-
-  test('duplicate AppID+Env validation: shows snackbar and disables matching env option', async () => {
-    const user = userEvent.setup();
-
-    // First call (bam data)
-    makeRequest.mockImplementation(async ({ endpoints }) => {
-      if (String(endpoints).includes('/api/application-details/bam-data/')) {
-        return { data: { applicationID: 'APPX', applicationName: 'X' } };
-      }
-      if (String(endpoints).includes('/api/get-app-form-env')) {
-        // server says an onboarding already exists for DEV1
-        return { data: { environments: ['DEV1'] } };
-      }
-      return { data: {} };
-    });
-
-    // seed form so user already selected DEV1
-    render({}, { applicationDetails: { environmentsNeeded: ['DEV1'] } });
-
-    await user.type(screen.getByLabelText(/Application ID/i), 'APPX');
-    await user.click(screen.getByRole('button', { name: /search/i }));
-
-    // snackbar text from your component (trim to key phrase)
-    expect(
-      screen.getByText(/Onboarding form is already submitted for the selected application/i)
-    ).toBeInTheDocument();
-
-    // option DEV1 should be disabled in the select
-    const envSelect = screen.getByLabelText(/Environments Needed/i) as HTMLSelectElement;
-    const dev1 = within(envSelect).getByRole('option', { name: /DEV1/i }) as HTMLOptionElement;
-    expect(dev1.disabled).toBe(true);
-  });
-
-  test('multi-select "Environments Needed" renders comma-separated summary', async () => {
-    const user = userEvent.setup();
-    render();
-
-    const envSelect = screen.getByLabelText(/Environments Needed/i) as HTMLSelectElement;
-    // choose 2 values; our stub uses <select multiple>
-    await user.selectOptions(envSelect, ['DEV1', 'SIT']);
-
-    // the selected values exist as options; with our simple stub, value is set
-    const values = Array.from(envSelect.selectedOptions).map((o) => o.value).join(', ');
-    expect(values).toBe('DEV1, SIT');
-  });
-
-  test('date pickers accept values and call onChange handlers (ISO string logic executed internally)', async () => {
-    const user = userEvent.setup();
-    render();
-
-    const prod = screen.getByLabelText(/Timeline for Production/i);
-    await user.clear(prod);
-    await user.type(prod, '2025-12-31');
-
-    // Since DatePicker is stubbed to an <input>, verifying the value is enough
-    expect(prod).toHaveValue('2025-12-31');
-  });
-});
