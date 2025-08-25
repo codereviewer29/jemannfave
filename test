@@ -1,7 +1,8 @@
 // ====================================================================
-// File: src/services/__tests__/processHttp.test.ts
+// File: src/services/processHttp.test.ts
 // ====================================================================
-import { processHttpRequest } from '../processHttp';
+import { processHttpRequest } from './processHttp';
+import type { HttpRequest } from './types';
 
 // ---- axios mock ----
 const axiosGet = jest.fn();
@@ -19,14 +20,16 @@ jest.mock('axios', () => ({
   },
 }));
 
-// Helpers
 const API = 'https://api.example.com';
 const token = 'tok123';
-const baseReq = (over: Partial<any> = {}) => ({
-  method: 'GET',
+
+// Fully typed factory: include responseType to satisfy HttpRequest
+const baseReq = (over: Partial<HttpRequest> = {}): HttpRequest => ({
+  method: 'GET',                         // 'GET' | 'POST' | 'PUT' | 'DELETE'
   endpoints: '/v1/resource',
   body: undefined,
   headers: undefined,
+  responseType: undefined as any,        // explicitly present (can be undefined)
   ...over,
 });
 
@@ -42,13 +45,9 @@ describe('processHttpRequest', () => {
   });
 
   test('GET builds URL, merges headers, and passes axios options', async () => {
-    const req = baseReq({
-      method: 'GET',
-      headers: { 'X-Foo': 'bar' },
-    });
+    const req = baseReq({ method: 'GET', headers: { 'X-Foo': 'bar' } });
 
     const res = await processHttpRequest(req, token, API);
-
     expect(res).toBe('GET_RES');
     expect(axiosGet).toHaveBeenCalledTimes(1);
 
@@ -62,7 +61,7 @@ describe('processHttpRequest', () => {
     expect(options.withCredentials).toBe(true);
     expect(options.timeout).toBe(120000);
     expect(typeof options.validateStatus).toBe('function');
-    expect(options.validateStatus(500)).toBe(true); // function returns true per code
+    expect(options.validateStatus(500)).toBe(true);
   });
 
   test('POST forwards body and axios options', async () => {
@@ -78,11 +77,11 @@ describe('processHttpRequest', () => {
     expect(options.headers.Authorization).toBe(`Bearer ${token}`);
   });
 
-  test('PUT forwards body with merged headers & custom override', async () => {
+  test('PUT forwards body with merged/overridden headers', async () => {
     const req = baseReq({
       method: 'PUT',
       body: { b: 2 },
-      headers: { 'Content-Type': 'application/merge-patch+json' }, // overrides default
+      headers: { 'Content-Type': 'application/merge-patch+json' },
     });
 
     await processHttpRequest(req, token, API);
@@ -92,7 +91,7 @@ describe('processHttpRequest', () => {
     expect(options.headers.Authorization).toBe(`Bearer ${token}`);
   });
 
-  test('DELETE passes body in axios options.data with validateStatus=true', async () => {
+  test('DELETE passes body in options.data and validateStatus always true', async () => {
     const req = baseReq({ method: 'DELETE', body: { id: '42' } });
 
     await processHttpRequest(req, token, API);
@@ -104,7 +103,7 @@ describe('processHttpRequest', () => {
     expect(delOptions.validateStatus(418)).toBe(true);
   });
 
-  test('DELETE with no body sends empty object in options.data', async () => {
+  test('DELETE with no body sends {} in options.data', async () => {
     const req = baseReq({ method: 'DELETE' });
 
     await processHttpRequest(req, token, API);
@@ -114,7 +113,7 @@ describe('processHttpRequest', () => {
   });
 
   test('respects responseType when provided', async () => {
-    const req = baseReq({ method: 'GET', responseType: 'blob' });
+    const req = baseReq({ method: 'GET', responseType: 'blob' as any });
 
     await processHttpRequest(req, token, API);
 
