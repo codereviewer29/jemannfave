@@ -1,173 +1,124 @@
 // ====================================================================
-// File: src/provision/__tests__/act-task-validation.test.tsx
+// File: src/services/__tests__/processHttp.test.ts
 // ====================================================================
-import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import ActTaskValidation from '../act-task-validation';
+import { processHttpRequest } from '../processHttp';
 
-// ---------- Lightweight MUI mocks (DOM-first, aria-friendly) ----------
-jest.mock('@mui/material', () => {
-  const React = require('react');
+// ---- axios mock ----
+const axiosGet = jest.fn();
+const axiosPost = jest.fn();
+const axiosPut = jest.fn();
+const axiosDelete = jest.fn();
 
-  const Box = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
-  const Typography = ({ children }: any) => <div>{children}</div>;
-  const Button = ({ children, onClick, ...rest }: any) => (
-    <button type="button" onClick={onClick} {...rest}>
-      {children}
-    </button>
-  );
-  const CircularProgress = () => <div aria-label="loading" />;
-  const Link = ({ children, ...p }: any) => <a {...p}>{children}</a>;
-
-  return {
-    __esModule: true,
-    Box,
-    Button,
-    CircularProgress,
-    Typography,
-    Link,
-  };
-});
-
-// ---------- Icons as inert spans ----------
-jest.mock('@mui/icons-material/InfoOutlined', () => ({
+jest.mock('axios', () => ({
   __esModule: true,
-  default: ({ 'data-testid': id, ...p }: any) => <span data-testid={id || 'info-icon'} {...p} />,
-}));
-
-// ---------- Service & Context ----------
-const makeRequest = jest.fn();
-
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest }),
-}));
-
-const setProvisionData = jest.fn();
-jest.mock('../ProvisionContext', () => ({
-  __esModule: true,
-  useProvisionContext: () => ({
-    provisioningData: {
-      github_token: 'gh-token',
-      terraform_token: 'tf-token',
-      githubRepo: ['corp-appid', 'misc-repo', 'corp-appid-extra'],
-    },
-    setProvisionData: (...args: any[]) => setProvisionData(...args),
-  }),
-}));
-
-// ---------- Child component ----------
-jest.mock('../Provision-logs', () => ({
-  __esModule: true,
-  default: ({ provisioningLogs }: any) => (
-    <div data-testid="provision-logs">overall: {provisioningLogs?.overall_status ?? ''}</div>
-  ),
-}));
-
-// ---------- Helpers ----------
-function renderSut(props?: Partial<React.ComponentProps<typeof ActTaskValidation>>) {
-  const defaultProps = {
-    appId: 'APPID',
-    environment: 'Sandbox',
-    completedTabs: [] as number[],
-    setCompletedTabs: jest.fn(),
-    tabIndex: 7,
-  };
-  return {
-    ...render(<ActTaskValidation {...defaultProps} {...props} />),
-    setCompletedTabs:
-      (props?.setCompletedTabs as jest.Mock) || (defaultProps.setCompletedTabs as jest.Mock),
-  };
-}
-
-const successPayload = (overall = 'success') => ({
-  status: 200,
-  data: {
-    overall_status: overall,
-    validation_results: {
-      gcpapp_validation: { status: 'ok', details: [] },
-      gcpcdm_validation: { status: 'ok', details: [] },
-      github_repos_validation: {
-        status: 'ok',
-        details: ['corp-appid', 'misc-repo', 'corp-appid-extra'],
-      },
-      secondary_ranges_validation: { status: 'ok', details: [] },
-      workspace_validation: { status: 'ok', details: [] },
-    },
+  default: {
+    get: (...args: any[]) => (global as any).__ax.get(...args),
+    post: (...args: any[]) => (global as any).__ax.post(...args),
+    put: (...args: any[]) => (global as any).__ax.put(...args),
+    delete: (...args: any[]) => (global as any).__ax.delete(...args),
   },
+}));
+
+// Helpers
+const API = 'https://api.example.com';
+const token = 'tok123';
+const baseReq = (over: Partial<any> = {}) => ({
+  method: 'GET',
+  endpoints: '/v1/resource',
+  body: undefined,
+  headers: undefined,
+  ...over,
 });
 
-// ====================================================================
-// Tests
-// ====================================================================
-describe('ActTaskValidation', () => {
+describe('processHttpRequest', () => {
   beforeEach(() => {
+    (global as any).__ax = {
+      get: axiosGet.mockResolvedValue('GET_RES'),
+      post: axiosPost.mockResolvedValue('POST_RES'),
+      put: axiosPut.mockResolvedValue('PUT_RES'),
+      delete: axiosDelete.mockResolvedValue('DEL_RES'),
+    };
     jest.clearAllMocks();
   });
 
-  test('mount: success fetch shows logs, next-step text, filters repos, and marks tab complete', async () => {
-    makeRequest.mockResolvedValueOnce(successPayload('success'));
-
-    const { setCompletedTabs } = renderSut();
-
-    // Logs component rendered with overall status
-    expect(await screen.findByTestId('provision-logs')).toHaveTextContent(/overall: success/i);
-
-    // "Next Step" guidance visible
-    expect(
-      screen.getByText(/Once GCP Project Task Validation is completed/i),
-    ).toBeInTheDocument();
-
-    // Repo filter invoked (we don't execute the updater fn here; we just ensure it's called)
-    await waitFor(() => expect(setProvisionData).toHaveBeenCalled());
-
-    // Tab marked as complete
-    await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
-  });
-
-  test('mount: failure fetch shows logs and displays Run Validation button', async () => {
-    makeRequest.mockResolvedValueOnce(successPayload('failure'));
-
-    renderSut();
-
-    expect(await screen.findByTestId('provision-logs')).toHaveTextContent(/overall: failure/i);
-    expect(
-      screen.getByRole('button', { name: /Run GCP Project Task Validation/i }),
-    ).toBeInTheDocument();
-  });
-
-  test('clicking Run Validation posts again, shows logs, hides button, and marks tab complete', async () => {
-    // First call → failure to show the button
-    makeRequest.mockResolvedValueOnce(successPayload('failure'));
-    // Second call → success after clicking button
-    makeRequest.mockResolvedValueOnce(successPayload('success'));
-
-    const { setCompletedTabs } = renderSut();
-
-    const runBtn = await screen.findByRole('button', {
-      name: /Run GCP Project Task Validation/i,
+  test('GET builds URL, merges headers, and passes axios options', async () => {
+    const req = baseReq({
+      method: 'GET',
+      headers: { 'X-Foo': 'bar' },
     });
-    fireEvent.click(runBtn);
 
-    // After POST success, logs show success and button hidden
-    expect(await screen.findByTestId('provision-logs')).toHaveTextContent(/overall: success/i);
-    expect(
-      screen.queryByRole('button', { name: /Run GCP Project Task Validation/i }),
-    ).toBeNull();
+    const res = await processHttpRequest(req, token, API);
 
-    await waitFor(() => expect(setCompletedTabs).toHaveBeenCalled());
+    expect(res).toBe('GET_RES');
+    expect(axiosGet).toHaveBeenCalledTimes(1);
+
+    const [url, options] = axiosGet.mock.calls[0];
+    expect(url).toBe(`${API}${req.endpoints}`);
+    expect(options.headers).toMatchObject({
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Foo': 'bar',
+    });
+    expect(options.withCredentials).toBe(true);
+    expect(options.timeout).toBe(120000);
+    expect(typeof options.validateStatus).toBe('function');
+    expect(options.validateStatus(500)).toBe(true); // function returns true per code
   });
 
-  test('request rejection is handled (no crash), spinner turns off and logs not shown', async () => {
-    // Reject on mount
-    makeRequest.mockRejectedValueOnce(new Error('network'));
+  test('POST forwards body and axios options', async () => {
+    const body = { a: 1 };
+    const req = baseReq({ method: 'POST', body });
 
-    renderSut();
+    const out = await processHttpRequest(req, token, API);
+    expect(out).toBe('POST_RES');
 
-    // Spinner gone and no logs present
-    await waitFor(() => {
-      expect(screen.queryByLabelText(/loading/i)).toBeNull();
-      expect(screen.queryByTestId('provision-logs')).toBeNull();
+    const [url, sentBody, options] = axiosPost.mock.calls[0];
+    expect(url).toBe(`${API}${req.endpoints}`);
+    expect(sentBody).toEqual(body);
+    expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+  });
+
+  test('PUT forwards body with merged headers & custom override', async () => {
+    const req = baseReq({
+      method: 'PUT',
+      body: { b: 2 },
+      headers: { 'Content-Type': 'application/merge-patch+json' }, // overrides default
     });
+
+    await processHttpRequest(req, token, API);
+
+    const [_url, _body, options] = axiosPut.mock.calls[0];
+    expect(options.headers['Content-Type']).toBe('application/merge-patch+json');
+    expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+  });
+
+  test('DELETE passes body in axios options.data with validateStatus=true', async () => {
+    const req = baseReq({ method: 'DELETE', body: { id: '42' } });
+
+    await processHttpRequest(req, token, API);
+
+    const [url, delOptions] = axiosDelete.mock.calls[0];
+    expect(url).toBe(`${API}${req.endpoints}`);
+    expect(delOptions.headers.Authorization).toBe(`Bearer ${token}`);
+    expect(delOptions.data).toEqual({ id: '42' });
+    expect(delOptions.validateStatus(418)).toBe(true);
+  });
+
+  test('DELETE with no body sends empty object in options.data', async () => {
+    const req = baseReq({ method: 'DELETE' });
+
+    await processHttpRequest(req, token, API);
+
+    const [_url, delOptions] = axiosDelete.mock.calls[0];
+    expect(delOptions.data).toEqual({});
+  });
+
+  test('respects responseType when provided', async () => {
+    const req = baseReq({ method: 'GET', responseType: 'blob' });
+
+    await processHttpRequest(req, token, API);
+
+    const [_url, options] = axiosGet.mock.calls[0];
+    expect(options.responseType).toBe('blob');
   });
 });
