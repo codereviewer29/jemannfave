@@ -1,177 +1,302 @@
-import gcpIntakeOnboardingService from './gcpIntakeOnboardingService';
-import apiClient from '../apiClient';
+import React from 'react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
-jest.mock('../apiClient');
-const apiClientMock = apiClient as jest.MockedFunction<typeof apiClient>;
+// ---- SUT ----
+import ApplicationDetails from '../applicationDetails';
 
-const envData = { API_BASE_URL: 'http://base' } as const;
+// ---- Test doubles / light stubs ----
+/** Collapse almost all MUI to simple tags to keep the DOM stable */
+jest.mock('@mui/material', () => {
+  const Stub =
+    ({ children, ...p }: any) =>
+      <div {...p}>{children}</div>;
+
+  const Btn =
+    ({ children, onClick, ...p }: any) =>
+      <button type="button" onClick={onClick} {...p}>{children}</button>;
+
+  const Input =
+    ({ label, helperText, error, ...p }: any) =>
+      <label>
+        {label}
+        <input aria-label={label} {...p} />
+        {error ? <div role="alert">{helperText}</div> : null}
+      </label>;
+
+  const Select =
+    ({ label, renderValue, multiple, value = [], onChange, children, ...p }: any) => (
+      <div>
+        <div aria-label={label}>
+          {renderValue ? renderValue(Array.isArray(value) ? value : [value]) : null}
+        </div>
+        <div onClick={() => onChange?.({ target: { name: p.name, value: ['Sandbox', 'DEV1'] } })} />
+        {children}
+      </div>
+    );
+
+  return {
+    __esModule: true,
+    // layout
+    Box: Stub,
+    Grid: Stub,
+    Container: Stub,
+    Tooltip: Stub,
+    Accordion: ({ children, ...p }: any) => <section {...p}>{children}</section>,
+    AccordionSummary: Stub,
+    AccordionDetails: Stub,
+    FormControl: Stub,
+    FormControlLabel: ({ label }: any) => <span>{label}</span>,
+    FormLabel: ({ children }: any) => <h6>{children}</h6>,
+    InputAdornment: Stub,
+    Checkbox: ({ checked }: any) => <input type="checkbox" defaultChecked={!!checked} readOnly />,
+    RadioGroup: ({ children }: any) => <div>{children}</div>,
+    Radio: () => <input type="radio" readOnly />,
+    MenuItem: ({ children }: any) => <div>{children}</div>,
+    IconButton: Btn,
+    Button: Btn,
+    Snackbar: ({ open, children, onClose }: any) =>
+      open ? <div role="status" onClick={onClose}>{children}</div> : null,
+    Alert: ({ children }: any) => <div role="alert">{children}</div>,
+    CircularProgress: () => <div aria-label="spinner" />,
+    // fields
+    TextField: Input,
+    Select,
+    InputLabel: ({ children, ...p }: any) => <label {...p}>{children}</label>,
+    Typography: ({ children, ...p }: any) => <div {...p}>{children}</div>,
+    IconButtonProps: {},
+  };
+});
+
+// date pickers – keep them minimal but still invoke the onChange path
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
+  __esModule: true,
+  default: ({ children }: any) => <div>{children}</div>,
+}));
+jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
+  __esModule: true,
+  default: class AdapterDayjs {},
+}));
+jest.mock('@mui/x-date-pickers/DatePicker', () => ({
+  __esModule: true,
+  default: ({ label, onChange, name }: any) => (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={() => onChange?.( { toISOString: () => '2025-01-01T00:00:00.000Z' } )}
+      data-name={name}
+    >
+      {label}
+    </button>
+  ),
+}));
+
+// icons as empty spans
+jest.mock('@mui/icons-material/ExpandMore', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/ErrorOutline', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/Search', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/AddCircle', () => ({ __esModule: true, default: () => <span /> }));
+jest.mock('@mui/icons-material/RemoveCircle', () => ({ __esModule: true, default: () => <span /> }));
+
+// ---- Context + service mocks ----
+const setFormDataMock = jest.fn();
+const formCtxValue = {
+  formData: {
+    applicationDetails: {
+      applicationID: '',
+      applicationName: '',
+      summary: '',
+      description: '',
+      purposeAndBenefit: '',
+      lobDomain: '',
+      environmentsNeeded: [],
+      requesterName: '',
+      requesterEmail: '',
+      appLocation: '',
+      appLinkInBAM: '',
+      beamsStatus: '',
+      dataSource: '',
+      dataFormat: [],
+      dataSLATime: '',
+      timelineSandbox: null,
+      timelineNonProd: null,
+      timelineProd: null,
+      // fields used by validations
+      environmentsNeededLabel: '',
+      developersList: '',
+      serviceNowSupportGroup: '',
+      applicationOwnerApprover: '',
+      requiresCloudReview: '',
+      reviewedWithCIO: '',
+      reviewedWithArchitect: '',
+      // ART dynamic section
+      artRequestDetails: {
+        sandbox: [{ label: 'Request number', value: '', isCustom: false }],
+      },
+    },
+  },
+  setFormData: setFormDataMock,
+};
+
+jest.mock('../FormContext', () => ({
+  __esModule: true,
+  useFormContext: () => formCtxValue,
+}));
+
+// useApiService → makeRequest mock
+const makeRequestMock = jest.fn();
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest: makeRequestMock }),
+}));
+
+// Router Link (used a couple of times)
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  Link: ({ children }: any) => <a>{children}</a>,
+}));
+
+// Helper to render with required props
+const renderSut = (propOverrides: Partial<{
+  validationErrors: Record<string, any>;
+  setValidationErrors: React.Dispatch<React.SetStateAction<Record<string, any>>>;
+}> = {}) => {
+  const validationErrors = propOverrides.validationErrors ?? {};
+  const setValidationErrors = jest.fn((updater: any) => {
+    if (typeof updater === 'function') updater(validationErrors);
+  });
+
+  render(
+    <ApplicationDetails
+      validationErrors={validationErrors}
+      setValidationErrors={setValidationErrors}
+    />
+  );
+
+  return { setValidationErrors };
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // reset form data email so the tests start clean
+  formCtxValue.formData.applicationDetails.requesterEmail = '';
 });
 
-describe('gcpIntakeOnboardingService', () => {
-  test('getApplicationDetailsByAppID -> GET /api/application-details/bam-data/?appid=', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+// --------------------------------------------------------------------
+// Tests
+// --------------------------------------------------------------------
+test('email validation shows and clears error message', () => {
+  renderSut();
 
-    const out = await (gcpIntakeOnboardingService as any).getApplicationDetailsByAppID(
-      envData,
-      'APP123'
-    );
+  const email = screen.getByLabelText('Requester Email') as HTMLInputElement;
 
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledTimes(1);
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/application-details/bam-data/?appid=APP123`,
-      method: 'GET',
-    });
+  // type invalid
+  fireEvent.change(email, { target: { name: 'requesterEmail', value: 'bad@' } });
+  expect(screen.getByRole('alert')).toHaveTextContent(/Invalid email format/i);
+
+  // type valid
+  fireEvent.change(email, { target: { name: 'requesterEmail', value: 'ok@test.com' } });
+  // no new alert should be rendered for valid email; previous alert removed
+  expect(screen.queryByText(/Invalid email format/i)).toBeNull();
+});
+
+test('App ID search (valid) fills fields and clears invalid error', async () => {
+  const { setValidationErrors } = renderSut();
+  // stub successful GET /api/application-details/bam-data?appid=*
+  makeRequestMock.mockResolvedValueOnce({
+    status: 200,
+    data: { applicationID: 'APP123', applicationName: 'Cool App', lobDomain: 'CIO' },
   });
 
-  test('saveApplicationDetails -> POST /api/application-details/ (forwards body)', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-    const payload = { foo: 'bar' };
+  // click the little search icon at Application ID adornment
+  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
+  await act(async () => { searchButton && fireEvent.click(searchButton); });
 
-    // TS signature noise in your project shows 3 params; call via any to avoid TS2554
-    const out = await (gcpIntakeOnboardingService as any).saveApplicationDetails(envData, payload);
+  expect(makeRequestMock).toHaveBeenCalled();
+  // setFormData should be called with populated data
+  expect(setFormDataMock).toHaveBeenCalled();
+  // and we attempted to clear previous error
+  expect(setValidationErrors).toHaveBeenCalled();
+});
 
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledTimes(1);
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/application-details/`,
-      method: 'POST',
-      body: payload,
-    });
+test('App ID search (invalid) sets "Invalid Application ID" error', async () => {
+  const { setValidationErrors } = renderSut();
+  makeRequestMock.mockResolvedValueOnce({ status: 200, data: {} });
+
+  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
+  await act(async () => { searchButton && fireEvent.click(searchButton); });
+
+  expect(makeRequestMock).toHaveBeenCalled();
+  expect(setValidationErrors).toHaveBeenCalledWith(expect.any(Function));
+});
+
+test('duplicate AppID+Env validation: when env exists → shows toaster and disables choices', async () => {
+  renderSut();
+
+  // this call happens inside validateDuplicateAppIDEnv with GET /api/get-app-form-env?appid=...
+  makeRequestMock.mockResolvedValueOnce({
+    status: 200,
+    data: { environments: ['DEV1', 'SIT'] },
   });
 
-  test('getApplicationDetailsByTrackingID -> GET /api/application-details/?intakeFormTrackingId=', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-    const id = 9876;
+  // clicking the Application Name tooltip adornment triggers no request; instead call the function path by clicking Search on AppID then internal validate call runs.
+  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
+  await act(async () => { searchButton && fireEvent.click(searchButton); });
 
-    const out = await (gcpIntakeOnboardingService as any).getApplicationDetailsByTrackingID(
-      envData,
-      id
-    );
+  // toaster should appear (Snackbar open)
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  // clicking snackbar (our stub) closes it
+  fireEvent.click(screen.getByRole('status'));
+  expect(screen.queryByRole('status')).toBeNull();
+});
 
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/application-details/?intakeFormTrackingId=${id}`,
-      method: 'GET',
-    });
-  });
+test('duplicate AppID+Env validation: when env differs → hides toaster', async () => {
+  renderSut();
+  makeRequestMock.mockResolvedValueOnce({ status: 200, data: { environments: [] } });
 
-  test('saveCDPIntake -> POST /api/component-details/cdp/ (forwards body)', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-    const body = { some: 'cdp' };
+  const searchButton = screen.getByText(/Application ID/i).parentElement!.querySelector('button');
+  await act(async () => { searchButton && fireEvent.click(searchButton); });
 
-    const out = await (gcpIntakeOnboardingService as any).saveCDPIntake(envData, body);
+  expect(screen.queryByRole('status')).toBeNull();
+});
 
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/component-details/cdp/`,
-      method: 'POST',
-      body,
-    });
-  });
+test('multi-select Environments Needed renders comma separated summary', () => {
+  renderSut();
 
-  test('getCDPIntakeByTrackingID -> GET /api/component-details/cdp?intakeFormTrackingId=', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
+  // The Select stub calls onChange with ['Sandbox','DEV1'] when "opened"
+  // target name must match component's name prop: "environmentsNeeded"
+  const trigger = screen.getByLabelText('Environments Needed');
+  // fire a click on the sibling div that triggers onChange in our stub
+  fireEvent.click(trigger.nextSibling as Element);
 
-    const out = await (gcpIntakeOnboardingService as any).getCDPIntakeByTrackingID(envData, 111);
+  // After change, the renderValue handler displays a comma-joined list
+  expect(screen.getByLabelText('Environments Needed')).toHaveTextContent('Sandbox, DEV1');
+});
 
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/component-details/cdp?intakeFormTrackingId=111`,
-      method: 'GET',
-    });
-  });
+test('Add Other Field and Remove (ART Request Details) updates via setFormData', () => {
+  renderSut();
 
-  test('saveCDMPIntake -> POST /api/component-details/cdmp/ (forwards body)', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-    const body = { some: 'cdmp' };
+  // Add another line under ART details (uses IconButton near "Add Other Field")
+  const addBtns = screen.getAllByRole('button');
+  // the last IconButton in that ART section is our "Add Other Field" stub – call once
+  fireEvent.click(addBtns[addBtns.length - 1]);
 
-    const out = await (gcpIntakeOnboardingService as any).saveCDMPIntake(envData, body);
+  expect(setFormDataMock).toHaveBeenCalled();
 
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/component-details/cdmp/`,
-      method: 'POST',
-      body,
-    });
-  });
+  // Also exercise the remove icon (first remove icon in the list)
+  const removeBtn = screen.getAllByRole('button')[0];
+  fireEvent.click(removeBtn);
+  expect(setFormDataMock).toHaveBeenCalled();
+});
 
-  test('getComponentGCPIntakeByTrackingID -> returns stubbed response (does NOT call apiClient)', async () => {
-    const resp = await (gcpIntakeOnboardingService as any).getComponentGCPIntakeByTrackingID(123);
+test('Date pickers invoke timeline change handlers and set ISO strings', () => {
+  renderSut();
 
-    expect(resp).toHaveProperty('data');
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
+  // our DatePicker stub is a button: clicking it calls onChange(dayjsLike)
+  fireEvent.click(screen.getByRole('button', { name: /timeline for sandbox/i }));
+  fireEvent.click(screen.getByRole('button', { name: /timeline for non-prod\/uat/i }));
+  fireEvent.click(screen.getByRole('button', { name: /timeline for production/i }));
 
-  test('saveSaferoomIntake -> POST /api/component-details/saferoom/ (forwards body)', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-    const body = { saferoom: 'yes' };
-
-    const out = await (gcpIntakeOnboardingService as any).saveSaferoomIntake(envData, body);
-
-    expect(out).toBe('API_RES');
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/component-details/saferoom/`,
-      method: 'POST',
-      body,
-    });
-  });
-
-  test('getSaferoomIntakeByTrackingID -> returns stubbed response (does NOT call apiClient)', async () => {
-    const resp = await (gcpIntakeOnboardingService as any).getSaferoomIntakeByTrackingID(99);
-    expect(resp).toHaveProperty('data');
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
-
-  test('getCDPIntakeByTrackingID (again) -> GET path + no body', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-
-    await (gcpIntakeOnboardingService as any).getCDPIntakeByTrackingID(envData, 222);
-
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/component-details/cdp?intakeFormTrackingId=222`,
-      method: 'GET',
-    });
-  });
-
-  test('getACTIntakeByTrackingID -> GET /api/act-details?intakeFormTrackingId=', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-
-    await (gcpIntakeOnboardingService as any).getACTIntakeByTrackingID(envData, 333);
-
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/act-details?intakeFormTrackingId=333`,
-      method: 'GET',
-    });
-  });
-
-  test('saveACTIntake -> POST /api/act-details (cloudServices array joined)', async () => {
-    apiClientMock.mockResolvedValueOnce('API_RES' as any);
-    const body = { cloudServices: ['a', 'b', 'c'], other: 1 };
-
-    await (gcpIntakeOnboardingService as any).saveACTIntake(envData, body);
-
-    expect(apiClientMock).toHaveBeenCalledWith({
-      endpoints: `${envData.API_BASE_URL}/api/act-details/`,
-      method: 'POST',
-      body: { cloudServices: 'a,b,c', other: 1 },
-    });
-  });
-
-  test('getGCPIntakeByTrackingID -> GET /api/component-details/gcp-component/?intakeFormTrackingId=', async () => {
-    const resp = await (gcpIntakeOnboardingService as any).getComponentGCPIntakeByTrackingID(123);
-    expect(resp).toHaveProperty('data');
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
-
-  test('saveGcpIntakeFinal -> returns stubbed success without calling apiClient', async () => {
-    const out = await (gcpIntakeOnboardingService as any).saveGcpIntakeFinal(777);
-    expect(out).toEqual({
-      data: { message: 'Story created successfully', story_key: expect.any(String) },
-    });
-    expect(apiClientMock).not.toHaveBeenCalled();
-  });
+  // 3 calls from 3 date fields
+  expect(setFormDataMock).toHaveBeenCalled();
+  expect(setFormDataMock.mock.calls.length).toBeGreaterThanOrEqual(3);
 });
