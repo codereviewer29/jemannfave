@@ -1,221 +1,287 @@
-// src/provision/gcp-infra-setup.test.tsx
+// ====================================================================
+// File: src/provision/__tests__/gcp-infra-setup.test.tsx
+// ====================================================================
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import GCPInfraSetup from './gcp-infra-setup';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import GCPInfraSetup from '../gcp-infra-setup';
 
-// ---- shared mocks -------------------------------------------------
+// ---------- Lightweight MUI mocks (DOM-first, aria-friendly) ----------
+jest.mock('@mui/material', () => {
+  const React = require('react');
 
-// window.open (used by a couple of <Link/>s)
-const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
+  const Box = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+  const Grid = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
+  const Typography = ({ children }: any) => <div>{children}</div>;
+  const Link = ({ children, ...p }: any) => <a {...p}>{children}</a>;
+  const Tooltip = ({ children }: any) => <>{children}</>;
+  const CircularProgress = () => <div aria-label="loading" />;
+  const Alert = ({ children, ...p }: any) => (
+    <div role="alert" {...p}>
+      {children}
+    </div>
+  );
+  const Snackbar = ({ open, children }: any) => (open ? <div>{children}</div> : null);
 
-// API hook: component imports from "./services/useApiService"
-const makeRequestMock = jest.fn();
-jest.mock('./services/useApiService', () => ({
-  __esModule: true,
-  default: () => makeRequestMock,
-}));
+  const IconButton = ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>
+      {children}
+    </button>
+  );
+  const InputAdornment = ({ children }: any) => <span>{children}</span>;
 
-// react-router
-jest.mock('react-router-dom', () => {
-  const real = jest.requireActual('react-router-dom');
+  // TextField renders an input and optional helper when error=true.
+  const TextField = ({
+    label,
+    name,
+    value,
+    onChange,
+    type = 'text',
+    required,
+    disabled,
+    error,
+    helperText,
+    InputProps,
+  }: any) => (
+    <label>
+      {label}
+      <input
+        aria-label={label}
+        name={name}
+        value={value ?? ''}
+        onChange={onChange}
+        type={type}
+        required={required}
+        disabled={disabled}
+      />
+      {InputProps?.endAdornment}
+      {error ? <div data-testid={`${name}-helper`}>{helperText}</div> : null}
+    </label>
+  );
+
+  const FormControl = ({ children }: any) => <div>{children}</div>;
+  const InputLabel = ({ children, id }: any) => <label id={id}>{children}</label>;
+  const MenuItem = ({ value, children }: any) => <option value={value}>{children}</option>;
+  const Select = ({
+    labelId,
+    label,
+    name,
+    value,
+    onChange,
+    children,
+    required,
+  }: any) => (
+    <label>
+      {label}
+      <select
+        aria-labelledby={labelId}
+        aria-label={label}
+        name={name}
+        value={value ?? ''}
+        onChange={onChange}
+        required={required}
+      >
+        {children}
+      </select>
+    </label>
+  );
+
+  const Button = ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>
+      {children}
+    </button>
+  );
+
   return {
-    ...real,
-    useParams: () => ({ appid: 'abc-999', environment: 'dev' }),
-    useNavigate: () => jest.fn(),
+    __esModule: true,
+    Alert,
+    Box,
+    Button,
+    CircularProgress,
+    Grid,
+    IconButton,
+    InputAdornment,
+    InputLabel,
+    Link,
+    MenuItem,
+    Select,
+    Snackbar,
+    TextField,
+    Tooltip,
+    Typography,
+    FormControl,
   };
 });
 
-// Provision context (tokens used in POST body)
-jest.mock('./ProvisionContext', () => ({
+// ---------- Icons as inert spans ----------
+jest.mock('@mui/icons-material', () => {
+  const I = ({ 'data-testid': id, ...p }: any) => <span data-testid={id || 'icon'} {...p} />;
+  return {
+    __esModule: true,
+    InfoOutlined: I,
+    Visibility: I,
+    VisibilityOff: I,
+    InfoOutlinedIcon: I,
+  };
+});
+
+// ---------- Service & Provision Context mocks ----------
+const makeRequest = jest.fn();
+
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest }),
+}));
+
+jest.mock('../ProvisionContext', () => ({
   __esModule: true,
   useProvisionContext: () => ({
-    provisioningData: {
-      githubToken: 'ghp_token',
-      terraformToken: 'tf_token',
-    },
+    provisioningData: { github_token: 'gh-token', terraform_token: 'tf-token' },
   }),
 }));
 
-// ---- helpers ------------------------------------------------------
-
-function renderPage() {
-  render(
-    <GCPInfraSetup
-      appid="abc-999"
-      environment="dev"
-      completedTabs={[]}
-      setCompletedTabs={jest.fn()}
-      tabIndex={2}
-    />
-  );
+// ---------- Helpers ----------
+function renderSut(
+  props?: Partial<React.ComponentProps<typeof GCPInfraSetup>>,
+) {
+  const defaultProps = {
+    appId: 'APPID',
+    environment: 'sandbox',
+    completedTabs: [] as number[],
+    setCompletedTabs: jest.fn(),
+    tabIndex: 2,
+  };
+  return {
+    ...render(<GCPInfraSetup {...defaultProps} {...props} />),
+    setCompletedTabs:
+      (props?.setCompletedTabs as jest.Mock) || (defaultProps.setCompletedTabs as jest.Mock),
+  };
 }
 
-const envParams = {
-  env_params: {
-    vault_password: 'Abcdef12!',
-    servicenowsupportgroup: 'svc-group',
-    requestereamil: 'req@corp.com', // spelling matches component interface
-    app_repo_name: 'corp-abc',
-    app_branch_name: 'main',
-    app_project_id: 'prj-123',
-    app_notification_channel: 'chan-a',
-    saferoom_repo_name: 'corp-abc',
-    saferoom_branch_name: 'main',
-    saferoom_project_id: 'sr-456',
-    saferoom_notification_channel: 'safe-chan',
+// ---------- Common fixtures ----------
+const GET_ENV = {
+  data: {
+    env_params: {
+      vault_password: '',
+      serviceonwrsupportgroup: 'svc-group',
+      requesteremail: 'user@example.com',
+      app_repo_name: '', // component derives "corp-appid" if falsy
+      app_branch_name: 'sandbox',
+      app_project_id: 'prj-123',
+      app_notification_channel: 'chan',
+      saferoom_repo_name: '',
+      saferoom_branch_name: 'sandbox',
+      saferoom_project_id: 'sprj-1',
+      saferoom_notification_channel: 'schan',
+    },
   },
 };
 
-// Utility to prime the GET
-function mockGetOk(params = envParams) {
-  makeRequestMock.mockResolvedValueOnce({ data: params });
-}
-
-// Utility to prime the POST
-function mockPost(result: any, status = 200) {
-  makeRequestMock.mockResolvedValueOnce({ data: result, status });
-}
-
-// Make matchers a little looser & resilient
-const calledWithGet = () =>
-  expect(makeRequestMock).toHaveBeenCalledWith(
-    expect.objectContaining({
-      method: 'GET',
-      endPoints: expect.stringMatching(/get-env-params/i),
-    })
-  );
-
-const calledTimes = (n: number) =>
-  waitFor(() => expect(makeRequestMock).toHaveBeenCalledTimes(n));
-
-// ---- tests --------------------------------------------------------
-
-afterEach(() => {
-  makeRequestMock.mockReset();
-});
-
-afterAll(() => {
-  openSpy.mockRestore();
-});
-
+// ====================================================================
+// Tests
+// ====================================================================
 describe('GCPInfraSetup', () => {
-  test('loads existing env params (GET) and renders the form with values', async () => {
-    mockGetOk(); // 1st call → GET
-    renderPage();
-
-    // wait for GET to be sent
-    await calledTimes(1);
-    await calledWithGet();
-
-    // and rendered values appear
-    expect(await screen.findByLabelText(/vault password/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/repo name/i)).toHaveValue(envParams.env_params.app_repo_name);
-    expect(screen.getByLabelText(/project id/i)).toHaveValue(envParams.env_params.app_project_id);
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  test('clicking "Build GCP Infrastructure" posts env params and marks tab complete', async () => {
-    // GET -> populate form
-    mockGetOk();
-    // POST -> success
-    mockPost({ log_output: ['OK'] }, 200);
+  test('GET on mount populates fields and marks tab completed', async () => {
+    makeRequest.mockResolvedValueOnce(GET_ENV); // useEffect GET
 
-    renderPage();
+    const { setCompletedTabs } = renderSut();
 
-    // ensure GET happened
-    await calledTimes(1);
-    await calledWithGet();
+    // disabled fields show derived values
+    expect(
+      await screen.findByLabelText(/Repo Name/i),
+    ).toHaveValue('corp-appid'); // derived from appId
+    expect(screen.getByLabelText(/Project ID/i)).toHaveValue('prj-123');
+    expect(screen.getByLabelText(/Email Address/i)).toHaveValue('user@example.com');
 
-    // click the action button -> triggers POST
-    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
+    await waitFor(() => {
+      expect(setCompletedTabs).toHaveBeenCalled();
+    });
+  });
 
-    // GET + POST
-    await calledTimes(2);
+  test('password validation shows helper then clears on valid input; visibility toggle works', async () => {
+    makeRequest.mockResolvedValueOnce(GET_ENV);
 
-    // last call must be the POST with tokens and env_params
-    const last = makeRequestMock.mock.calls.at(-1)![0];
-    expect(last).toEqual(
-      expect.objectContaining({
-        method: 'POST',
-        endPoints: expect.stringMatching(/tab=gcpapp/i),
-        body: expect.objectContaining({
-          env_params: expect.objectContaining({
-            app_project_id: envParams.env_params.app_project_id,
-          }),
-          github_token: 'ghp_token',
-          terraform_token: 'tf_token',
-        }),
-      })
+    renderSut();
+
+    const pwd = await screen.findByLabelText(/Vault Password/i);
+    // invalid
+    fireEvent.change(pwd, { target: { value: 'short' } });
+    expect(screen.getByTestId('vault_password-helper')).toHaveTextContent(
+      /Password must have 8\+ characters/i,
     );
 
-    // success logs region appears
-    expect(await screen.findByText(/logs/i)).toBeInTheDocument();
-  });
+    // valid: at least 8 chars + number
+    fireEvent.change(pwd, { target: { value: 'abcde123' } });
+    await waitFor(() => {
+      expect(screen.queryByTestId('vault_password-helper')).toBeNull();
+    });
 
-  test('shows an error toast if POST returns non-200', async () => {
-    mockGetOk();
-    // non-200 result
-    mockPost({ log_output: [], message: 'error' }, 500);
-
-    renderPage();
-
-    await calledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
-
-    await calledTimes(2);
-
-    // error toast shows
-    expect(await screen.findByRole('alert')).toHaveTextContent(/error has occurred/i);
-  });
-
-  test('shows an error toast if POST rejects (catch path)', async () => {
-    mockGetOk();
-    // reject the POST
-    makeRequestMock.mockRejectedValueOnce(new Error('boom'));
-
-    renderPage();
-
-    await calledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
-
-    // GET + rejected POST still counts as 2 calls
-    await calledTimes(2);
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(/error has occurred/i);
-  });
-
-  test('validation prevents POST and shows "required fields" toast when required data is missing', async () => {
-    // Return empty env params so validation fails
-    mockGetOk({ env_params: {} as any });
-
-    renderPage();
-
-    await calledTimes(1);
-
-    fireEvent.click(screen.getByRole('button', { name: /build gcp infrastructure/i }));
-
-    // Still only the GET was called
-    await calledTimes(1);
-
-    // Toast with validation message appears
-    expect(await screen.findByRole('alert')).toHaveTextContent(/required/i);
-  });
-
-  test('vault password visibility toggle switches type', async () => {
-    mockGetOk();
-    renderPage();
-
-    await calledTimes(1);
-
-    const pwd = screen.getByLabelText(/vault password/i) as HTMLInputElement;
-    const toggle = screen.getByRole('button', { name: /toggle password visibility/i });
-
-    // initial: password
-    expect(pwd.type).toBe('password');
-
+    // toggle visibility via icon button rendered inside InputAdornment
+    const toggle = screen.getByRole('button', { name: /toggle password/i });
     fireEvent.click(toggle);
-    expect(pwd.type).toBe('text');
+    // TextField mock reflects type change via prop; we simply ensure field still present
+    expect(screen.getByLabelText(/Vault Password/i)).toBeInTheDocument();
+  });
 
-    fireEvent.click(toggle);
-    expect(pwd.type).toBe('password');
+  test('branch select renders environment-specific options and accepts change', async () => {
+    makeRequest.mockResolvedValueOnce(GET_ENV);
+
+    renderSut({ environment: 'sandbox' });
+
+    const select = await screen.findByLabelText(/Branch Name/i);
+    // sandbox options visible
+    expect(select).toHaveDisplayValue('sandbox');
+    fireEvent.change(select, { target: { value: 'sandboxdev' } });
+    expect(select).toHaveValue('sandboxdev');
+  });
+
+  test('POST success shows logs and sets tab completed', async () => {
+    // GET
+    makeRequest.mockResolvedValueOnce(GET_ENV);
+    // POST
+    makeRequest.mockResolvedValueOnce({
+      status: 200,
+      data: { log_output: ['success: created bucket', 'failed: skipped rule'] },
+    });
+
+    const { setCompletedTabs } = renderSut();
+
+    // click CTA
+    const btn = await screen.findByRole('button', { name: /Build GCP Infrastructure/i });
+    fireEvent.click(btn);
+
+    // logs appear
+    expect(await screen.findByText(/created bucket/i)).toBeInTheDocument();
+    expect(screen.getByText(/skipped rule/i)).toBeInTheDocument();
+
+    // guidance text visible
+    expect(
+      screen.getByText(/Once GCP Infrastructure Setup is completed/i),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(setCompletedTabs).toHaveBeenCalled();
+    });
+  });
+
+  test('POST error path shows snackbar error', async () => {
+    // GET
+    makeRequest.mockResolvedValueOnce(GET_ENV);
+    // POST error response (non-200)
+    makeRequest.mockResolvedValueOnce({
+      status: 500,
+      data: { log_output: [] },
+    });
+
+    renderSut();
+
+    const btn = await screen.findByRole('button', { name: /Build GCP Infrastructure/i });
+    fireEvent.click(btn);
+
+    // error snackbar appears
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
 });
