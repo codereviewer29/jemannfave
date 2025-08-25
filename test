@@ -1,7 +1,26 @@
-// mock react-router-dom's Link so we don't need a Router in unit tests
-jest.mock('react-router-dom', () => ({
+// --- stub MUI X date pickers correctly (named + default) ---
+jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
   __esModule: true,
-  // keep anything else your app might import (Navigate, useNavigate, etc.)
-  ...jest.requireActual('react-router-dom'),
-  Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+  default: ({ children }: any) => <>{children}</>,
 }));
+
+jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
+  __esModule: true,
+  default: function AdapterDayjs() {},
+}));
+
+jest.mock('@mui/x-date-pickers/DatePicker', () => {
+  const DatePicker = ({ label, value, onChange, name, slotProps }: any) => (
+    <input
+      aria-label={label || name}
+      value={value ?? ''}
+      onChange={(e) => onChange?.(e.target.value)}
+      {...(slotProps?.textField ?? {})}
+    />
+  );
+  return {
+    __esModule: true,
+    DatePicker,       // named export (what your component imports)
+    default: DatePicker, // default too, for safety
+  };
+});
