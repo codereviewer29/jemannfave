@@ -1,123 +1,137 @@
 // ====================================================================
-// File: src/services/processHttp.test.ts
+// File: src/home/__tests__/Home.test.tsx
 // ====================================================================
-import { processHttpRequest } from './processHttp';
-import type { HttpRequest } from './types';
+import React from 'react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import Home from '../Home';
 
-// ---- axios mock ----
-const axiosGet = jest.fn();
-const axiosPost = jest.fn();
-const axiosPut = jest.fn();
-const axiosDelete = jest.fn();
-
-jest.mock('axios', () => ({
+// ---- Minimal, DOM-first MUI mocks (why: deterministic & fast) ----
+jest.mock('@mui/material/Box', () => ({
   __esModule: true,
-  default: {
-    get: (...args: any[]) => (global as any).__ax.get(...args),
-    post: (...args: any[]) => (global as any).__ax.post(...args),
-    put: (...args: any[]) => (global as any).__ax.put(...args),
-    delete: (...args: any[]) => (global as any).__ax.delete(...args),
-  },
+  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+}));
+jest.mock('@mui/material/Typography', () => ({
+  __esModule: true,
+  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+}));
+jest.mock('@mui/material/Card', () => ({
+  __esModule: true,
+  default: ({ children, ...rest }: any) => <div role="article" {...rest}>{children}</div>,
+}));
+jest.mock('@mui/material/CardContent', () => ({
+  __esModule: true,
+  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+}));
+jest.mock('@mui/material/CardActionArea', () => ({
+  __esModule: true,
+  default: ({ children, onClick, ...rest }: any) => (
+    <button type="button" onClick={onClick} {...rest}>
+      {children}
+    </button>
+  ),
+}));
+jest.mock('@mui/material/Container', () => ({
+  __esModule: true,
+  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+}));
+jest.mock('@mui/material/Grid', () => ({
+  __esModule: true,
+  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
 }));
 
-const API = 'https://api.example.com';
-const token = 'tok123';
+// Toolpad PageContainer
+jest.mock('@toolpad/core/PageContainer', () => ({
+  __esModule: true,
+  default: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
+}));
 
-// Fully typed factory: include responseType to satisfy HttpRequest
-const baseReq = (over: Partial<HttpRequest> = {}): HttpRequest => ({
-  method: 'GET',                         // 'GET' | 'POST' | 'PUT' | 'DELETE'
-  endpoints: '/v1/resource',
-  body: undefined,
-  headers: undefined,
-  responseType: undefined as any,        // explicitly present (can be undefined)
-  ...over,
-});
+// ---- Router, Config & Services ----
+const navigateMock = jest.fn();
+jest.mock('react-router-dom', () => ({
+  __esModule: true,
+  useNavigate: () => navigateMock,
+  Link: ({ children, ...p }: any) => <a {...p}>{children}</a>,
+}));
 
-describe('processHttpRequest', () => {
+jest.mock('@wf/react-library', () => ({
+  __esModule: true,
+  useConfig: () => ({ env: 'test' }),
+}));
+
+jest.mock('../../services/useApiService', () => ({
+  __esModule: true,
+  default: () => ({ makeRequest: jest.fn() }),
+}));
+
+jest.mock('../CustomNavigation', () => ({
+  __esModule: true,
+  default: () => <nav data-testid="custom-nav">nav</nav>,
+}));
+
+// ---- Helpers ----
+const getCard = (title: RegExp) =>
+  screen.getByRole('button', { name: title });
+
+// ====================================================================
+// Tests
+// ====================================================================
+describe('Home', () => {
   beforeEach(() => {
-    (global as any).__ax = {
-      get: axiosGet.mockResolvedValue('GET_RES'),
-      post: axiosPost.mockResolvedValue('POST_RES'),
-      put: axiosPut.mockResolvedValue('PUT_RES'),
-      delete: axiosDelete.mockResolvedValue('DEL_RES'),
-    };
     jest.clearAllMocks();
   });
 
-  test('GET builds URL, merges headers, and passes axios options', async () => {
-    const req = baseReq({ method: 'GET', headers: { 'X-Foo': 'bar' } });
+  test('renders intro content and all cards', () => {
+    render(<Home />);
 
-    const res = await processHttpRequest(req, token, API);
-    expect(res).toBe('GET_RES');
-    expect(axiosGet).toHaveBeenCalledTimes(1);
+    // Intro text snippets
+    expect(
+      screen.getByText(/Welcome to the GCP Tenant Environment Provisioning homepage/i),
+    ).toBeInTheDocument();
 
-    const [url, options] = axiosGet.mock.calls[0];
-    expect(url).toBe(`${API}${req.endpoints}`);
-    expect(options.headers).toMatchObject({
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'X-Foo': 'bar',
-    });
-    expect(options.withCredentials).toBe(true);
-    expect(options.timeout).toBe(120000);
-    expect(typeof options.validateStatus).toBe('function');
-    expect(options.validateStatus(500)).toBe(true);
+    // 3 cards (titles + descriptions)
+    expect(screen.getByText(/Launch Your Journey in GCP/i)).toBeInTheDocument();
+    expect(screen.getByText(/GCP Environment Provision Request/i)).toBeInTheDocument();
+
+    expect(screen.getByText(/GCP Environment Provisioning/i)).toBeInTheDocument();
+    expect(screen.getByText(/Provision GCP Infrastructure/i)).toBeInTheDocument();
+
+    expect(screen.getByText(/Environment Build Inventory/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Explore details of environment build inventory/i),
+    ).toBeInTheDocument();
+
+    // Images with alt="icon" (one per card)
+    expect(screen.getAllByAltText('icon')).toHaveLength(3);
+
+    // Custom nav present
+    expect(screen.getByTestId('custom-nav')).toBeInTheDocument();
   });
 
-  test('POST forwards body and axios options', async () => {
-    const body = { a: 1 };
-    const req = baseReq({ method: 'POST', body });
+  test('navigates to /gcpOnboarding when first card is clicked and sets data-active', () => {
+    render(<Home />);
 
-    const out = await processHttpRequest(req, token, API);
-    expect(out).toBe('POST_RES');
+    const card1 = getCard(/Launch Your Journey in GCP/i);
+    fireEvent.click(card1);
 
-    const [url, sentBody, options] = axiosPost.mock.calls[0];
-    expect(url).toBe(`${API}${req.endpoints}`);
-    expect(sentBody).toEqual(body);
-    expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding');
+    expect(card1).toHaveAttribute('data-active', ''); // presence indicates selected
   });
 
-  test('PUT forwards body with merged/overridden headers', async () => {
-    const req = baseReq({
-      method: 'PUT',
-      body: { b: 2 },
-      headers: { 'Content-Type': 'application/merge-patch+json' },
-    });
+  test('navigates to /provision when second card is clicked', () => {
+    render(<Home />);
 
-    await processHttpRequest(req, token, API);
+    const card2 = getCard(/GCP Environment Provisioning/i);
+    fireEvent.click(card2);
 
-    const [_url, _body, options] = axiosPut.mock.calls[0];
-    expect(options.headers['Content-Type']).toBe('application/merge-patch+json');
-    expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+    expect(navigateMock).toHaveBeenCalledWith('/provision');
   });
 
-  test('DELETE passes body in options.data and validateStatus always true', async () => {
-    const req = baseReq({ method: 'DELETE', body: { id: '42' } });
+  test('navigates to /inventory-dashboard when third card is clicked', () => {
+    render(<Home />);
 
-    await processHttpRequest(req, token, API);
+    const card3 = getCard(/Environment Build Inventory/i);
+    fireEvent.click(card3);
 
-    const [url, delOptions] = axiosDelete.mock.calls[0];
-    expect(url).toBe(`${API}${req.endpoints}`);
-    expect(delOptions.headers.Authorization).toBe(`Bearer ${token}`);
-    expect(delOptions.data).toEqual({ id: '42' });
-    expect(delOptions.validateStatus(418)).toBe(true);
-  });
-
-  test('DELETE with no body sends {} in options.data', async () => {
-    const req = baseReq({ method: 'DELETE' });
-
-    await processHttpRequest(req, token, API);
-
-    const [_url, delOptions] = axiosDelete.mock.calls[0];
-    expect(delOptions.data).toEqual({});
-  });
-
-  test('respects responseType when provided', async () => {
-    const req = baseReq({ method: 'GET', responseType: 'blob' as any });
-
-    await processHttpRequest(req, token, API);
-
-    const [_url, options] = axiosGet.mock.calls[0];
-    expect(options.responseType).toBe('blob');
+    expect(navigateMock).toHaveBeenCalledWith('/inventory-dashboard');
   });
 });
