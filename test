@@ -1,105 +1,142 @@
 // ====================================================================
-// File: src/home/Home.test.tsx
+// File: src/home/CustomNavigation.test.tsx
 // ====================================================================
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import Home from './Home';
+import CustomNavigation from './CustomNavigation';
 
-// ---- Only mock the pieces we actually need ----
+// --- Router spy: capture programmatic navigation ---
 const navigateMock = jest.fn();
 jest.mock('react-router-dom', () => {
   const actual = jest.requireActual('react-router-dom');
   return {
     __esModule: true,
     ...actual,
-    useNavigate: () => navigateMock, // spy navigation
-    Link: ({ children, ...p }: any) => <a {...p}>{children}</a>, // simple anchor
+    useNavigate: () => navigateMock,
   };
 });
 
-jest.mock('@wf/react-library', () => ({
-  __esModule: true,
-  useConfig: () => ({ env: 'test' }),
-}));
+const renderAt = (path: string) =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <CustomNavigation />
+    </MemoryRouter>,
+  );
 
-jest.mock('../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest: jest.fn() }),
-}));
+const getLink = (label: RegExp) =>
+  screen.getByRole('link', { name: label });
 
-jest.mock('./CustomNavigation', () => ({
-  __esModule: true,
-  default: () => <nav data-testid="custom-nav">nav</nav>,
-}));
-
-function renderWithRouter(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
-}
-
-const getCardBtn = (title: RegExp) =>
-  // CardActionArea renders as a button (role="button")
-  screen.getByRole('button', { name: title });
-
-describe('Home', () => {
+// ====================================================================
+// Tests
+// ====================================================================
+describe('CustomNavigation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  test('renders intro content and all cards', () => {
-    renderWithRouter(<Home />);
+  test('home route shows only Home link and marks it active', () => {
+    renderAt('/home');
 
-    // intro
-    expect(
-      screen.getByText(/Welcome to the GCP Tenant Environment Provisioning homepage/i),
-    ).toBeInTheDocument();
+    const home = getLink(/home/i);
+    expect(home).toBeInTheDocument();
+    expect(home).toHaveClass('nav-link');
+    expect(home).toHaveClass('nav-link-active');
 
-    // titles + descriptions
-    expect(screen.getByText(/Launch Your Journey in GCP/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/GCP Environment Provision Request/i),
-    ).toBeInTheDocument();
+    // only one link for /home mapping
+    expect(screen.getAllByRole('link')).toHaveLength(1);
 
-    expect(screen.getByText(/GCP Environment Provisioning/i)).toBeInTheDocument();
-    expect(screen.getByText(/Provision GCP Infrastructure/i)).toBeInTheDocument();
-
-    expect(screen.getByText(/Environment Build Inventory/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Explore details of environment build inventory/i),
-    ).toBeInTheDocument();
-
-    // one icon per card
-    expect(screen.getAllByAltText('icon')).toHaveLength(3);
-
-    // navbar shown
-    expect(screen.getByTestId('custom-nav')).toBeInTheDocument();
+    // click navigates to /home
+    fireEvent.click(home);
+    expect(navigateMock).toHaveBeenCalledWith('/home');
   });
 
-  test('clicking first card navigates to /gcpOnboarding and sets active state', () => {
-    renderWithRouter(<Home />);
+  test('/provision shows Home + Environment Provisioning; active is /provision', () => {
+    renderAt('/provision');
 
-    const card1 = getCardBtn(/Launch Your Journey in GCP/i);
-    const card2 = getCardBtn(/GCP Environment Provisioning/i);
-    const card3 = getCardBtn(/Environment Build Inventory/i);
+    const home = getLink(/^home$/i);
+    const envProv = getLink(/environment provisioning/i);
 
-    fireEvent.click(card1);
+    expect(home).toBeInTheDocument();
+    expect(envProv).toBeInTheDocument();
 
-    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding');
-    // selected card has data-active attribute
-    expect(card1).toHaveAttribute('data-active', '');
-    expect(card2).not.toHaveAttribute('data-active');
-    expect(card3).not.toHaveAttribute('data-active');
-  });
+    // active highlighting
+    expect(envProv).toHaveClass('nav-link-active');
+    expect(home).not.toHaveClass('nav-link-active');
 
-  test('clicking second card navigates to /provision', () => {
-    renderWithRouter(<Home />);
-    fireEvent.click(getCardBtn(/GCP Environment Provisioning/i));
+    // click both → navigate calls
+    fireEvent.click(home);
+    fireEvent.click(envProv);
+    expect(navigateMock).toHaveBeenCalledWith('/home');
     expect(navigateMock).toHaveBeenCalledWith('/provision');
   });
 
-  test('clicking third card navigates to /inventory-dashboard', () => {
-    renderWithRouter(<Home />);
-    fireEvent.click(getCardBtn(/Environment Build Inventory/i));
+  test('/gcpOnboarding shows Home + Onboarding Form + Onboarding Request; active is Onboarding Form', () => {
+    renderAt('/gcpOnboarding');
+
+    const home = getLink(/^home$/i);
+    const form = getLink(/onboarding form/i);
+    const request = getLink(/onboarding request/i);
+
+    expect(home).toBeInTheDocument();
+    expect(form).toBeInTheDocument();
+    expect(request).toBeInTheDocument();
+
+    expect(form).toHaveClass('nav-link-active');
+    expect(home).not.toHaveClass('nav-link-active');
+    expect(request).not.toHaveClass('nav-link-active');
+
+    // clicks navigate to their paths
+    fireEvent.click(form);
+    fireEvent.click(request);
+    expect(navigateMock).toHaveBeenCalledWith('/gcpOnboarding');
+    expect(navigateMock).toHaveBeenCalledWith('/inbox');
+  });
+
+  test('/inbox shows Home + Onboarding Form + Onboarding Request; active is Onboarding Request', () => {
+    renderAt('/inbox');
+
+    const home = getLink(/^home$/i);
+    const form = getLink(/onboarding form/i);
+    const request = getLink(/onboarding request/i);
+
+    expect(home).toBeInTheDocument();
+    expect(form).toBeInTheDocument();
+    expect(request).toBeInTheDocument();
+
+    expect(request).toHaveClass('nav-link-active');
+    expect(form).not.toHaveClass('nav-link-active');
+
+    fireEvent.click(home);
+    fireEvent.click(request);
+    expect(navigateMock).toHaveBeenCalledWith('/home');
+    expect(navigateMock).toHaveBeenCalledWith('/inbox');
+  });
+
+  test('/inventory-dashboard shows Home + Environment Build Inventory; active is inventory', () => {
+    renderAt('/inventory-dashboard');
+
+    const home = getLink(/^home$/i);
+    const inv = getLink(/environment build inventory/i);
+
+    expect(home).toBeInTheDocument();
+    expect(inv).toBeInTheDocument();
+
+    expect(inv).toHaveClass('nav-link-active');
+    expect(home).not.toHaveClass('nav-link-active');
+
+    fireEvent.click(inv);
     expect(navigateMock).toHaveBeenCalledWith('/inventory-dashboard');
+  });
+
+  test('unknown route falls back to default (no links) but still renders container and image', () => {
+    renderAt('/unknown/path');
+
+    // default mapping is empty list
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+
+    // container and image still present
+    expect(document.querySelector('.nav-container')).toBeTruthy();
+    expect(document.querySelector('.google-cloud-img')).toBeTruthy();
   });
 });
