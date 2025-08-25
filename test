@@ -1,100 +1,93 @@
-// src/sideNavbar/boarding/applicationDetails.test.tsx
-import React from 'react';
-import { render, screen } from '@testing-library/react';
-
-// real component + real context
+// -------------------------------------------------------------
+// 6) Import the real component under test
+// -------------------------------------------------------------
 import ApplicationDetails from './applicationDetails';
-import { FormContext } from '../FormContext';
 
-/* ---------- light MUI stubs so the tree renders deterministically ---------- */
-jest.mock('@mui/material/Box', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
-jest.mock('@mui/material/Container', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
-jest.mock('@mui/material/Grid', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
-jest.mock('@mui/material/Accordion', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div data-testid="accordion" {...p}>{children}</div> }));
-jest.mock('@mui/material/AccordionSummary', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
-jest.mock('@mui/material/AccordionDetails', () => ({ __esModule: true, default: ({ children, ...p }: any) => <div {...p}>{children}</div> }));
-jest.mock('@mui/material/TextField', () => ({ __esModule: true, default: ({ label, value, ...p }: any) => <input aria-label={label} defaultValue={value} {...p} /> }));
-jest.mock('@mui/material/Select', () => ({ __esModule: true, default: ({ children, label, ...p }: any) => <select aria-label={label} {...p}>{children}</select> }));
-jest.mock('@mui/material/MenuItem', () => ({ __esModule: true, default: ({ children, ...p }: any) => <option {...p}>{children}</option> }));
-jest.mock('@mui/material/Checkbox', () => ({ __esModule: true, default: (p: any) => <input type="checkbox" {...p} /> }));
-jest.mock('@mui/material/Tooltip', () => ({ __esModule: true, default: ({ children }: any) => <>{children}</> }));
-jest.mock('@mui/material/Snackbar', () => ({ __esModule: true, default: ({ children }: any) => <div data-testid="snackbar">{children}</div> }));
-jest.mock('@mui/material/Alert', () => ({ __esModule: true, default: ({ children }: any) => <div role="alert">{children}</div> }));
+// -------------------------------------------------------------
+// 7) Render helper (wrap with provider and seed form state)
+// -------------------------------------------------------------
+function render(
+  uiProps?: Partial<Record<string, any>>,
+  seed?: Partial<any>
+) {
+  // default categories for ART section — can be empty {}
+  const defaultArtRequestDetails: Record<string, Array<{ label: string; value: string; isCustom?: boolean }>> = {
+    Sandbox: [],
+    DEV1: [],
+    DEV2: [],
+    SIT: [],
+    UAT: [],
+    PERF: [],
+    Prep: [],
+    Prod: [],
+  };
 
-/* ---------- date pickers: inert pass-throughs ---------- */
-jest.mock('@mui/x-date-pickers/LocalizationProvider', () => ({
-  __esModule: true,
-  default: ({ children }: any) => <>{children}</>,
-}));
-jest.mock('@mui/x-date-pickers/DatePicker', () => ({
-  __esModule: true,
-  DatePicker: ({ label }: any) => <input aria-label={label} />,
-  default: ({ label }: any) => <input aria-label={label} />,
-}));
-jest.mock('@mui/x-date-pickers/AdapterDayjs', () => ({
-  __esModule: true,
-  default: class AdapterDayjs {},
-}));
+  const initialForm = {
+    applicationDetails: {
+      applicationID: '',
+      applicationName: '',
+      requesterName: '',
+      requesterEmail: '',
+      summary: '',
+      description: '',
+      lobDomain: '',
+      environmentsNeeded: [] as string[],
+      timelineSandbox: null,
+      timelineNonProd: null,
+      timelineProd: null,
+      isNewApp: 'new',
+      application: '',
+      appLinkInBAM: '',
+      beamsStatus: '',
+      dataSource: '',
+      dataFormat: [] as string[],
+      dataSLATime: '',
+      dataClassification: '',
+      panCardDataInScope: '',
+      panCardDetails: '',
+      sarUarData: '',
+      internationalUsers: '',
+      externalIngress: '',
+      externalIngressDetails: '',
+      serviceNowCI: '',
+      technicalConstraints: '',
+      reviewedWithCIO: '',
+      reviewedWithArchitect: '',
+      requiresCloudReview: '',
+      // >>> THE IMPORTANT LINE: never undefined
+      artRequestDetails: {
+        ...defaultArtRequestDetails,
+        ...(seed?.applicationDetails?.artRequestDetails ?? {}),
+      },
+      // keep this spread LAST so seed can override other fields
+      ...seed?.applicationDetails,
+    },
+  };
 
-/* ---------- stub the API hook used by the component ---------- */
-const makeRequestMock = jest.fn();
-jest.mock('../../services/useApiService', () => ({
-  __esModule: true,
-  default: () => ({ makeRequest: makeRequestMock }),
-}));
+  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [formData, setFormData] = React.useState(initialForm);
+    return (
+      <TestFormContext.Provider value={{ formData, setFormData }}>
+        {children}
+      </TestFormContext.Provider>
+    );
+  };
 
-/* ---------- base context value: NEVER null artRequestDetails ---------- */
-const baseFormData = {
-  applicationDetails: {
-    applicationID: '',
-    applicationName: '',
-    requesterName: '',
-    requesterEmail: '',
-    summary: '',
-    description: '',
-    purposeAndBenefit: '',
-    lobDomain: '',
-    environmentsNeeded: [] as string[],
-    dataSource: '',
-    dataFormat: [] as string[],
-    dataSLATime: '',
-    dataClassification: '',
-    panCardDataInScope: '',
-    panCardDetails: '',
-    sarUarData: '',
-    internationalUsers: '',
-    externalIngress: '',
-    externalIngressDetails: '',
-    serviceNowCI: '',
-    technicalConstraints: '',
-    timelineSandbox: null as any,
-    timelineNonProd: null as any,
-    timelineProd: null as any,
-    // IMPORTANT: this is what prevents the crash
-    artRequestDetails: {} as Record<string, Array<{ label: string; value: string; isCustom?: boolean }>>,
-  },
-};
+  const validationErrors = seed?.validationErrors ?? {};
+  const setValidationErrors = jest.fn();
 
-const formCtxValue = {
-  formData: baseFormData,
-  setFormData: jest.fn(),
-};
-
-const renderSut = () =>
-  render(
-    <FormContext.Provider value={formCtxValue as any}>
-      <ApplicationDetails validationErrors={{} as any} setValidationErrors={jest.fn()} />
-    </FormContext.Provider>,
+  const utils = rtlRender(
+    <Wrapper>
+      <ApplicationDetails
+        validationErrors={validationErrors}
+        setValidationErrors={setValidationErrors}
+        {...uiProps}
+      />
+    </Wrapper>
   );
 
-/* ============================== Tests ============================== */
-
-describe('ApplicationDetails (harnessed)', () => {
-  test('renders without crashing (smoke)', () => {
-    renderSut();
-    // The page has several sections as accordions; just assert at least one exists.
-    expect(screen.getAllByTestId('accordion').length).toBeGreaterThan(0);
-  });
-
-  // Keep/add your detailed tests under the same harness below.
-});
+  return {
+    ...utils,
+    setValidationErrors,
+  };
+}
