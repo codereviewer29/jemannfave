@@ -1,25 +1,9 @@
-// 0) Minimal "styled" shim for MUI styles — returns a passthrough component
-const styledShim =
-  (Tag: any) =>
-  (_styles?: any) =>
-  (props: any) =>
-    <Tag {...props} />;
+I will provide you with two files from a React + TypeScript project:
+	1.	cdmNextIntakeForm.tsx (component)
+	2.	<SERVICE_FILE>.ts (service used by the component)
 
-// If your component imports from '@mui/material/styles'
-jest.mock('@mui/material/styles', () => ({
-  __esModule: true,
-  styled: styledShim,
-  ThemeProvider: ({ children }: any) => <>{children}</>,
-  createTheme: () => ({}),
-  useTheme: () => ({}),
-}));
-
-// If your component (or transitive code) imports 'styled' from '@mui/material'
-jest.mock('@mui/material', () => {
-  const actual = jest.requireActual('@mui/material');
-  return {
-    __esModule: true,
-    ...actual,             // keep anything else you already mocked or need
-    styled: styledShim,    // <- add this
-  };
-});
+Your task is to:
+	•	Write comprehensive unit test cases for both files using Jest and React Testing Library.
+	•	Achieve at least 65% coverage (statements, branches, functions, and lines).
+	•	Do not change project configs (no edits to jest.config.js, tsconfig.json, or setup files).
+	•	All mocking must be done inline inside the test files.
