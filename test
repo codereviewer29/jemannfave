@@ -1,9 +1,28 @@
-I will provide you with two files from a React + TypeScript project:
+I will provide two files from a React + TypeScript project:
 	1.	cdmNextIntakeForm.tsx (component)
 	2.	<SERVICE_FILE>.ts (service used by the component)
 
 Your task is to:
-	•	Write comprehensive unit test cases for both files using Jest and React Testing Library.
-	•	Achieve at least 65% coverage (statements, branches, functions, and lines).
-	•	Do not change project configs (no edits to jest.config.js, tsconfig.json, or setup files).
-	•	All mocking must be done inline inside the test files.
+	•	Write Jest + React Testing Library test files (cdmNextIntakeForm.test.tsx and <SERVICE_FILE>.test.ts).
+	•	Achieve ≥65% coverage (statements, branches, functions, lines).
+	•	Do not modify configs (jest.config.js, tsconfig.json). All mocks must be inline inside the test files.
+
+Requirements
+	•	Use jest + @testing-library/react + @testing-library/jest-dom.
+	•	Mock @wf/react-library hooks inline (e.g. useAppGlobalState, useConfig).
+	•	Mock API/service calls (processHttpRequest, axios/fetch) with success & failure paths.
+	•	Cover:
+	1.	Initial render with headings/sections/actions
+	2.	Required field validation (errors on empty Save/Submit)
+	3.	Happy path Save (mock success → assert UI updates & payload)
+	4.	Error path Save (mock failure → assert error state)
+	5.	Conditional UI (multi-select migration patterns, etc.)
+	6.	Dynamic fields (add/remove “Others”)
+	7.	Dropdown/environment restrictions
+	8.	Accessibility queries (getByRole, getByLabelText, getByText)
+	•	Service tests should include success, failure, payload mapping, and edge cases.
+
+Output format
+	•	Provide full self-contained test files only:
+	•	cdmNextIntakeForm.test.tsx
+	•	<SERVICE_FILE>.test.ts
