@@ -1,20 +1,4 @@
-Dear [Manager’s Name] and Team,
-
-As my engagement on the [Project Name] is concluding on 3rd September, I would like to formally sign off and hand over my responsibilities. Since I will be on leave on 2nd and 3rd September, today (1st September) will be my last working day on this project.
-
-Over the past months, I have worked on the following, which are now completed:
-	•	[Task 1 – e.g., Finalized UI enhancements for Dashboard module]
-	•	[Task 2 – e.g., Completed integration with backend APIs for intake form submission]
-	•	[Task 3 – e.g., Resolved outstanding defects from UAT cycle]
-
-I have also prepared documentation and shared necessary details for the remaining ongoing activities so the team can continue without interruption.
-
-I sincerely appreciate the support, collaboration, and guidance from both management and teammates throughout this project. It has been a valuable and rewarding experience, and I am confident the team will continue driving it forward successfully.
-
-Please feel free to reach out if you need any clarifications during the transition.
-
-
-			<tr>
+<tr>
 						<td class="<%=strSpreadsheetBgBar%>" height="4">&nbsp;</td>
 			</tr>
 			<tr>
