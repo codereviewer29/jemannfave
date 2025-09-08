@@ -55,17 +55,11 @@
 								displayGrayBand = true;
 							%>
 							<tr>
-								<td  colspan = 2>
-									<table border="0" cellpadding="4" cellspacing="0" width="100%">
-									  <tr>
-										<td colspan="2" class="entrySpreadsheetSubHeader">
-											<h2 class="entrySpreadsheetSubHeader" style="margin-bottom: 0em;">
-												<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=strGroupheader%>" />
-											</h2>
-										</td>
-									  </tr>
-									  </table>
-                                </td>
+								<td  colspan = 2 class="entrySpreadsheetSubHeader">
+									<h2 class="entrySpreadsheetSubHeader" style="margin-bottom: 0em;">
+										<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=strGroupheader%>" />
+									</h2>
+								</td>
 							</tr>
 							
 						</dclcontent:hasSubCtxContent>
@@ -88,48 +82,36 @@
 					  {
 				%>
 					  <tr>
-					   <td>
-						<table border=0 cellpadding=4 cellspacing=0 width="100%">
-						 	<tr>
 								<td colspan=2 class="entrySpreadsheetContent"> </td>
-							</tr>
-							<tr>
+					  </tr>
+					  <tr>
 								
 								<td colspan=2 class="entrySpreadsheetContent">
 									<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="MaxAllotPTATElectText" />
 								</td>
-							</tr>
-							<tr>
+					  </tr>
+					  <tr>
 								<td><img src="/static/common/images/square_arrow_dk.gif" alt="" border=0 hspace=0 vspace=0></td>
 								<td width="100%" class="entrySpreadsheetContent"><a href="<%=catalinaRealmAppIdentifier%><%=PageNames.URI_TOGGLE_PRETAX%>"><dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="MaxAllotPTATElectLink" /></a></td>
-							</tr>
-						</table>
-					  </td>
-				     </tr>	
+					  </tr>
 				<%
 					  }
 					  else
 					  {
 				%>
 					  <tr>
-					    <td>
-						<table border=0 cellpadding=4 cellspacing=0 width="100%">
-						 	<tr>
 								<td colspan=2 class="entrySpreadsheetContent"> </td>
-							</tr>
-							<tr>
+					  </tr>
+					  <tr>
 								
 								<td colspan=2 class="entrySpreadsheetContent">
 									<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="MaxAllotElectText" />
 								</td>
-							</tr>
-							<tr>
+					  </tr>
+					  <tr>
 								<td><img src="/static/common/images/square_arrow_dk.gif" alt="" border=0 hspace=0 vspace=0></td>
 								<td width="100%" class="entrySpreadsheetContent"><a href="<%=catalinaRealmAppIdentifier%><%=PageNames.URI_TOGGLE_MAXALLOTMENT%>"><dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="MaxAllotElectLink" /></a></td>
-							</tr>
-						</table>
-					  </td>
-				     </tr>	
+					  </tr>
 				<%
 					  }
 				%>
@@ -156,48 +138,45 @@
 					 	boolean forcedUpdatePermission = maxAllotmentElection.isForcedUpdatePermission();
 				%>
 					<input type="hidden" name="permissionValueMaxAllotment" value="<%=permission%>">
-					<tr>
-					   <td>
-						 <table border=0 cellpadding=4 cellspacing=0 width="100%">	
-						<dclcontent:hasSubCtxContent context="SourceHelp" subContext="<%=maxAllotmentElection.getBridgeDCL()%>" >
+					<dclcontent:hasSubCtxContent context="SourceHelp" subContext="<%=maxAllotmentElection.getBridgeDCL()%>" >
 				<%					
 								hasSourceSubCtxContent = true;
 				%>
-						</dclcontent:hasSubCtxContent>
-						<tr>
+					</dclcontent:hasSubCtxContent>
+					<tr>
 							<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt1" colspan=2>
 				<%
 		    	   		if (hasSourceSubCtxContent)
 						{
 				%>
-							<strong><a href="javascript:DCLLink('SourceHelp','<%=maxAllotmentElection.getBridgeDCL()%>','Y')"><%=maxAllotmentElection.getElectionName()%></a></strong>
+								<strong><a href="javascript:DCLLink('SourceHelp','<%=maxAllotmentElection.getBridgeDCL()%>','Y')"><%=maxAllotmentElection.getElectionName()%></a></strong>
 				<%
 						}
 	    				else
 						{
 				%>
-							 <strong><%=maxAllotmentElection.getElectionName()%></strong>
+							  <strong><%=maxAllotmentElection.getElectionName()%></strong>
 				<%
 						}
 				%>
 							</td>
-						</tr>
-						<dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >					
-						<tr>
+					</tr>
+					<dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >					
+					<tr>
 							<td nowrap class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3">
 								<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" />
 							</td>
 							<td class="entrySpreadsheetData entrySpreadsheetDataAlt3" align = "right" valign="top"><%=multipleChoiceDetailDisplay.getCurrentOptionLabel()%></td>
 							<input type="hidden" name="currentMaxAllotmentOptionCode"  value="<%=multipleChoiceDetailDisplay.getCurrentOptionCode()%>">
-						</tr>
-						</dclcontent:hasSubCtxContent>
+					</tr>
+					</dclcontent:hasSubCtxContent>
 				<%
 		 			    if(displayDesiredColumn)
 				    	{ 
 		   					OptionsDisplay[] options = multipleChoiceDetailDisplay.getPossibleOptions();	
 		   					String defaultOption = "";
 				%>
-						<tr>
+					<tr>
 							<td nowrap class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3">
 								<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="DesiredElection" />
 							</td>
@@ -247,29 +226,29 @@
 				%>
 				
 							</td>
-						</tr>
+					</tr>
 						
 				<%
 		   			}
 				%>	
-						<tr>
+					<tr>
 							<td colspan=2 class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3">
 							<span class="entrySpreadsheetTotalLabelFootnote entrySpreadsheetTotalLabelFootnoteAlt1">
 								<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="MaxAllotPartText" /> 
 							</span>
 							</td>
-						</tr>
+					</tr>
 				<%
 					if(maxAllotmentElection.getElectionPromptText() != null)
 					{
 				%>
-						<tr>
+					<tr>
 							<td colspan=2 class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3">
 							<span class="entrySpreadsheetTotalLabelFootnote entrySpreadsheetTotalLabelFootnoteAlt1">
 							(<%= maxAllotmentElection.getElectionPromptText()%>)
 							</span>
 							</td>
-						</tr>
+					</tr>
 				<%
 					}
 				%>
@@ -332,9 +311,6 @@
 			<%
 				}
 			%>
-					</table>
-				  </td>
-				</tr>	
 				  		
 				<%
 					 }
@@ -440,9 +416,6 @@
 								    }
 				%>
 							<tr>
-							   <td>
-								 <table border=0 cellpadding=4 cellspacing=0 width="100%">								
-									<tr>
 										<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt1" colspan=2>
 										<%
 										   if (hasSourceSubCtxContent)
@@ -478,22 +451,22 @@
 											}
 										%>
 										</td>
-									</tr>
-									<dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >
-									<tr>
+							</tr>
+							<dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >
+							<tr>
 										<td nowrap class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3">
 											<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" />
 										</td>
 										<td class="entrySpreadsheetData entrySpreadsheetDataAlt3" >
 											<%=sAmountSymbolPrefix%><%=deferralSource.getCurrentAmountFormated()%><%=sAmountSymbolPostfix%>
 										</td>
-									</tr>
-									</dclcontent:hasSubCtxContent>
-									<%
+							</tr>
+							</dclcontent:hasSubCtxContent>
+							<%
 									  if(displayDesiredColumn)
 									   { 
-									%>
-									<tr>
+							%>
+							<tr>
 										<td nowrap class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3">
 											<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="DesiredElection" />
 										</td>
@@ -518,11 +491,11 @@
 										%>
 										</td>
 										
-									</tr>
-									<%
+							</tr>
+							<%
   									   } 	
-									%>
-									<tr>
+							%>
+							<tr>
 										<td colspan=2 class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3" nowrap>
 											<span class="entrySpreadsheetTotalLabelFootnote entrySpreadsheetTotalLabelFootnoteAlt1">
 										<%
@@ -550,25 +523,20 @@
 										%>	
 											</span>
 										</td>
-									</tr>
-									<input type="hidden" name="unitsBucket<%=i%>" value="<%=strAmountTypeConstant%>"> 
-									<input type="hidden" name="electionTypeBucket<%=i%>" value="<%=sElectionType%>">
-									<input type="hidden" name="electionType<%=i%>" value="<%=sElectionTypeGroup%>">
-									<input type="hidden" name="electionPermission<%=i%>" value="<%=bElectionPermission%>">
-									<input type="hidden" name="forcedUpdatePermission<%=i%>" value="<%=bForcedUpdatePermission%>">
-									<input type="hidden" name="descBucket<%=i%>" value="<%=sSourceName%>"> 
-									<input type="hidden" name="minBucket<%=i%>" value="<%=deferralSource.getMinimum()%>"> 
-									<input type="hidden" name="maxBucket<%=i%>" value="<%=deferralSource.getMaximum()%>"> 
-									<input type="hidden" name="incBucket<%=i%>" value="<%=deferralSource.getIncrement()%>"> 
+							</tr>
+							<input type="hidden" name="unitsBucket<%=i%>" value="<%=strAmountTypeConstant%>"> 
+							<input type="hidden" name="electionTypeBucket<%=i%>" value="<%=sElectionType%>">
+							<input type="hidden" name="electionType<%=i%>" value="<%=sElectionTypeGroup%>">
+							<input type="hidden" name="electionPermission<%=i%>" value="<%=bElectionPermission%>">
+							<input type="hidden" name="forcedUpdatePermission<%=i%>" value="<%=bForcedUpdatePermission%>">
+							<input type="hidden" name="descBucket<%=i%>" value="<%=sSourceName%>"> 
+							<input type="hidden" name="minBucket<%=i%>" value="<%=deferralSource.getMinimum()%>"> 
+							<input type="hidden" name="maxBucket<%=i%>" value="<%=deferralSource.getMaximum()%>"> 
+							<input type="hidden" name="incBucket<%=i%>" value="<%=deferralSource.getIncrement()%>"> 
 
 
-									<!-- Save original Predator value to detect changes later -->
-									<input type="hidden" name="txtBucket<%=i%><%=i%>" value="<%=deferralSource.getCurrentAmount()%>"> 
-								</table>
-							   </td>
-							  </tr>
-									
-									
+							<!-- Save original Predator value to detect changes later -->
+							<input type="hidden" name="txtBucket<%=i%><%=i%>" value="<%=deferralSource.getCurrentAmount()%>"> 
 				<%
 									i = i +1;
 									displayGrayDividerLine = true;
@@ -592,40 +560,37 @@
 									 }
 									 displayGrayDividerLine = false;
 				%>	
-								<tr>
-							     <td>
-								   <table border=0 cellpadding=4 cellspacing=0 width="100%">	
-									<tr>
+							<tr>
 										<td colspan=2 class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt2 entrySpreadsheetSideLabelAlt3 entrySpreadsheetTotal">
 											<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=subTotalHeader%>" />
 										</td>
-									</tr>
-									<dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >
-									<tr>
+							</tr>
+							<dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >
+							<tr>
 										<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3 entrySpreadsheetTotal" nowrap>
 											<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" />
 										</td>
 										<td class="entrySpreadsheetData entrySpreadsheetDataAlt3 entrySpreadsheetTotal" align = "right">
 											<%=sAmountSymbolPrefix%><%=deferralSource.getCurrentAmountFormated()%><%=sAmountSymbolPostfix%>
 										</td>
-									</tr>
-									</dclcontent:hasSubCtxContent>
-									<%
+							</tr>
+							</dclcontent:hasSubCtxContent>
+							<%
 									 if(displayDesiredColumn)
 									  {
-									%>
-									<tr>
+							%>
+							<tr>
 										
 											<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3 entrySpreadsheetTotal" nowrap>
 												<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="DesiredElection" />
 											</td>
 											<td class="entrySpreadsheetData entrySpreadsheetDataAlt3 entrySpreadsheetTotal" align = "right"><%=sAmountSymbolPrefix%><input type="text"  electionSourceName="<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=subTotalHeader%>" />" class="entryRight entryRightAlt1 hiddenTotal" title="subTotal Amount <%=subtotalCount%>" name="subTotalAmount<%=subtotalCount%>" size="<%=bucketSize%>" maxlength="<%=bucketSize%>" readonly="true" value="<%=deferralSource.getDesiredAmountFormated()%>" id="subTotal2"><%=sAmountSymbolPostfix%></td>
 										
-									</tr>
-									<%
+							</tr>
+							<%
 									  }
-									%>
-									<tr>
+							%>
+							<tr>
 										<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3 entrySpreadsheetTotal" colspan=2 nowrap>
 										<%													
 											if(deferralSource.getIsMinMaxExist())
@@ -646,19 +611,15 @@
 											 }	
 										%>
 										</td>
-									</tr>	
-									<input type="hidden" name="subTotal<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 
+							</tr>	
+							<input type="hidden" name="subTotal<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 
 														
-									<input type="hidden" name="subTotalUnits<%=subtotalCount%>" value="<%=strAmountTypeConstant%>">
-									<input type="hidden" name="subTotalType<%=subtotalCount%>" value="<%=subTotalType%>">
+							<input type="hidden" name="subTotalUnits<%=subtotalCount%>" value="<%=strAmountTypeConstant%>">
+							<input type="hidden" name="subTotalType<%=subtotalCount%>" value="<%=subTotalType%>">
 														
-									<input type="hidden" name="subTotalElectionMin<%=subtotalCount%>" value="<%=deferralSource.getMinimum()%>"> 
-									<input type="hidden" name="subTotalElectionMax<%=subtotalCount%>" value="<%=deferralSource.getMaximum()%>"> 	
-									<input type="hidden" name="subTotalDesired<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 																									
-								
-								</table>
-							   </td>
-							  </tr>
+							<input type="hidden" name="subTotalElectionMin<%=subtotalCount%>" value="<%=deferralSource.getMinimum()%>"> 
+							<input type="hidden" name="subTotalElectionMax<%=subtotalCount%>" value="<%=deferralSource.getMaximum()%>"> 	
+							<input type="hidden" name="subTotalDesired<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 																									
 				<%
 								}
 				%>			
@@ -686,16 +647,13 @@
 						  <%
 						  	}
 						  %>  
-						   <tr>
-						  	 <td>
-						      <table border=0 cellpadding=4 cellspacing=0 width="100%">
-							  <tr>
+						  <tr>
 								<td class="importantInformation" colspan=2>
 									<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=strTotalTitle%>" />
 								</td>
-							  </tr>
-							  <dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >
-							  <tr>
+						  </tr>
+						  <dclcontent:hasSubCtxContent context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" >
+						  <tr>
 								<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3" nowrap>
 											<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="CurrentElection" />
 								</td>
@@ -703,13 +661,13 @@
 								<td class="importantInformation" align = "right">
 										<%=sAmountSymbolPrefix%><%=deferralSourceGroup.getTotal().getCurrentAmountFormated()%><%=sAmountSymbolPostfix%>
 								</td>
-							  </tr>
-							  </dclcontent:hasSubCtxContent>
-							  <%
-							  if(displayDesiredColumn)
-							  {
-							  %>
-							  <tr>
+						  </tr>
+						  </dclcontent:hasSubCtxContent>
+						  <%
+						  if(displayDesiredColumn)
+						  {
+						  %>
+						  <tr>
 								<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3" nowrap>
 											<dclcontent:subctx context="<%= Constants.CHANGE_REGULAR_DEDUCTIONS_CONTEXT %>" subContext="DesiredElection" />
 								</td>
@@ -761,11 +719,11 @@
 								<%
 									}
 								%>
-							</tr>
-							<%
-							}
-							%>
-							<tr>
+						  </tr>
+						  <%
+						  }
+						  %>
+						  <tr>
 								<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt3" colspan=2 nowrap>
 								<%
 									if(deferralSourceGroup.getTotal().getIsMinMaxExist()&& !payDeductionsDisplay.isFullyMixedPlan())
@@ -778,9 +736,6 @@
 									}
 								%>
 								</td>
-							</tr>
-						    </table>
-						   </td>
 						  </tr>
 						  <tr>
 							<td class="entrySpreadsheetSpacer" height=6>&nbsp;</td>
@@ -796,4 +751,3 @@
 				   </table>
 				</td>
 			</tr>
-		
