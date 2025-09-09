@@ -1,1 +1,1267 @@
-New
+<%@ taglib tagdir="/WEB-INF/tags/dc/toc" prefix="csrf"%>
+<%@ taglib tagdir="/WEB-INF/tags/dctemplate" prefix="dctemplate"%>
+<dctemplate:doctype/>
+<%@ taglib uri="com.fmr.pwi.nb.navigation.tags" prefix="nav"%>
+<%@ include file="common_taglib_includes.jspf" %>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/functions" prefix="fn" %>  
+<%@ taglib uri="/WEB-INF/struts-logic.tld" prefix="logic" %>
+<%@ taglib tagdir="/WEB-INF/tags/dc/toc" prefix="csrf"%>
+<!-- other imports -->
+<%@ page import="java.math.BigDecimal" %>
+<%@ page import="java.util.HashMap" %>
+<%@ page import="java.util.Map" %>
+<%@ page import="java.util.ArrayList" %>
+<%@ page import="java.util.List" %>  
+<%@ page import="java.util.Iterator" %>
+             
+<!-- Gladiator imports	-->
+<%@ page import="com.fidelity.gladiator.util.GladiatorUtil" %>
+<%@ page import="com.fidelity.nbweb.common.NetbenefitsConstants" %>
+
+<!-- Deferrals Imports	-->
+<%@ page import="com.fidelity.definedcontributions.transaction.deferral.DcDeferralElectionsTransactionBase" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.pagebeans.PayDeductionsDisplay" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.util.Constants" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.util.PageNames" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.util.PayDeductionsDisplayHelper" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.util.ConsiderThisHelper" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.util.ParameterNames" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.data.DeferralSource" %>
+<%@ page import="com.fidelity.spartacus.web.deferral.data.DeferralSourceGroup" %>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.DeferralElectionDisplay"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.AmountDetailDisplay"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.MultipleChoiceDetailDisplay"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.OptionsDisplay"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.SpecialElectionsContainer"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.DeferralElectionsContainer"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.MaxAllotmentDetailDisplay"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.ElectionDateDetailDisplay"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.data.PreviousElectionsBean"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.data.PreviousElectionDetailBean"%>
+<%@ page import = "com.fidelity.spartacus.web.deferral.pagebeans.ConsiderThisDisplay" %>
+<%@ page import = "com.fidelity.spartacus.web.common.util.MessageAlertHelper" %>
+<%@ page import = "com.fidelity.nbweb.utilities.NBWebUtils" %>
+<%@ page import = "com.fidelity.spartacus.web.common.data.ErrorMessages" %>
+<%@ page import = "com.fidelity.spartacus.web.common.util.SpartacusUtils" %>
+<%@ taglib prefix="cpl" uri="/WEB-INF/cpltags.tld" %>
+
+
+<!DOCTYPE html>   
+<html lang="en-US">  
+	<dctemplate:header_start title="Fidelity NetBenefits"/>
+	<META HTTP-EQUIV="CACHE-CONTROL" CONTENT="NO-CACHE">
+	<META HTTP-EQUIV="PRAGMA" CONTENT="NO-CACHE">
+	<META HTTP-EQUIV="EXPIRES" CONTENT="0">	
+	<link rel="stylesheet" type="text/css" href="<cpl:nav_link linkDefKey='nb.dc.masterstyles.workEfficiency'/>">
+	<style>
+		<%@ include file="/WEB-INF/css/accessibility_spartacus.css" %>
+		<%@ include file="/WEB-INF/css/providence/pvd.css" %>
+		<%@ include file="/WEB-INF/css/providence/pvd-helios.css" %>
+		<%@ include file="/WEB-INF/css/fds/fds-tokens.css" %>
+		.removeH2marginBottom {
+		    margin-bottom:0px;
+		}
+	</style>
+	
+		
+<%@ include file="/WEB-INF/jsp/JspIncludes/stdDeductionsForSodHeaderIA.jspf" %> 
+	
+    <c:choose>
+      <c:when test="${contributionsRulesAlertDisplayBean != null}">
+        <c:set var ="measurmentsLogic">
+
+          <meta name="SECTION" content="dc">
+          <meta name="SUBSECTION" content="deferrals">
+          <meta name="PAGETITLENAME" content="deferrals::change contribution">
+          <meta name="PAGEPURPOSE" content="transaction|dc">
+	      
+          <script>		 
+            window.ensightenDataSurface = {
+      	      "page_version": "nb dc change contributions",
+      	      "client" : "${contributionsRulesAlertDisplayBean.clientId}",
+      	      "plan": "${contributionsRulesAlertDisplayBean.planId}",
+      	      "page_title": "deferrals::change contributions"
+      	    }         
+          </script>
+
+        </c:set>
+
+
+<%@ include file="/WEB-INF/jsp/disbursements/common/pendo.snippet.jspf" %>
+
+        <dctemplate:header_end additionalElements="${measurmentsLogic}"/>
+      </c:when>
+      <c:otherwise>
+        <dctemplate:header_end/>
+      </c:otherwise>
+    </c:choose>
+
+	<!-- elearning include -->
+	<%@ include file="/WEB-INF/jsp/Js/deferralContextualLinkConditional.js" %>
+ 
+	<!-- get a handle to our display bean.  This will be used throughout the -->
+	<!-- page for any dynamic elements within.								 -->
+	<bean:define id="payDeductionsDisplay" name="<%= ParameterNames.PAY_DEDUCTIONS_BEAN %>"
+		scope="request" type="com.fidelity.spartacus.web.deferral.pagebeans.PayDeductionsDisplay" />
+		
+    <jsp:useBean id="personalizedMessageDisplay" scope="request"
+		class="com.fidelity.spartacus.web.deferral.pagebeans.PersonalizedMessageDisplay" />		
+		
+	<!-- Get a handle to the display bean for the Previous Elections bricklet -->
+	<bean:define id="previousElectionsBean" name="<%= ParameterNames.PREVIOUS_ELECTIONS_BEAN %>"
+		scope="request" type="com.fidelity.spartacus.web.deferral.data.PreviousElectionsBean" />
+
+	<!-- Get a handle to the display bean for the Consider This bricklet -->
+	<bean:define id="considerThisDisplay" name="<%= ParameterNames.CONSIDER_THIS_DISPLAY_BEAN %>"
+		scope="request" type="com.fidelity.spartacus.web.deferral.pagebeans.ConsiderThisDisplay" />
+		
+		
+
+<c:set var="webStatsData" scope="page" value="${requestScope['com.fidelity.nbweb.common.webstats.WebStatsData']}"/>
+<c:set var="this_vsbricklet" value="No_Learn_More_link|No_Consolidation_Offer" />
+	<dctemplate:body_start feature="contributionAmount"/>
+
+<script type="text/javascript">
+
+             jQuery(document).ready(function(){
+
+   bHidden=true;
+   sendWebStats();
+
+});
+
+</script>
+<script language="javascript" type="text/javascript">
+	<%@ include file="/WEB-INF/js/a11y.js" %>
+	window.addEventListener("load", function(){
+    	var tableCollection =  document.querySelectorAll("table");
+    	var toolsHeader = document.getElementsByClassName("calloutHeader");
+		var titleSpacerCollection = document.getElementsByClassName("titleSpacer");
+		var entrySpreadsheetSpacerCollection = document.getElementsByClassName("entrySpreadsheetSpacer");
+		var entrySpreadsheetSectionDividerCollection = document.getElementsByClassName("entrySpreadsheetSectionDivider");
+		var spacerCollection = document.getElementsByClassName("spacer");
+		var entrySpreadsheetBgBarCollection = document.getElementsByClassName("entrySpreadsheetBgBar");
+		if(tableCollection.length) {
+			a11y.setAttr(tableCollection, "role", "presentation", ".dataTable");
+			a11y.setAttr(titleSpacerCollection, "aria-hidden", "true", ".dataTable");
+			a11y.setAttr(entrySpreadsheetSpacerCollection, "aria-hidden", "true", ".dataTable");
+			a11y.setAttr(entrySpreadsheetSectionDividerCollection, "aria-hidden", "true", ".dataTable");
+			a11y.setAttr(spacerCollection, "aria-hidden", "true", ".dataTable");
+			a11y.setAttr(entrySpreadsheetBgBarCollection, "aria-hidden", "true", ".dataTable");
+		}
+		a11y.setAttr(toolsHeader, "role", "heading");
+    });
+</script>
+
+<%	
+	
+      	
+	// SOD attribute - page must display modally within SOD TOC, 
+	//   with no change capability if comming from SOD (Online Statement)
+		
+	boolean fromSod = payDeductionsDisplay.isFromSod();  
+	// UpdateDeferralsAllowed - page must display with no change capability      
+	// if Update Deferrals switch off, or service not enabled, or all sources are view-only from wpdt
+	boolean updateDeferralsAllowed = payDeductionsDisplay.isUpdateDeferralsAllowed() &&
+									payDeductionsDisplay.isSourceWritePermissions(); 
+    boolean basicElectionsAllowed = payDeductionsDisplay.isBasicElectionsAllowed();
+    boolean nonStandard = payDeductionsDisplay.isNonStandardDeferrals();
+    boolean nonQual = payDeductionsDisplay.isNonQualPlan();
+	//Get the transactioncounter from the bean and if its greater than -1 
+	//  set the boolean value isShadowPlan to true
+	// Rama move this logic to bean
+	boolean isShadowPlan = payDeductionsDisplay.isShadowPlan();
+	boolean displayPayrollDeductionsBreadCrumbURL = payDeductionsDisplay.isDispDivisionNameAndBreadCrumbURL();
+	//boolean displayBreadCrumbURL = payDeductionsDisplay.isDispNoDivisionNameAndBreadCrumbURL();
+	boolean isDivisionNameNullOrEmpty = payDeductionsDisplay.isDivisionNameNullOrEmpty();
+	//int sourceCount = 0;
+   
+   	boolean isAnyElectionInWindow = payDeductionsDisplay.isAnyElectionInWindow();
+   	boolean isOLETurnedOn = payDeductionsDisplay.isDeferralsOLEIsOn();
+	String formatedDivisionNameforBreadCrumb = "";
+	if(!isDivisionNameNullOrEmpty)
+	{ 
+		formatedDivisionNameforBreadCrumb = " - " + payDeductionsDisplay.getDivisionName();
+	}
+	
+	boolean currentEffectiveDate = payDeductionsDisplay.isCurrentEffectiveDate();
+	boolean showAutoEnrollMsg = payDeductionsDisplay.isShowAutoEnrollMsg();
+	String autoEnrollmentDate = payDeductionsDisplay.getAutoEnrollmentDate();
+	boolean displayCustomBullets = false;	
+	boolean displayPlanGuidelines = false;
+	
+	if(payDeductionsDisplay != null)
+	{
+		// Check to ensure that at least one bullet will be displayed
+		// in the  plan guidelines popup window
+		if (payDeductionsDisplay.isDispMaximizePreTaxBullet() ||
+			payDeductionsDisplay.isDispTotalsLimitCatchUpBullet() ||
+			payDeductionsDisplay.isDispTotalsLimitBasicBullet() ||
+			payDeductionsDisplay.displayPreTaxRothAfterTaxBullet() ||
+			payDeductionsDisplay.displayRothAfterTaxBullet() ||
+			payDeductionsDisplay.displayRothPreTaxBullet())
+		{
+			displayPlanGuidelines = true;
+		}
+	}
+	
+//Get CSRF token
+//String uniqueFormToken = NBWebUtils.getCsrfTokenAndPutIntoSession(request);
+%>
+	<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="PlanRulesAddlText1">
+	<%
+		displayCustomBullets = true;
+	%>
+	</dclcontent:hasSubCtxContent>
+	
+	<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="PlanRulesAddlText2">
+	<%
+		displayCustomBullets = true;
+	%>
+	</dclcontent:hasSubCtxContent>
+	
+	<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="PlanRulesAddlText3">
+	<%
+		displayCustomBullets = true;
+	%>
+	</dclcontent:hasSubCtxContent>
+	
+	<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="DisabilityInsuranceText">
+	<%
+		displayCustomBullets = true;
+	%>
+	</dclcontent:hasSubCtxContent>
+	
+	<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="DisabilityEstimatorText">
+	<%
+		displayCustomBullets = true;
+	%>
+	</dclcontent:hasSubCtxContent>
+	
+	<% if (considerThisDisplay.isDisplayLearnIRA())
+		{
+	%>
+	<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="TradRothOfferText">
+	<%
+		displayCustomBullets = true;
+	%>
+	</dclcontent:hasSubCtxContent>
+	<%	}
+	%>
+	
+	
+	<script language="javascript">	
+		
+		// Variable to be used by the chkTable() function to expand and contract the PreviousElections bricklet.
+		var bHidden;	
+		
+		function chkTable()
+		{
+			if(bHidden)
+			{				
+				document.getElementById('tblYellowTable').style.width = "553px";
+				document.getElementById('tdYellow1').style.width = "529px";
+				document.getElementById('tdYellow2').style.width = "529px";	
+				document.getElementById('imgYellow1').width = "529";
+				document.getElementById('imgYellow2').width = "529";					
+				document.getElementById('trAssoc').style.display='';
+				document.getElementById('trExpand').style.display='';
+				document.getElementById('plusImg').src="/static/common/images/collapse_icon.gif";
+				document.getElementById('plusImg').alt="Hide";
+				bHidden = false;
+			}
+			else
+			{
+				document.getElementById('tblYellowTable').style.width = "487px";	
+				document.getElementById('tdYellow1').style.width = "463px";
+				document.getElementById('tdYellow2').style.width = "463px";	
+				document.getElementById('imgYellow1').width = "463";
+				document.getElementById('imgYellow2').width = "463";														
+				document.getElementById('trAssoc').style.display='none';		
+				document.getElementById('trExpand').style.display='none';
+				document.getElementById('plusImg').src="/static/common/images/expand_icon.gif";
+				document.getElementById('plusImg').alt="Show";
+				bHidden = true;
+			}
+		} 	
+
+	</script> 
+
+<%
+	String cstopic = payDeductionsDisplay.isCustomerServiceSwitch() ? "cspagecontent?funcArea=CustmrSrvc&context=PayDedLandPage" : "";
+	// used in the java script
+	// Plan number for Intel Restrictions exception
+	String planNumber = payDeductionsDisplay.getPlanNumber(); 
+	
+	//Division name
+	String divisionName = payDeductionsDisplay.getDivisionName();
+	//int sourceCount 				= 3; // get this from bean
+	
+	 
+	// used as hidden form variables.
+	// various status settings
+	boolean bSuppressTotal 			= payDeductionsDisplay.isSuppressTotal();
+	boolean bSuppressAllTotals 		= payDeductionsDisplay.isSuppressAllTotalsSwitch();
+	
+	boolean bFullyMixedPlan 		= payDeductionsDisplay.isFullyMixedPlan();
+	boolean bExtinctSourceForMixedDeferrals = payDeductionsDisplay.usesExtinctSourceForMixedDeferrals();
+	boolean bHasDecimal = payDeductionsDisplay.getHasDecimal();
+	boolean bNonQualPlan = payDeductionsDisplay.isNonQualPlan();
+
+	
+	  
+	
+	// standard plan
+	boolean bIsNonStandardDeferrals	= payDeductionsDisplay.isNonStandardDeferrals();
+	boolean bHasStandardPreTax = payDeductionsDisplay.isHasStandardPreTax();
+	boolean bHasStandardAfterTax = payDeductionsDisplay.isHasStandardAfterTax();
+	boolean  bFromPreviousButton = payDeductionsDisplay.isFromPreviousButton();
+                    
+        
+	// total max
+	// total values 
+	BigDecimal bdTotalElection		= payDeductionsDisplay.getTotalElectionAmountContent();
+	String sTotalElectionMin		= payDeductionsDisplay.getTotalElectionMin();
+	String sTotalElectionMax		= payDeductionsDisplay.getTotalElectionMax();
+	String sTotalAmountFormatted	= payDeductionsDisplay.getTotalElectionAmountFormatted();
+	String sTotalElectionIncrement	= payDeductionsDisplay.getTotalElectionIncrement();
+	String sTotalAmountTypeSymbol	= payDeductionsDisplay.getTotalElectionAmountTypeSymbol();
+	String sTotalElectionDesired	= payDeductionsDisplay.getTotalElectionDesired();
+	String sTotalElectionMaxFormated = "";
+	//sTotalAmountTypeSymbol = "$";	
+	if(!bFullyMixedPlan && !bExtinctSourceForMixedDeferrals && basicElectionsAllowed)
+	{
+	if( sTotalAmountTypeSymbol.equalsIgnoreCase(Constants.DOLLAR_SIGN) )
+	{
+		sTotalElectionMaxFormated = Constants.DOLLAR_SIGN + sTotalElectionMax;
+	}
+	else if(sTotalAmountTypeSymbol.equalsIgnoreCase(Constants.PERCENT_SIGN))
+	{
+		sTotalElectionMaxFormated = sTotalElectionMax + Constants.PERCENT_SIGN;
+	}
+	}
+	
+	    
+	
+	  
+	// catch-up values
+	String sCatchUpDisplayName		= Constants.EMPLOYEE_PRE_TAX_CATCH_UP;
+	String sCatchUpElectionType 	= DcDeferralElectionsTransactionBase.ENUM_CATCHUP_ELECTION_TYPE;
+	String sCatchUpDisplaySymbol	= payDeductionsDisplay.getCatchUpAmountTypeSymbol();
+	String sCatchUpAmountFormatted	= payDeductionsDisplay.getCatchUpAmountFormatted();
+	String sCurrentCatchUpValue		= payDeductionsDisplay.getCatchUpOriginalAmountFormatted();
+	BigDecimal bdCatchUpAmount		= payDeductionsDisplay.getCatchUpAmountContent();
+	BigDecimal bdCurrentCatchUp		= payDeductionsDisplay.getCatchUpOriginalAmountContent();
+	String sCatchUpMin				= payDeductionsDisplay.getCatchUpMin();
+	String sCatchUpMax				= payDeductionsDisplay.getCatchUpMax();  
+	String sCatchUpIncrement		= payDeductionsDisplay.getCatchUpIncrement();
+	String sCatchUpYearLimit		= payDeductionsDisplay.getCatchUpYearLimitFormatted();
+	boolean bCatchUpAllowed			= payDeductionsDisplay.isCatchUpElectionAllowed();
+	Boolean bCanChangeCatchUp		= payDeductionsDisplay.getCatchUpAmountWritePermission();
+	boolean bRothCatchup = payDeductionsDisplay.isRothCatchUpElectionAllowed();
+	boolean bCatchup = false;
+	if((bRothCatchup || bCatchUpAllowed) && basicElectionsAllowed)
+	{
+		bCatchup = true;
+	}
+	       
+	String sCatchUpMaxFormated = "";
+	if(bCatchup)
+	{
+	if( sCatchUpDisplaySymbol.equalsIgnoreCase(Constants.DOLLAR_SIGN) )
+	{
+		sCatchUpMaxFormated = Constants.DOLLAR_SIGN + sCatchUpMax;
+	}
+	else
+	{
+		sCatchUpMaxFormated = sCatchUpMax + Constants.PERCENT_SIGN;
+	}
+	}// catchup check
+
+	 boolean bCompanyMatchAndCatchUpMatchSame = payDeductionsDisplay.isCompanyMatchAndCatchUpMatchSame();
+	 
+	// catch up match
+	String sCatchUpCompanyMatchDerived 	= payDeductionsDisplay.getCatchUpCompanyMatchDerivedAmountFormatted();
+	String sCatchUpCompanyMatchLimit 	= payDeductionsDisplay.getCatchUpCompanyMatchLimitFormatted();
+	
+		
+	// employer match
+	
+	String sCompanyMatchFormula		= payDeductionsDisplay.getCompanyMatchFormula();
+	String sCompanyMatchLimit		= payDeductionsDisplay.getCompanyMatchLimitFormatted();
+	String sCompanyMatchDerived		= payDeductionsDisplay.getCompanyMatchDerivedAmountFormatted();
+	BigDecimal bdCompanyMatchLimit	= payDeductionsDisplay.getCompanyMatchLimit();
+	boolean bShowCompanyMatch		= payDeductionsDisplay.isShowCompanyMatch();
+	boolean bShowCompanyCatchUpMatch= payDeductionsDisplay.isShowCatchUpCompanyMatch();
+	boolean bCatchUpInTraditionalBucketAllowed = payDeductionsDisplay.getCatchUpInTraditionalBucketAllowed();
+	
+	//enroll now button flag
+	boolean displayEnrollNowButton =  payDeductionsDisplay.isDisplayEnrollNowButton();
+	
+	String empMatchSubContext = "";
+	if(!bCatchUpAllowed)
+	{
+		empMatchSubContext = "ConsiderEmpMatch";
+	}
+
+	if((bCatchUpAllowed && !bShowCompanyCatchUpMatch) || (bCatchUpAllowed && bShowCompanyCatchUpMatch && !bCompanyMatchAndCatchUpMatchSame))
+	{
+		empMatchSubContext = "ConsiderEmpMatchXCtchup";
+	}
+
+	if(bCatchUpAllowed && bShowCompanyCatchUpMatch && bCompanyMatchAndCatchUpMatchSame)
+	{
+		empMatchSubContext = "ConsiderEmpMatchIncCtchup";
+	}
+	
+	// Check if company match & catch up company match amounts are identical...
+	// if so, only the company match messaging section will be displayed, not both sections
+	
+	 
+	  
+	
+	// 402g status
+	boolean bShow402gNotice			= payDeductionsDisplay.isSwitch402gDeferralsTextNotice();
+	boolean bShow402gLimitNotice	= payDeductionsDisplay.isSwitch402gGenericLimitNotice();
+	
+	// breadcrum url
+	String sBreadcrumbUrl			= catalinaApplicationName + PageNames.URI_START_DEFERRAL;
+	
+	// Intel non-qual plan number constant for Restrictions exception... if 25% incr, 75% is NOT allowed! 
+	final String INTEL_NON_QUAL_PLAN_NUMBER = "15104";
+	final double INTEL_NON_QUAL_INCREMENT_EXCEPTION_TRIGGER = 25.00;
+	final double INTEL_NON_QUAL_INCREMENT_EXCEPTION_TRIGGER_NO_DEC = 2500;
+	final double INTEL_NON_QUAL_INCREMENT_EXCEPTION_NO_DEC = 7500;
+	
+	
+		
+%>	
+
+
+
+	<script language="Javascript"> 
+	<%@ include file="/WEB-INF/jsp/Js/deferralUtils.js" %>
+	
+	
+		function openTrackHistoryWindow(trackHistoryLink)
+		{
+			params  = 'width='+screen.width;
+			params += ',height='+screen.height;
+			params += ',top=0,left=0,resizable=yes,scrollbars=yes';
+	
+			popup = window.open(trackHistoryLink, '', params);
+			return false;
+		};		
+		function CalculatorStart(calculator)
+		{
+			if(calculator == '403Calc')
+			    {
+			      var pageName = "<%=PageNames.CALCULATOR403_POPUP_URI%>";
+			      nbDir.openGenericCustomizableWindow(pageName, false, "800", "420", "40", "0", "0", "0", "0", "0", "1", "0");
+			    }
+			    else if(calculator == '457Calc')
+			    {
+			      var pageName = "<%=PageNames.CALCULATOR457_POPUP_URI%>";
+			      nbDir.openGenericCustomizableWindow(pageName, false, "800", "420", "40", "0", "0", "0", "0", "0", "1", "0");
+			    }
+			    else if (calculator == 'rothModeler')
+			    {
+			    	var pageName = "<%=catalinaRealmAppIdentifier%>/ole/universal/rothModeler";
+			    	nbDir.openGenericCustomizableWindow(pageName, false, "920", "700", "40", "0", "0", "0", "0", "0", "1", "0");
+			    }
+				else if(calculator == 'TakeHomePay')
+				{
+					var pageName = "<nav:navigation key="/es2/TakeHomePayTool"/>"+"?popup=Y";
+					nbDir.openGenericCustomizableWindow(pageName, false, "600", "420", "40", "0", "0", "0", "0", "0", "1", "1");
+				}
+			    else if(calculator == 'Contribution')
+				{
+					var pageName = "<nav:navigation key="/es2/ContributionCalculator"/>"+"?popup=Y";
+					nbDir.openGenericCustomizableWindow(pageName, false, "600", "420", "40", "0", "0", "0", "0", "0", "1", "1");
+				}
+			    else
+			    {
+			      var pageName = "<%=catalinaRealmAppIdentifier%><%=PageNames.URI_CALCULATOR_POPUP%>?<%=ParameterNames.CALCULATOR_PARAMETER%>=" + calculator;
+			      nbDir.openGenericCustomizableWindow(pageName, "false", "600", "420", "40", "0", "0", "0", "0", "0", "1", "0");
+			    }
+		}
+		
+		
+		function DCLLink( context, subContext, popupInd )
+		{
+			if( popupInd == 'Y' )
+			{
+				// create a new popup window with our dcl content 
+				var popupUrl	=  "<%=catalinaRealmAppIdentifier%><%=PageNames.URI_DCL_POPUP%>?context=" + context;
+				popupUrl		+= "&subContext=" + subContext;
+				if( nbDir )
+				{
+					nbDir.openAuxContentWindowMed( popupUrl, false );
+				}
+			}			
+		}
+		
+		var bSubmitted = false;
+		
+		function doCancel()
+		{
+			// check to see if we've already submitted
+			if( !bSubmitted )
+			{
+				// we have not already submitted, submit our cancel form
+				bSubmitted = true;
+				return true;
+			}
+			else
+			{
+				// we have already submitted, do nothing
+				return false;
+			}
+		}
+		
+		function submitCancelForm()		
+		{
+			document.cancelForm.submit();		
+		}
+		function doSubmit()
+		{
+			
+			// check to see if we've already submitted
+			if( !bSubmitted )
+			{
+				// we have not already submitted, submit our regular form
+				bSubmitted = true;
+				return true;
+			}
+			else
+			{
+				
+				// we have already submitted, do nothing
+				return false;
+			}
+		}
+
+		function doConfirm()
+		{
+			// Validate form fields
+			var retval = ConfirmDedAmts();
+
+			// if a validation error was returned, re-enable the submit (continue) button
+			if( !retval )
+			{
+				bSubmitted = false;
+			}
+			
+			return retval;
+		}
+		
+		function goToOLE()
+		{
+			if( !bSubmitted )
+			{
+				bSubmitted = true;
+				if (nbDir)
+				{
+					self.document.location.replace('<%=catalinaRealmAppIdentifier%>/ole/flow/enroll');
+ 					
+				}
+			}
+			else
+			{	
+				return false;
+				
+			}
+		}
+		
+<%	if( cstopic.length() > 0 ) { %>
+		if (nbDir.showCustService) 
+		{
+			nbDir.showCustService(true);
+		}
+<%	} %>
+	</script>
+	
+	
+	
+		
+
+	<!-- this table width and the column widths inside this table, depend on what page is being shown -->
+		<table id="Table1" cellSpacing="0" cellPadding="0" width="569" border="0">
+		  <tr>
+		    <td width="16" aria-hidden="true"></td>
+		      <td width="553">
+			  <!-- component note: page_title_2.html -->
+<%					
+			// Stick with the "tab" style default unless coming from SOD, then the page must be modal 
+			// to remain within the SOD modal frameset
+			//Rama: from sod is always view only mode. delete the 
+
+			// check of the null and other validation should be done in bean
+
+%>
+			
+			<%
+			// if from sod can not displau cpl tags
+			if(!payDeductionsDisplay.isCanDisplayCPLTags())
+			{
+			%>
+			<table border="0" cellpadding="0" cellspacing="0" width="100%">
+			  <tr>
+			  <td colspan="2" height="5" class="titleSpacer">&nbsp;</td>
+			  </tr>
+			  <tr>
+			  <td class="pageTitleOF"><h1 class="pageTitleOFNoBottomSpace">Contribution Amount</h1></td>
+			  <td class="titleLinkSection"></td>
+			   </tr>
+ 			  <tr>
+			   <td colspan="2" height="1" class="titleSpacer">&nbsp;</td>
+			  </tr>
+			  <tr>
+			  <td colspan="2" height="14" class="titleSpacer">&nbsp;</td>
+			  </tr>
+			  </table>
+			<%
+			}
+			if(payDeductionsDisplay.isCanDisplayCPLTags())
+			{
+			%>
+			<cpl:adorn printlink="false" cstopic="<%=cstopic%>" helplink="true" lineSpacer="false" suppressTitleLine="true">
+				<cpl:title stylesheetClass="pageTitleOF"><h1 class="pageTitleOFNoBottomSpace" style="display:inline;"><dclcontent:subctx context="ChangeDeduction" subContext="Title" /><%=formatedDivisionNameforBreadCrumb%></h1></cpl:title>
+					<nav:navigation key="/dc/Deductions" var="link_dc_Deductions"/>	
+					<%
+					if(!isShadowPlan)
+					{
+					%>
+					<cpl:breadcrumb text="Contribution Amount" url="javascript:window.location.href='${link_dc_Deductions.url}'" />
+					<%
+					}
+					%>
+				
+			</cpl:adorn>
+			<%
+			}
+			%>
+			</td>
+			</tr>
+		</table>
+		
+		<!-- Check Oscar switch for new style 'Red box' error message -->
+		<c:set var="redBoxEnabled" value="${contributionsRulesReactiveAlertDisplayBean != null && contributionsRulesReactiveAlertDisplayBean.contributionsRulesReactiveAlertSwitchOn}"/>
+		<c:if test="${redBoxEnabled}">
+			<%@ include file="/WEB-INF/jsp/JspIncludes/errorMessagesDeductions.jsp" %>
+		</c:if>
+		
+		<table width="569" cellSpacing="0" cellPadding="0" border="0" class="legacyBorder">
+			<tr>
+				 <td width="16" aria-hidden="true"></td>
+				 <td width="553">
+				 
+				 <c:if test="${!redBoxEnabled}">
+				 	<logic:present name="<%= ErrorMessages.ERROR_MESSAGES %>" scope="request">
+					 	<div data-messaging="messageType=contribalert|TITLE=changecontributionsalert-or|ID=ccold">	
+							<%@ include file="/WEB-INF/jsp/JspIncludes/errorMessages.jsp" %>
+					 	</div>
+				 	</logic:present>
+				 </c:if>
+				 	
+<!-- begin associate FYI yellow box -->
+					<%	pageContext.setAttribute(MessageAlertHelper.MESSAGE_BOX_LENGTH, "487", PageContext.PAGE_SCOPE);	%>
+				 	<%@ include file="/WEB-INF/jsp/JspIncludes/included_associate_deductions_fyi.jspf" %>
+<!-- end associate FYI yellow box -->
+				 	<table cellSpacing="0" cellPadding="0" width="100%" border="0">
+				 		 <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="PlanBoxNonQual">
+ 						 <tr>
+				  			<td>
+								<!-- component note: info_alert_box.html -->
+<!--  begin blue box style -->								
+								<table border="0" cellpadding="0" cellspacing="0" width="553" class="legacyBorder">
+								<tbody>
+								<tr>
+								<td height="12"><img src="/static/common/images/rc_5_tl.gif" border="0" alt="" height="12" width="12"></td>
+								<td valign="top" height="12" bgcolor="#e7eef4"><img src="/static/common/images/rc_5_tblr.gif" width="529" height="1" border="0" alt=""></td>
+								<td height="12"><img src="/static/common/images/rc_5_tr.gif" border="0" alt="" height="12" width="12"></td>
+								</tr>
+								<tr>
+								<td class="wrapperMiddle ofxAltBorderColorLtBlue" colspan="3" valign="top" bgcolor="#e7eef4">
+								<table border="0" cellpadding="0" cellspacing="0" width="100%" class="messageLgPadding">
+								<tbody>
+								<tr>
+									<td>
+										<table width="100%" border="0" cellspacing="0" cellpadding="0">
+										<tbody>
+										<tr>
+											<td valign="top" width="23"><img src="/static/common/images/note_msg_icon.gif" width="15" height="15" border="0" alt=""></td><td valign="top" class="ofxMessagePaddingRight">
+												<table width="100%" cellpadding="0" cellspacing="0">
+												<tr>
+													<td class="ofxCalloutMessages ofxNote"><h3>Plan Information</h3></td>
+												</tr>
+												<tr>
+													<td class="mainText mainTextAlt1">
+														<dclcontent:subctx context="ChangeDeduction" subContext="PlanBoxNonQual" />
+													</td>
+												</tr>
+												<tr>
+													<td class="spacer" height="12"></td>
+												</tr>
+												<tr>
+													<td><div class="ofxCalloutMessages ofxNote ofxAltBullet2">
+													<ul>
+														<li class="ofLastChild"><dclcontent:subctx context="ChangeDeduction" subContext="PlanBoxNonQualReadMoreLink" /></li>
+													</ul>
+													</div>
+													</td>
+												</tr>
+												</table>
+								        </td>
+										</tr>
+										</tbody>
+										</table>
+									</td>
+								</tr>
+								</tbody>
+								</table>
+								</td>
+								</tr>
+								<tr>
+								<td><img src="/static/common/images/rc_5_bl.gif" border="0" alt="" height="12" width="12"></td>
+								<td valign="bottom" bgcolor="#e7eef4"><img src="/static/common/images/rc_5_tblr.gif" width="529" height="1" border="0" alt=""></td>
+								<td><img src="/static/common/images/rc_5_br.gif" border="0" alt="" height="12" width="12"></td>
+								</tr>
+								</tbody>
+								</table>
+
+<!--  end blue box style -->
+				   			</td>
+						</tr>
+  						<tr>
+							<td height="12"></td>
+						</tr>   
+  						</dclcontent:hasSubCtxContent>
+<%
+		if (considerThisDisplay == null || !personalizedMessageDisplay.isShowPersonalizedMessage())
+		{
+%>	
+				<tr>
+					<%
+					// fromSod is view-only mode 
+					if (!fromSod && updateDeferralsAllowed && !displayEnrollNowButton)
+					{
+					%>									
+						<td class="mainText mainTextAlt1"><dclcontent:subctx context="ChangeDeduction" subContext="IntroText1" />
+					<%
+					}
+					else
+					{
+					%>																				
+						<td class="mainText mainTextAlt1"><dclcontent:subctx context="ChangeDeduction" subContext="IntroText1View" />
+					<%
+					}
+					%>	
+				  </td>
+				</tr>
+                    <%
+                   	if(displayEnrollNowButton && !fromSod)
+                   	{
+                    %>				
+						<tr>
+							<td class="spacer" height="6">&nbsp;</td>
+						</tr>
+						<tr>
+						 <td class="mainText mainTextAlt1">
+							<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="NQPOpenElections">
+								<dclcontent:subctx context="ChangeDeduction" subContext="NQPOpenElections" />
+							</dclcontent:hasSubCtxContent>
+						 </td> 
+						</tr>
+					<%
+					}
+					%>
+				<tr>
+					<td height="16"></td>
+				</tr>
+				  
+				<!-- The entire informational middle section below is NOT displayed 
+						when in SOD frame & non-update mode -->	
+<%
+	   }// end of personalized messages.
+%>
+    			 	</table>
+				 </td>
+			</tr>
+		</table>
+
+<c:if test="${contributionsRulesAlertDisplayBean != null && contributionsRulesAlertDisplayBean.contributionsRulesAlertSwitchOn}">
+<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRulesAlertTitle">
+  <table class="change-deduction-alert" data-messaging="messageType=ContribAlert|TITLE=ChangeContributionsAlert|ID=ChgContr">
+    <tr>
+      <td  class="change-deduction-alert-spacer"></td>
+      <td>
+        <div class="contextual-message" role="alert" aria-atomic="true">
+          <div class="contextual-message-shell contextual-message-note icon contextual-message-grey">
+            <div class="nbt-alerts-importance"><span class="alert-icon"></span></div>
+	        <div class="nbt-alerts-title">
+		      <span class="nbt-alerts-summary change-deduction-alert-header">
+		      <dclcontent:subctx context="ChangeDeduction" subContext="ContributionRulesAlertTitle" /></span>
+	        </div>
+	        <div class="change-deduction-alert-content nbt-alerts-message">
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet1">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet1" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet2">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet2" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet3">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet3" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet4">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet4" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet5">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet5" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet6">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet6" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet7">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet7" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+              <dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionRuleAlertBullet8">
+                <ul>
+                  <li><dclcontent:subctx context="ChangeDeduction" subContext="ContributionRuleAlertBullet8" /></li>
+                </ul>
+              </dclcontent:hasSubCtxContent>
+	        </div>
+          </div>
+        </div>
+      </td>
+    </tr>
+    <tr><td height="16"></td></tr>	
+  </table>
+</dclcontent:hasSubCtxContent>
+</c:if>		
+		
+		<table id="Table3" cellSpacing="0" cellPadding="0" width="569" border="0">
+		  <tr>
+		      <td width="16" aria-hidden="true">&nbsp;</td>
+		      <td width="553">
+
+		      <!-- Rama move the form tag to the data grid -->
+
+		   <form name="pageform" method="post" action="<%=catalinaRealmAppIdentifier%><%=PageNames.URI_UPDATE_DEDUCTIONS%>" onSubmit="return(doConfirm())">
+		   <csrf:txnToken />
+		     
+			<!-- here are some hidden form elements that are needed by the -->
+			<!-- form bean in-order to process the page correctly.         -->
+			<input type="hidden" name="sourceChangedCount" value="" >
+			<input type="hidden" name="regularElectionsChanged" value="" >
+			<input type="hidden" name="flexElectionsChanged" value="" >
+			<input type="hidden" name="sourceData" value="" >
+			<input type="hidden" name="flexSourceData" value="" >
+			<!-- more hidden fields used for the javascript calculations   -->
+		    <input type="hidden" name="isBasicElectionAllowed" value="<%=basicElectionsAllowed%>">        
+			<input type="hidden" name="suppressAllTotalsSwitch" value="<%=bSuppressAllTotals%>">					
+			<input type="hidden" name="suppressTotal" value="<%=bSuppressTotal%>">					
+			<input type="hidden" name="fullyMixedPlan" value="<%=bFullyMixedPlan%>">
+			<input type="hidden" name="catchUpElectionAllowed" value="<%=bCatchUpAllowed%>">
+			<input type="hidden" name="rothcatchUpElectionAllowed" value="<%=payDeductionsDisplay.isRothCatchUpElectionAllowed()%>">
+			<input type="hidden" name="extinctSourceForMixedDeferrals" value = "<%=bExtinctSourceForMixedDeferrals%>">
+			<input type="hidden" name="hasDecimal" value = "<%=bHasDecimal%>">
+			<input type="hidden" name="rothExists" value = "<%=payDeductionsDisplay.isRothElectionsAllowed()%>">
+			<input type="hidden" name="subtotalsExists" value = "<%= payDeductionsDisplay.isDisplaySubtotals()%>">
+
+    	<%	
+			if(previousElectionsBean != null && previousElectionsBean.isDisplayPreviousElectionsBricklet())
+			{
+		%>
+		 <!-- include the Previous Elections jspf -->
+  		<%@ include file="/WEB-INF/jsp/deferralelect/contributions_previous_elections.jspf" %>
+  		
+  		<%  
+  			} 
+  		%>
+		
+		<!-- other components go here -->
+		<table cellSpacing="0" cellPadding="0" width="100%" border="0" class="legacyBorder">
+		<%
+			if(previousElectionsBean != null && previousElectionsBean.isDisplayPreviousElectionsBricklet())
+			{
+		%>
+		  <tr>
+				<td height="16" colspan="3"></td>
+		  </tr>
+		<%
+  			} 
+		%>
+		  <tr>
+		    <td width="358" valign="top">
+			<table cellSpacing="0" cellPadding="0" width="358">
+<%
+		if(considerThisDisplay != null)			
+		{
+			if(!fromSod && payDeductionsDisplay.isMaximizerEnabled() && updateDeferralsAllowed ){
+				%>	
+	    			<%@ include file="/WEB-INF/jsp/deferralelect/maximizer_banner.jspf" %>
+	    			<c:set var="planNumber" value="${payDeductionsDisplay.getPlanNumber()}" scope="request"/>
+	    			<jsp:include page="/WEB-INF/jsp/deferralelect/maximizer_tool.jsp"/>
+				<%
+			}
+			if (considerThisDisplay.isParticipant415LimitReached()!=null && 
+					considerThisDisplay.isParticipant415LimitReached())
+			{
+			%>
+				<%@ include file="/WEB-INF/jsp/deferralelect/415limitreached.jspf" %>
+			<%
+			}
+			if (considerThisDisplay.isSuppressSmartDeferralsRollout())
+			{
+				if (personalizedMessageDisplay.isShowPersonalizedMessage()){
+%>
+				<%@ include file="/WEB-INF/jsp/deferralelect/contributions_consider_this.jspf" %>
+<%
+				} 
+				else
+				{	
+					if (!fromSod && updateDeferralsAllowed && basicElectionsAllowed)
+					{
+						if (nonStandard || nonQual)
+						{
+							if(displayPlanGuidelines || displayCustomBullets)
+							{
+		%>		
+				    		<%@ include file="/WEB-INF/jsp/deferralelect/contributions_consider_this.jspf" %>
+		<%
+							}
+						}
+						else
+						{
+		%>
+				    		<%@ include file="/WEB-INF/jsp/deferralelect/contributions_consider_this.jspf" %>
+		<%
+						}
+					}					
+				}
+			} 
+			else {
+				if (considerThisDisplay.isMatchDataAvailable() || 
+						(considerThisDisplay.getNonElectiveContributions()!=null &&
+								considerThisDisplay.getNonElectiveContributions().size()>0)) {
+				//New jspf with enhanced match messaging
+%>
+		<dcl:hasSubCtxContent context="<%=Constants.SHARED_CONTEXT%>" subContext="ConsiderThisHeader">
+			<%@ include file="/WEB-INF/jsp/deferralelect/contributions_consider_this_enhanced.jspf" %>
+		</dcl:hasSubCtxContent>
+<%
+                } 
+				else
+				{	
+					if (!fromSod && updateDeferralsAllowed && basicElectionsAllowed)
+					{
+						if (nonStandard || nonQual)
+						{
+							if(displayPlanGuidelines || displayCustomBullets)
+							{
+		%>		
+						<dcl:hasSubCtxContent context="<%=Constants.SHARED_CONTEXT%>" subContext="ConsiderThisHeader">
+				    		<%@ include file="/WEB-INF/jsp/deferralelect/contributions_consider_this_enhanced.jspf" %>
+				    	</dcl:hasSubCtxContent>
+		<%
+							}
+						}
+						else
+						{
+		%>
+						<dcl:hasSubCtxContent context="<%=Constants.SHARED_CONTEXT%>" subContext="ConsiderThisHeader">
+				    		<%@ include file="/WEB-INF/jsp/deferralelect/contributions_consider_this_enhanced.jspf" %>
+				    	</dcl:hasSubCtxContent>
+		<%
+						}
+					}					
+				}
+			}
+		
+		}		
+%>			
+
+				<!-- include the contributions history blue box as per Cisco requirement -->
+				<dcl:hasSubCtxContent context="ChangeDeduction" subContext="TrackHistoryHeader">
+			    	<%@ include file="/WEB-INF/jsp/deferralelect/contributions_history.jspf" %>
+			 	</dcl:hasSubCtxContent>
+			
+				<!-- include the data grid jspf -->
+				<%@ include file="datagrid.jspf" %>
+				<!-- end data grid -->
+						<!-- end component note: entry-spreadsheet.html -->
+				<%
+				if (!fromSod && updateDeferralsAllowed)
+				{
+					if (!considerThisDisplay.isParticipant415LimitReached())
+					{
+				%>		
+					<tr>
+						<td class="spacer" height="6">&nbsp;</td>
+					</tr>
+					<tr>
+						<td class="mainText mainTextAlt1">
+							<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="RegDedEffectiveDateText1" />
+						</td>
+					</tr>
+					
+				<%
+					}
+				%>
+					<tr>
+						<td height="16"></td>
+					</tr>
+				<%
+				}
+					if (!fromSod && updateDeferralsAllowed)
+					{	
+						if(isAnyElectionInWindow && isOLETurnedOn)
+						{
+				%>				
+				<tr>
+					<td align="center">
+						<input type="button" class="continueButton mainText mainTextAlt1" value="Enroll Now" ID="Button1"
+							accessKey="5" NAME="Button1" title="Enroll Now" onClick="return goToOLE();">
+					</td>
+				</tr>
+				<%
+						}
+						else
+						{				
+				%>
+				<tr>
+					<td align="center">
+					<!-- This element attribute (data-navigation-key=change-contribution) is being used in deferralMaximizer tool for navigation -->
+						<input type="submit" class="continueButton  mainText mainTextAlt1 contribution-submit-fds" data-navigation-key="change-contribution" value="<dclcontent:subctx context="ChangeDeduction"  subContext="ChangeButtonText" />" ID="Button1"
+							accessKey="5" NAME="Button1" title="Change Contribution Amount" onClick="return doSubmit();">
+					</td>
+				</tr>
+				<%
+						}
+					}
+				%>
+   
+			</table>
+			</td>
+			<td width="16" aria-hidden="true">&nbsp;</td>
+			<td width="179" valign="top">
+			  <table>
+			  <% if (!payDeductionsDisplay.isConsolidationSuppressed())
+			  	 {
+			  %>
+				<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ConsolidationBrickletText1">
+				  <tr><td id="SimplifyFinancesID">
+					<%@ include file="simplifyfinances_bricklet.jspf"%>	
+				  </td></tr>
+				  <c:set var="this_vsbricklet" value='${fn:replace(this_vsbricklet, "No_Consolidation_Offer", "Consolidation_Offer")}'/>
+				  <tr><td class="spacer" height="8">
+				  </td></tr>
+				</dclcontent:hasSubCtxContent>
+			  <% }
+			  
+			  	 if (payDeductionsDisplay.isRothElectionsAllowed())
+			  	 {
+			  %>
+				<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionToolsLearningRoth">
+				  <tr><td>
+				  	<dclcontent:subctx  context="ChangeDeduction" subContext="ContributionToolsLearningRoth"/>	
+				  </td></tr>
+				</dclcontent:hasSubCtxContent>
+			  <% }
+			  	 else
+			  	 {
+			  %>
+				<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="ContributionToolsLearning">
+				  <tr><td>
+					<dclcontent:subctx  context="ChangeDeduction" subContext="ContributionToolsLearning"/>	
+				  </td></tr>
+				</dclcontent:hasSubCtxContent>
+			  <% } %>
+			  </table>
+			 </td>
+		    </tr>
+		   </table>
+          <csrf:txnToken />
+		</form>
+	   </td>
+	  </tr>
+			  
+	</table>
+	
+	<!-- remaining html move this to fragments if possible -->
+	<table cellspacing="0" cellpadding="0" border="0" width="569">
+	 <%		
+	  if (isShadowPlan)
+	   {
+	     
+     %>	
+        <tr>
+			<td height="9"></td>
+	  </tr>
+		<tr>
+			<td width="16" aria-hidden="true">&nbsp;</td>
+			<td width="553">
+			 <form name="cancelForm" method="post" action="<%=catalinaRealmAppIdentifier%><%=PageNames.URI_CANCEL%>">
+			 <csrf:txnToken />
+				<table cellspacing="0" cellpadding="0" border="0" width="553">
+				<tr>
+				<!-- Non-Qualified plans need their own special Cancel link gif -->
+				  <%
+					if (bNonQualPlan)
+					{
+				  %>
+						<td width="4%">
+							<img src="/static/netbenefits/common/images/nb_closex.gif" alt="" border="0" vspace="0" hspace="0">
+						</td>
+						<td width="96%">
+							<a href="javascript:submitCancelForm()" onClick="return doCancel();">Cancel</a>
+							Changes to Deferral Elections
+						</td>
+				 <%
+					}
+					else
+					{
+				 %>
+						<td width="4%">
+							<img src="/static/netbenefits/common/images/nb_closex.gif" alt="" border="0" vspace="0" hspace="0">
+						</td>
+						<td width="96%" class="mainText mainTextAlt1 tocNavigationLink">
+							<a href="javascript:submitCancelForm()" onClick="return doCancel();">
+							<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="CancelContrib" />
+							</a>
+						</td>
+				<%
+					}
+				%>					
+				</tr>
+			   </table>
+			  </form>
+			</td>
+		</tr>
+		<%
+		   
+	    }
+		%>
+		 <!-- display our 420g Notice -->
+		<%
+			if( bShow402gNotice )
+				{
+		%>
+		<tr>
+			<td height="16"></td>
+		</tr>
+		<tr>
+		  <td width="16" aria-hidden="true">&nbsp;</td>
+		  <td width="553">
+			<table cellspacing="0" cellpadding="0" border="0" width="358">
+			 <tr>
+		      <td width="358" class="footnote">
+		     	 <dclcontent:subctx context="ChangeDeduction" subContext="Recategorize402gSpilloverText1" /> 
+		      </td>
+		     </tr>
+		    </table> 
+		  </td>  
+	    </tr>
+    	<%
+	         	}
+		%>
+		<!-- display our other 420g Notice -->
+		<%
+			if( bShow402gLimitNotice )
+				{
+		%>
+			<dclcontent:hasSubCtxContent context="ChangeDeduction" subContext="IRS402gLimitText">
+			<tr>
+				<td height="16"></td>
+			</tr>
+			<tr>
+			<td width="16" aria-hidden="true">&nbsp;</td>
+		    <td width="553">
+			 <table cellspacing="0" cellpadding="0" border="0" width="358">
+			  <tr>
+				<td width="358" class="footnote">
+			       <dclcontent:subctx context="ChangeDeduction" subContext="IRS402gLimitText" />
+			    </td>
+			  </tr> 
+			 </table> 
+			</td> 
+			</tr>
+			</dclcontent:hasSubCtxContent>
+		<%
+				}
+		%>
+	
+     	<%@ include file="personalizedfootnote.jspf"%>
+	</table>
+	
+		
+		<!-- include the javascript snippet for e-Learning Course Continuity -->
+		<table cellspacing="0" cellpadding="0" border="0" width="569" ID="Table16">
+			<tr>
+				<td width="16" aria-hidden="true">&nbsp;</td>
+				<td>
+					<%@ include file="/WEB-INF/jsp/Js/C2LLink1.js" %> <!-- END Return to e-Learning Link --> 
+				</td>
+			</tr>
+		</table>
+		<table cellspacing="0" cellpadding="0" border="0" width="569" ID="Table5">
+			<tr>
+				<td width="16" aria-hidden="true">&nbsp;</td>
+				<td width="553">
+					<%@ include file="/WEB-INF/jsp/JspIncludes/nbdcfooter.jspf" %>
+				</td>
+			</tr>
+		</table>
+
+	<c:set target="${webStatsData}" property="bricklet" value="${this_vsbricklet}"/>
+	<script type="text/javascript">
+		var tdnode = document.getElementById("SimplifyFinancesID");
+		if (tdnode != null && tdnode != undefined)
+		{
+			tdnode.setAttribute("ltag", "${webStatsData.ltagValue}~VSDESC^SimplifyYourFinances~VSEVENT^clicklink");
+		}
+		var anode = document.getElementById("LearnMoreIRAID");
+		if (anode != null && anode != undefined)
+		{
+			anode.setAttribute("ltag", "${webStatsData.ltagValue}~VSDESC^LearnMoreIRA~VSEVENT^clicklink");
+		}
+	</script>
+	<cpl:proactive_im pageName="netbenefits/savings2/deferralelections/2-change_deductions"/>
+	<%@ include file="/WEB-INF/jsp/JspIncludes/webstats.jspf" %>
+		<div id="customerrorpopup" class="overlay_exchange_one_investment overlay overlay-position" role="dialog" aria-modal="true" aria-label="Error Popup" style="display:none;">
+      <div class="overlay-container contribution-background-fds contribution-corner" role="document" id="customoverlay-div">
+ 		<span id="popUp-message"  class="contribution-font"></span>
+		<div class="notice-confirm" align="right">            
+           <button id="notice_confirm" class="custom-link-right contribution-secondary-fds" onclick="closepopup()">
+        		  Close</button>
+        </div>
+        </div>
+    </div>
+  
+	<script type="text/javascript">
+
+		(function() {
+			document.title=document.title+" - " +document.querySelector('h1').innerText;
+		})();
+
+		<%@ include file="/WEB-INF/js/accessibility_change_deductions.js" %> 
+	</script>
+	<link href="<%= SpartacusUtils.HELIOS_PATH %>/dc/contributions.css" type="text/css" rel="stylesheet" />
+	<dctemplate:body_end/>
+	</html>
