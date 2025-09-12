@@ -1,4 +1,4 @@
-			<tr>
+<tr>
 						<td class="<%=strSpreadsheetBgBar%>" height="4">&nbsp;</td>
 			</tr>
 			<tr>
@@ -66,7 +66,12 @@
 						<tr>
 							<td class="entrySpreadsheetSpacer" height=6>&nbsp;</td>
 						</tr>
-				<input type="hidden" name="maxAllotment" value="<%=payDeductionsDisplay.isDisplayMaxAllotment()%>">
+
+				<!-- WRAPPED: hidden input directly under table -->
+				<tr style="display:none"><td colspan="2">
+					<input type="hidden" name="maxAllotment" value="<%=payDeductionsDisplay.isDisplayMaxAllotment()%>">
+				</td></tr>
+
 				<%
 					if(payDeductionsDisplay.getSpecialElectionsContainer() != null)
 					{
@@ -137,12 +142,12 @@
 					 	String permission = multipleChoiceDetailDisplay.getPermission();
 					 	boolean forcedUpdatePermission = maxAllotmentElection.isForcedUpdatePermission();
 				%>
-					<input type="hidden" name="permissionValueMaxAllotment" value="<%=permission%>">
-					<dclcontent:hasSubCtxContent context="SourceHelp" subContext="<%=maxAllotmentElection.getBridgeDCL()%>" >
-				<%					
-								hasSourceSubCtxContent = true;
-				%>
-					</dclcontent:hasSubCtxContent>
+
+					<!-- WRAPPED -->
+					<tr style="display:none"><td colspan="2">
+						<input type="hidden" name="permissionValueMaxAllotment" value="<%=permission%>">
+					</td></tr>
+
 					<tr>
 							<td class="entrySpreadsheetSideLabel entrySpreadsheetSideLabelAlt1" colspan=2>
 				<%
@@ -252,8 +257,12 @@
 				<%
 					}
 				%>
-						<input type="hidden" name="maxAllotmentElectionName" value="<%=maxAllotmentElection.getElectionName()%>">
-             			<input type="hidden" name="maxAllotmentshowElectionDate" value="<%=maxAllotmentElection.isShowElectionStartDate()%>">           
+
+				<!-- WRAPPED: these hidden inputs were direct children later in the block -->
+				<tr style="display:none"><td colspan="2">
+					<input type="hidden" name="maxAllotmentElectionName" value="<%=maxAllotmentElection.getElectionName()%>">
+             		<input type="hidden" name="maxAllotmentshowElectionDate" value="<%=maxAllotmentElection.isShowElectionStartDate()%>">           
+				</td></tr>
              
 				
 				<%
@@ -298,16 +307,23 @@
 						</span>
 					</td>
 				</tr>
-				<input type="hidden" name="startDateBucket" id = "maxAllotmentStartDate" value="">
-				<input type="hidden" name="maxAllotmentStartDateRange"  value="<%=electionDateDetailDisplay.getStartDateRange()%>">
-				<input type="hidden" name="maxAllotmentEndDateRange" value="<%=electionDateDetailDisplay.getEndDateRange()%>">
-				<input type="hidden" name="defaultMaxAllotmentStartDate" value="<%=electionDateDetailDisplay.getCurrentElectionStartDate()%>">
+
+				<!-- WRAPPED: date hidden inputs -->
+				<tr style="display:none"><td colspan="2">
+					<input type="hidden" name="startDateBucket" id = "maxAllotmentStartDate" value="">
+					<input type="hidden" name="maxAllotmentStartDateRange"  value="<%=electionDateDetailDisplay.getStartDateRange()%>">
+					<input type="hidden" name="maxAllotmentEndDateRange" value="<%=electionDateDetailDisplay.getEndDateRange()%>">
+					<input type="hidden" name="defaultMaxAllotmentStartDate" value="<%=electionDateDetailDisplay.getCurrentElectionStartDate()%>">
+				</td></tr>
 			<%
 				}
 				else if(isElectionReadWrite)
 				{
 			%>
-				<input type="hidden" id = "maxAllotmentStartDate" name="startDateBucket" value="">
+				<!-- WRAPPED -->
+				<tr style="display:none"><td colspan="2">
+					<input type="hidden" id = "maxAllotmentStartDate" name="startDateBucket" value="">
+				</td></tr>
 			<%
 				}
 			%>
@@ -524,19 +540,22 @@
 											</span>
 										</td>
 							</tr>
-							<input type="hidden" name="unitsBucket<%=i%>" value="<%=strAmountTypeConstant%>"> 
-							<input type="hidden" name="electionTypeBucket<%=i%>" value="<%=sElectionType%>">
-							<input type="hidden" name="electionType<%=i%>" value="<%=sElectionTypeGroup%>">
-							<input type="hidden" name="electionPermission<%=i%>" value="<%=bElectionPermission%>">
-							<input type="hidden" name="forcedUpdatePermission<%=i%>" value="<%=bForcedUpdatePermission%>">
-							<input type="hidden" name="descBucket<%=i%>" value="<%=sSourceName%>"> 
-							<input type="hidden" name="minBucket<%=i%>" value="<%=deferralSource.getMinimum()%>"> 
-							<input type="hidden" name="maxBucket<%=i%>" value="<%=deferralSource.getMaximum()%>"> 
-							<input type="hidden" name="incBucket<%=i%>" value="<%=deferralSource.getIncrement()%>"> 
 
+							<!-- WRAPPED: hidden bucket/source inputs -->
+							<tr style="display:none"><td colspan="2">
+								<input type="hidden" name="unitsBucket<%=i%>" value="<%=strAmountTypeConstant%>"> 
+								<input type="hidden" name="electionTypeBucket<%=i%>" value="<%=sElectionType%>">
+								<input type="hidden" name="electionType<%=i%>" value="<%=sElectionTypeGroup%>">
+								<input type="hidden" name="electionPermission<%=i%>" value="<%=bElectionPermission%>">
+								<input type="hidden" name="forcedUpdatePermission<%=i%>" value="<%=bForcedUpdatePermission%>">
+								<input type="hidden" name="descBucket<%=i%>" value="<%=sSourceName%>"> 
+								<input type="hidden" name="minBucket<%=i%>" value="<%=deferralSource.getMinimum()%>"> 
+								<input type="hidden" name="maxBucket<%=i%>" value="<%=deferralSource.getMaximum()%>"> 
+								<input type="hidden" name="incBucket<%=i%>" value="<%=deferralSource.getIncrement()%>"> 
+								<!-- Save original Predator value to detect changes later -->
+								<input type="hidden" name="txtBucket<%=i%><%=i%>" value="<%=deferralSource.getCurrentAmount()%>"> 
+							</td></tr>
 
-							<!-- Save original Predator value to detect changes later -->
-							<input type="hidden" name="txtBucket<%=i%><%=i%>" value="<%=deferralSource.getCurrentAmount()%>"> 
 				<%
 									i = i +1;
 									displayGrayDividerLine = true;
@@ -612,14 +631,16 @@
 										%>
 										</td>
 							</tr>	
-							<input type="hidden" name="subTotal<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 
-														
-							<input type="hidden" name="subTotalUnits<%=subtotalCount%>" value="<%=strAmountTypeConstant%>">
-							<input type="hidden" name="subTotalType<%=subtotalCount%>" value="<%=subTotalType%>">
-														
-							<input type="hidden" name="subTotalElectionMin<%=subtotalCount%>" value="<%=deferralSource.getMinimum()%>"> 
-							<input type="hidden" name="subTotalElectionMax<%=subtotalCount%>" value="<%=deferralSource.getMaximum()%>"> 	
-							<input type="hidden" name="subTotalDesired<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 																									
+
+							<!-- WRAPPED: subtotal hidden inputs -->
+							<tr style="display:none"><td colspan="2">
+								<input type="hidden" name="subTotal<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 
+								<input type="hidden" name="subTotalUnits<%=subtotalCount%>" value="<%=strAmountTypeConstant%>">
+								<input type="hidden" name="subTotalType<%=subtotalCount%>" value="<%=subTotalType%>">
+								<input type="hidden" name="subTotalElectionMin<%=subtotalCount%>" value="<%=deferralSource.getMinimum()%>"> 
+								<input type="hidden" name="subTotalElectionMax<%=subtotalCount%>" value="<%=deferralSource.getMaximum()%>"> 	
+								<input type="hidden" name="subTotalDesired<%=subtotalCount%>" value="<%=deferralSource.getDesiredAmountFormated()%>" > 	
+							</td></tr>
 				<%
 								}
 				%>			
@@ -688,12 +709,15 @@
 								<td class="importantInformation" align = "right">
 									<%=sAmountSymbolPrefix%><input type="text" class="importantTotal" electionSourceName ="<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=strTotalTitle%>" />" title="Total Amount" name="totalAmount" size="<%=bucketSize%>" maxlength="<%=bucketSize%>"  readonly="true" value="<%=totalDesired%>" id="Total"><%=sAmountSymbolPostfix%></td>
 									
-								<input type="hidden" name="totalUnits" value="<%=strAmountTypeConstant%>">
-								<input type="hidden" name="totalDesired" value="<%=totalDesired%>" > 																						
-								<input type="hidden" name="totalElectionMin" value="<%=deferralSourceGroup.getTotal().getMinimum()%>"> 
-								<input type="hidden" name="totalElectionMax" value="<%=deferralSourceGroup.getTotal().getMaximum()%>"> 											
-								<!-- Save original Predator value to detect changes later -->
-								<input type="hidden" name="totalElectionOriginalAmount" value="<%=sTotalAmountFormatted%>"> 	
+								<!-- WRAPPED: total hidden inputs -->
+								<tr style="display:none"><td colspan="2">
+									<input type="hidden" name="totalUnits" value="<%=strAmountTypeConstant%>">
+									<input type="hidden" name="totalDesired" value="<%=totalDesired%>" > 																						
+									<input type="hidden" name="totalElectionMin" value="<%=deferralSourceGroup.getTotal().getMinimum()%>"> 
+									<input type="hidden" name="totalElectionMax" value="<%=deferralSourceGroup.getTotal().getMaximum()%>"> 											
+									<!-- Save original Predator value to detect changes later -->
+									<input type="hidden" name="totalElectionOriginalAmount" value="<%=sTotalAmountFormatted%>"> 
+								</td></tr>
 								<%
 										
 									}
@@ -702,8 +726,12 @@
 								%>     
 								<td class="importantInformation" align = "right">
 									<%=sAmountSymbolPrefix%><input type="text" electionSourceName="<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=strTotalTitle%>" />" class="importantTotal" title="subTotal Amount One" name="subTotalAmountOne" size="<%=bucketSize%>" maxlength="<%=bucketSize%>"  readonly="true" value="<%=deferralSourceGroup.getTotal().getDesiredAmountFormated()%>" id="subTotal1"><%=sAmountSymbolPostfix%></td>
-								<input type="hidden" name="subTotalOneUnits" value="<%=strAmountTypeConstant%>">
-								<input type="hidden" name="subTotalOneDesired" value="<%=deferralSourceGroup.getTotal().getDesiredAmountFormated()%>" >
+
+								<!-- WRAPPED: subTotalOne hidden inputs -->
+								<tr style="display:none"><td colspan="2">
+									<input type="hidden" name="subTotalOneUnits" value="<%=strAmountTypeConstant%>">
+									<input type="hidden" name="subTotalOneDesired" value="<%=deferralSourceGroup.getTotal().getDesiredAmountFormated()%>" >
+								</td></tr>
 								<%
 									}
 								%>
@@ -714,8 +742,12 @@
 								%>
 								<td class="importantInformation" align = "right">
 									<%=sAmountSymbolPrefix%><input type="text" electionSourceName="<dclcontent:subctx context="<%=Constants.SHARED_CONTEXT%>" subContext="<%=strTotalTitle%>" />" class="importantTotal" title="subTotal Amount two" name="subTotalAmountTwo" size="<%=bucketSize%>" maxlength="<%=bucketSize%>"  readonly="true" value="<%=deferralSourceGroup.getTotal().getDesiredAmountFormated()%>" id="subTotal2"><%=sAmountSymbolPostfix%></td>
-								<input type="hidden" name="subTotalTwoUnits" value="<%=strAmountTypeConstant%>">
-								<input type="hidden" name="subTotalTwoDesired" value="<%=deferralSourceGroup.getTotal().getDesiredAmountFormated()%>" >
+
+								<!-- WRAPPED: subTotalTwo hidden inputs -->
+								<tr style="display:none"><td colspan="2">
+									<input type="hidden" name="subTotalTwoUnits" value="<%=strAmountTypeConstant%>">
+									<input type="hidden" name="subTotalTwoDesired" value="<%=deferralSourceGroup.getTotal().getDesiredAmountFormated()%>" >
+								</td></tr>
 								<%
 									}
 								%>
@@ -745,7 +777,12 @@
 						}
 					  }
 				%>
-					<input type="hidden" name="sourceCount" value="<%=sourceCount%>"> 					
+
+					<!-- WRAPPED: sourceCount input at end of table -->
+					<tr style="display:none"><td colspan="2">
+						<input type="hidden" name="sourceCount" value="<%=sourceCount%>"> 					
+					</td></tr>
+
 					<!-- INCLUDE CATCHUP DEFERRALSOURCE JSPF -->
                     <%@ include file="change_deductions_catchup_datagrid.jspf" %>							  
 				   </table>
